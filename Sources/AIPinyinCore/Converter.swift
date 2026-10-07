@@ -1,0 +1,146 @@
+import Foundation
+import os
+
+public struct ConversionUpdate: Equatable, Sendable {
+    public var result: ConversionResult
+    public var rawText: String
+    public var isFinal: Bool
+    /// Seconds since the conversion started.
+    public var elapsed: TimeInterval
+    /// Seconds until the first text delta arrived (nil until then, and for cache hits).
+    public var firstTokenLatency: TimeInterval?
+    public var fromCache: Bool
+}
+
+/// Turns typed input into streamed `ConversionUpdate`s using Bedrock.
+/// Config and credentials are re-read for every conversion, so edits apply without a restart.
+public final class Converter: Sendable {
+    public typealias ConfigLoader = @Sendable () throws -> Config
+    public typealias CredentialLoader = @Sendable (_ profile: String) throws -> AWSSharedConfig.Resolved
+
+    private let client: BedrockClient
+    private let loadConfig: ConfigLoader
+    private let loadCredentials: CredentialLoader
+    private let cache = OSAllocatedUnfairLock(initialState: LRUCache(capacity: 64))
+
+    public init(
+        client: BedrockClient = BedrockClient(),
+        loadConfig: @escaping ConfigLoader = { try Config.load() },
+        loadCredentials: @escaping CredentialLoader = { try AWSSharedConfig.load(profile: $0) }
+    ) {
+        self.client = client
+        self.loadConfig = loadConfig
+        self.loadCredentials = loadCredentials
+    }
+
+    public func convert(_ input: String) -> AsyncThrowingStream<ConversionUpdate, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await self.run(input, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func run(_ input: String, continuation: AsyncThrowingStream<ConversionUpdate, Error>.Continuation) async throws {
+        let started = ContinuousClock.now
+        func elapsed() -> TimeInterval {
+            let d = ContinuousClock.now - started
+            return Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
+        }
+
+        let config = try loadConfig()
+        let styles = RewriteStyle.resolve(config.rewriteStyles).map(\.tag).joined(separator: ",")
+        let key = "\(config.modelId)|\(Prompt.version)|\(styles)|\(input)"
+        if let hit = cache.withLock({ $0.get(key) }) {
+            continuation.yield(ConversionUpdate(
+                result: hit, rawText: "", isFinal: true, elapsed: elapsed(),
+                firstTokenLatency: nil, fromCache: true))
+            return
+        }
+
+        let resolved = try loadCredentials(config.awsProfile)
+        let region = config.region ?? resolved.region ?? "us-east-1"
+        let stream = client.converseStream(
+            Prompt.request(for: input, config: config),
+            modelId: config.modelId, region: region,
+            credentials: resolved.credentials, timeout: config.timeoutSeconds)
+
+        var text = ""
+        var firstToken: TimeInterval?
+        var stopReason: String?
+        var lastResult = ConversionResult.empty
+        for try await event in stream {
+            if case let .messageStop(reason) = event { stopReason = reason }
+            guard case let .textDelta(delta) = event else { continue }
+            if firstToken == nil { firstToken = elapsed() }
+            text += delta
+            // Far more than 3 sentences plus a polish; treat the rest as truncated.
+            if text.utf8.count > Self.maxOutputBytes {
+                stopReason = "max_tokens"
+                break
+            }
+            let result = CandidateParser.parse(text, isFinal: false)
+            // Most deltas only extend a line; skip updates that don't change what is shown.
+            guard result != lastResult else { continue }
+            lastResult = result
+            continuation.yield(ConversionUpdate(
+                result: result, rawText: text, isFinal: false, elapsed: elapsed(),
+                firstTokenLatency: firstToken, fromCache: false))
+        }
+        try Task.checkCancellation()
+
+        let final = Self.finalResult(text, stopReason: stopReason)
+        if !final.isEmpty, stopReason != "max_tokens" {
+            cache.withLock { $0.set(key, final) }
+        }
+        continuation.yield(ConversionUpdate(
+            result: final, rawText: text, isFinal: true, elapsed: elapsed(),
+            firstTokenLatency: firstToken, fromCache: false))
+    }
+
+    /// When the model hit the token limit, its last line was cut off mid-sentence: drop it rather
+    /// than offer a truncated sentence as a finished candidate.
+    static let maxOutputBytes = 32 * 1024
+
+    static func finalResult(_ text: String, stopReason: String?) -> ConversionResult {
+        guard stopReason == "max_tokens" else { return CandidateParser.parse(text, isFinal: true) }
+        var result = CandidateParser.parse(text, isFinal: false)
+        result.english = result.english.filter { $0.isComplete }
+        result.rewrites = result.rewrites.filter { $0.line.isComplete }
+        return result
+    }
+}
+
+/// Tiny LRU keyed by string; recency tracked with an ordered array (capacity is small).
+struct LRUCache: Sendable {
+    let capacity: Int
+    private var values: [String: ConversionResult] = [:]
+    private var order: [String] = []
+
+    init(capacity: Int) { self.capacity = capacity }
+
+    mutating func get(_ key: String) -> ConversionResult? {
+        guard let value = values[key] else { return nil }
+        touch(key)
+        return value
+    }
+
+    mutating func set(_ key: String, _ value: ConversionResult) {
+        values[key] = value
+        touch(key)
+        while order.count > capacity {
+            values.removeValue(forKey: order.removeFirst())
+        }
+    }
+
+    private mutating func touch(_ key: String) {
+        order.removeAll { $0 == key }
+        order.append(key)
+    }
+}

@@ -1,0 +1,8 @@
+.build/
+build/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+.DS_Store
+# librime release + rime-ice data, downloaded and checksummed by `make deps`
+ThirdParty/

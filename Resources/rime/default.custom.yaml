@@ -1,0 +1,5 @@
+# Written by AIPinyin: only the full-pinyin schema is used (its dictionaries are prebuilt
+# into the app bundle, so deployment on first use is quick).
+patch:
+  schema_list:
+    - schema: rime_ice

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleExecutable</key>
+	<string>AIPinyin</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.aipinyin.inputmethod.AIPinyin</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>AIPinyin</string>
+	<key>CFBundleDisplayName</key>
+	<string>AI 拼音</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Personal build</string>
+	<key>InputMethodConnectionName</key>
+	<string>com.aipinyin.inputmethod.AIPinyin_Connection</string>
+	<key>InputMethodServerControllerClass</key>
+	<string>AIPinyinInputController</string>
+	<key>TISInputSourceID</key>
+	<string>com.aipinyin.inputmethod.AIPinyin</string>
+	<key>TISIntendedLanguage</key>
+	<string>zh-Hans</string>
+	<key>TISIconIsTemplate</key>
+	<true/>
+	<!-- Hans only, like Apple's pinyin: adding Latn makes the source ASCII-capable, and
+	     ASCII-capable sources stay active in password fields. -->
+	<key>tsInputMethodCharacterRepertoireKey</key>
+	<array>
+		<string>Hans</string>
+	</array>
+	<key>tsInputMethodIconFileKey</key>
+	<string>icon.tiff</string>
+</dict>
+</plist>
