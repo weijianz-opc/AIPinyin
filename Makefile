@@ -64,11 +64,13 @@ app: build Resources/icon.tiff
 	cp -R $(RIME_DIST)/lib/rime-plugins "$(APP)/Contents/Frameworks/"
 	cp -R $(RIME_DATA) "$(APP)/Contents/SharedSupport/rime"
 	# Hardened runtime: library validation then only loads code signed by the same team, and
-	# DYLD_* injection is ignored. Ad-hoc signing (no identity) can't use it.
+	# DYLD_* injection is ignored. Ad-hoc signing (no identity) can't use it. The entitlement
+	# allows microphone access (voice input) under the hardened runtime.
 	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
 		codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(APP)"/Contents/Frameworks/rime-plugins/*.dylib \
 			"$(APP)/Contents/Frameworks/librime.1.dylib" && \
-		codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(APP)"; \
+		codesign --force --options runtime --entitlements Resources/AIPinyin.entitlements \
+			--sign "$(SIGN_IDENTITY)" "$(APP)"; \
 	else \
 		echo "warning: no '$(SIGN_IDENTITY)' signing identity; ad-hoc signing without hardened runtime"; \
 		codesign --force --sign - "$(APP)"/Contents/Frameworks/rime-plugins/*.dylib "$(APP)/Contents/Frameworks/librime.1.dylib" && \

@@ -107,7 +107,7 @@ struct ConverterTests {
         #expect(final.firstTokenLatency != nil)
         // The capture predates the rewrite lines; its old "ZH:" line is ignored.
         #expect(final.result.rewrites.isEmpty)
-        #expect(final.result.english.map(\.text) == expectedEnglish)
+        #expect(final.result.versions.map(\.text) == expectedEnglish)
         #expect(updates.count > 3)  // progressive updates while streaming
         #expect(updates.dropLast().allSatisfy { !$0.isFinal })
 
@@ -232,13 +232,94 @@ struct ConverterTests {
             }
             let answer = Prompt.exampleAnswer(index, styles: RewriteStyle.catalog)
             let parsed = CandidateParser.parse(answer, isFinal: true)
-            #expect(parsed.english.count == 3, "\(example.input)")
+            #expect(parsed.versions.count == 3, "\(example.input)")
             #expect(parsed.rewrites.map(\.style) == RewriteStyle.catalog.map(\.name), "\(example.input)")
         }
         let concise = RewriteStyle.named("简洁")!
         for (index, example) in Prompt.examples.enumerated() where example.input.containsHan {
             #expect(concise.exampleRewrites[index].count <= example.input.count, "简洁 is not shorter: \(example.input)")
         }
+    }
+
+    @Test func chineseOutputPromptAndExamples() {
+        var config = Config.default
+        config.outputLanguage = .chinese
+        config.rewriteStyles = ["黑话"]
+        let request = Prompt.request(for: "this is a blocker bug", config: config)
+        let system = request.system.first?.text ?? ""
+        #expect(system.contains("\nZH: <how a native Simplified Chinese speaker") && !system.contains("\nEN: "))
+        #expect(system.contains("\nJARGON: ") && system.contains("bandwidth"))
+        for (index, example) in Prompt.examples.enumerated() {
+            let answer = request.messages[index * 2 + 1].content.first?.text ?? ""
+            let parsed = CandidateParser.parse(answer, isFinal: true, output: .chinese)
+            #expect(parsed.versions.count == 3 && parsed.versions.allSatisfy { $0.text.containsHan }, "\(example.input)")
+            #expect(parsed.rewrites.map(\.style) == ["黑话"])
+            // Rewrites stay in the input's language.
+            #expect(parsed.rewrites[0].line.text.containsHan == example.input.containsHan, "\(example.input)")
+        }
+        #expect(request.messages.last?.content.first?.text == "this is a blocker bug")
+    }
+
+    @Test func everyExampleHasThreeVersionsInBothLanguages() {
+        for example in Prompt.examples {
+            #expect(example.english.count == 3 && example.chinese.count == 3, "\(example.input)")
+            #expect(example.english.allSatisfy { !$0.containsHan } && example.chinese.allSatisfy { $0.containsHan })
+            let wordings = Set((example.english + example.chinese).map(\.wordingKey))
+            #expect(wordings.count == 6, "\(example.input): versions repeat each other")
+        }
+    }
+
+    @Test func outputLanguageIsPartOfTheCacheKey() async throws {
+        let region = "us-test-5"
+        StubURLProtocol.register(host: host(region), .init(
+            status: 200, headers: [:], chunks: [Data(try fixture("bedrock-converse-stream"))]))
+        var config = Config.default
+        config.region = region
+        let english = config
+        config.outputLanguage = .chinese
+        let chinese = config
+        let output = OSAllocatedUnfairLock(initialState: english)
+        let converter = Converter(
+            client: BedrockClient(session: StubURLProtocol.session()),
+            loadConfig: { output.withLock { $0 } },
+            loadCredentials: { _ in
+                AWSSharedConfig.Resolved(credentials: AWSCredentials(accessKeyId: "AKIDTEST", secretAccessKey: "s"), region: nil)
+            })
+        let first = try await collect(converter.convert("我今天有点不舒服"))
+        #expect(first.last?.result.versions.count == 3)
+        output.withLock { $0 = chinese }
+        let second = try await collect(converter.convert("我今天有点不舒服"))
+        #expect(second.last?.fromCache == false)
+        // The capture's EN lines don't count for Chinese output; its old "ZH:" line does.
+        let versions = second.last?.result.versions ?? []
+        #expect(versions.count == 1 && versions.allSatisfy { $0.text.containsHan })
+    }
+
+    @Test func jargonListIsReadOnlyWithTheStyleAndPartOfTheCacheKey() async throws {
+        let region = "us-test-6"
+        StubURLProtocol.register(host: host(region), .init(
+            status: 200, headers: [:], chunks: [Data(try fixture("bedrock-converse-stream"))]))
+        var config = Config.default
+        config.region = region
+        config.rewriteStyles = ["简洁"]
+        let state = OSAllocatedUnfairLock(initialState: (config: config, list: [JargonEntry(term: "PRFAQ")], reads: 0))
+        let converter = Converter(
+            client: BedrockClient(session: StubURLProtocol.session()),
+            loadConfig: { state.withLock { $0.config } },
+            loadCredentials: { _ in
+                AWSSharedConfig.Resolved(credentials: AWSCredentials(accessKeyId: "AKIDTEST", secretAccessKey: "s"), region: nil)
+            },
+            loadJargon: { _ in state.withLock { $0.reads += 1; return $0.list } })
+        _ = try await collect(converter.convert("我今天有点不舒服"))
+        #expect(state.withLock { $0.reads } == 0)  // no 黑话: the list isn't even read
+        state.withLock { $0.config.rewriteStyles = ["黑话"] }
+        let first = try await collect(converter.convert("我今天有点不舒服"))
+        #expect(first.last?.fromCache == false && state.withLock { $0.reads } == 1)
+        let again = try await collect(converter.convert("我今天有点不舒服"))
+        #expect(again.last?.fromCache == true)
+        state.withLock { $0.list = [JargonEntry(term: "LP")] }
+        let changed = try await collect(converter.convert("我今天有点不舒服"))
+        #expect(changed.last?.fromCache == false)  // a different list gives a different answer
     }
 
     @Test func serverErrorTextIsCapped() {
@@ -254,20 +335,20 @@ struct ConverterTests {
     @Test func truncatedOutputDropsTheCutOffLine() {
         let text = "EN: I'm under the weather.\nEN: I'm not feeling well.\nEN: I feel a bit o"
         let cut = Converter.finalResult(text, stopReason: "max_tokens")
-        #expect(cut.english.map(\.text) == ["I'm under the weather.", "I'm not feeling well."])
-        #expect(cut.english.allSatisfy { $0.isComplete })
+        #expect(cut.versions.map(\.text) == ["I'm under the weather.", "I'm not feeling well."])
+        #expect(cut.versions.allSatisfy { $0.isComplete })
         let rewriteCut = Converter.finalResult(text + "ff.\nPOLISH: 我今天", stopReason: "max_tokens")
-        #expect(rewriteCut.english.count == 3)
+        #expect(rewriteCut.versions.count == 3)
         #expect(rewriteCut.rewrites.isEmpty)
         let secondCut = Converter.finalResult(text + "ff.\nPOLISH: 我今天身体不太舒服。\nFORMAL: 今天", stopReason: "max_tokens")
         #expect(secondCut.rewrites == [Rewrite(style: "润色", line: CandidateLine("我今天身体不太舒服。"))])
         let normal = Converter.finalResult(text, stopReason: "end_turn")
-        #expect(normal.english.last?.text == "I feel a bit o")  // finished normally: last line is complete
+        #expect(normal.versions.last?.text == "I feel a bit o")  // finished normally: last line is complete
     }
 
     @Test func lruEvictsOldest() {
         var cache = LRUCache(capacity: 2)
-        let r = ConversionResult(english: [CandidateLine("x")])
+        let r = ConversionResult(versions: [CandidateLine("x")])
         cache.set("a", r)
         cache.set("b", r)
         _ = cache.get("a")

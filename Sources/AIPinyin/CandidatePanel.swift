@@ -74,7 +74,7 @@ final class CandidateView: NSView {
             case candidate
             /// The sentence as typed (level two, row 0).
             case original
-            /// English or polished text (level two).
+            /// A version or rewrite from the model (level two).
             case translation
         }
 
@@ -87,7 +87,7 @@ final class CandidateView: NSView {
 
     enum Status: Equatable {
         case none
-        case loading
+        case loading(String)
         case hint(String)
         case error(String)
     }
@@ -232,7 +232,10 @@ final class CandidateView: NSView {
         }
         if !row.comment.isEmpty {
             let color: NSColor = highlighted ? NSColor.white.withAlphaComponent(0.7) : .tertiaryLabelColor
-            text.append(NSAttributedString(string: "  " + row.comment, attributes: [.font: Fonts.comment, .foregroundColor: color]))
+            // No-break spaces and word joiners: when the line wraps, the comment ("黑话") moves as one
+            // piece together with the last word instead of breaking between its characters.
+            let glued = "\u{00A0}\u{00A0}" + row.comment.map(String.init).joined(separator: "\u{2060}")
+            text.append(NSAttributedString(string: glued, attributes: [.font: Fonts.comment, .foregroundColor: color]))
         }
         return (label, text)
     }
@@ -241,8 +244,8 @@ final class CandidateView: NSView {
         switch model.status {
         case .none:
             return nil
-        case .loading:
-            return NSAttributedString(string: "AI 翻译中…", attributes: [
+        case let .loading(text):
+            return NSAttributedString(string: text, attributes: [
                 .font: Fonts.status, .foregroundColor: NSColor.secondaryLabelColor,
             ])
         case let .hint(text):

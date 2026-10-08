@@ -17,20 +17,25 @@ public struct ConversionUpdate: Equatable, Sendable {
 public final class Converter: Sendable {
     public typealias ConfigLoader = @Sendable () throws -> Config
     public typealias CredentialLoader = @Sendable (_ profile: String) throws -> AWSSharedConfig.Resolved
+    /// The user's jargon list for a config (only asked for when the 黑话 style is on).
+    public typealias JargonLoader = @Sendable (_ config: Config) -> [JargonEntry]
 
     private let client: BedrockClient
     private let loadConfig: ConfigLoader
     private let loadCredentials: CredentialLoader
+    private let loadJargon: JargonLoader
     private let cache = OSAllocatedUnfairLock(initialState: LRUCache(capacity: 64))
 
     public init(
         client: BedrockClient = BedrockClient(),
         loadConfig: @escaping ConfigLoader = { try Config.load() },
-        loadCredentials: @escaping CredentialLoader = { try AWSSharedConfig.load(profile: $0) }
+        loadCredentials: @escaping CredentialLoader = { try AWSSharedConfig.load(profile: $0) },
+        loadJargon: @escaping JargonLoader = { JargonLibrary.load(from: $0.jargonURL) }
     ) {
         self.client = client
         self.loadConfig = loadConfig
         self.loadCredentials = loadCredentials
+        self.loadJargon = loadJargon
     }
 
     public func convert(_ input: String) -> AsyncThrowingStream<ConversionUpdate, Error> {
@@ -55,8 +60,12 @@ public final class Converter: Sendable {
         }
 
         let config = try loadConfig()
-        let styles = RewriteStyle.resolve(config.rewriteStyles).map(\.tag).joined(separator: ",")
-        let key = "\(config.modelId)|\(Prompt.version)|\(styles)|\(input)"
+        let output = config.outputLanguage
+        let presets = RewriteStyle.resolve(config.rewriteStyles)
+        let styles = presets.map(\.tag).joined(separator: ",")
+        let jargon = presets.contains { $0.tag == RewriteStyle.jargonTag } ? loadJargon(config) : []
+        let jargonKey = jargon.isEmpty ? "" : "j\(JargonLibrary.fingerprint(jargon))|"
+        let key = "\(config.modelId)|\(Prompt.version)|\(output.rawValue)|\(styles)|\(jargonKey)\(input)"
         if let hit = cache.withLock({ $0.get(key) }) {
             continuation.yield(ConversionUpdate(
                 result: hit, rawText: "", isFinal: true, elapsed: elapsed(),
@@ -67,7 +76,7 @@ public final class Converter: Sendable {
         let resolved = try loadCredentials(config.awsProfile)
         let region = config.region ?? resolved.region ?? "us-east-1"
         let stream = client.converseStream(
-            Prompt.request(for: input, config: config),
+            Prompt.request(for: input, config: config, jargon: jargon),
             modelId: config.modelId, region: region,
             credentials: resolved.credentials, timeout: config.timeoutSeconds)
 
@@ -80,12 +89,12 @@ public final class Converter: Sendable {
             guard case let .textDelta(delta) = event else { continue }
             if firstToken == nil { firstToken = elapsed() }
             text += delta
-            // Far more than 3 sentences plus a polish; treat the rest as truncated.
+            // Far more than 3 sentences plus the rewrites; treat the rest as truncated.
             if text.utf8.count > Self.maxOutputBytes {
                 stopReason = "max_tokens"
                 break
             }
-            let result = CandidateParser.parse(text, isFinal: false)
+            let result = CandidateParser.parse(text, isFinal: false, output: output)
             // Most deltas only extend a line; skip updates that don't change what is shown.
             guard result != lastResult else { continue }
             lastResult = result
@@ -95,7 +104,7 @@ public final class Converter: Sendable {
         }
         try Task.checkCancellation()
 
-        let final = Self.finalResult(text, stopReason: stopReason)
+        let final = Self.finalResult(text, stopReason: stopReason, output: output)
         if !final.isEmpty, stopReason != "max_tokens" {
             cache.withLock { $0.set(key, final) }
         }
@@ -108,10 +117,10 @@ public final class Converter: Sendable {
     /// than offer a truncated sentence as a finished candidate.
     static let maxOutputBytes = 32 * 1024
 
-    static func finalResult(_ text: String, stopReason: String?) -> ConversionResult {
-        guard stopReason == "max_tokens" else { return CandidateParser.parse(text, isFinal: true) }
-        var result = CandidateParser.parse(text, isFinal: false)
-        result.english = result.english.filter { $0.isComplete }
+    static func finalResult(_ text: String, stopReason: String?, output: Language = .english) -> ConversionResult {
+        guard stopReason == "max_tokens" else { return CandidateParser.parse(text, isFinal: true, output: output) }
+        var result = CandidateParser.parse(text, isFinal: false, output: output)
+        result.versions = result.versions.filter { $0.isComplete }
         result.rewrites = result.rewrites.filter { $0.line.isComplete }
         return result
     }

@@ -37,6 +37,9 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("InputMethodKit"),
                 .linkedFramework("Carbon"),
+                // Voice input: microphone capture and on-device speech recognition.
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("Speech"),
                 // librime.1.dylib is copied into Contents/Frameworks by the Makefile.
                 .unsafeFlags(["-L\(rimeLib)", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
             ]

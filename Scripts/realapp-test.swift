@@ -456,18 +456,52 @@ final class Harness: NSObject, NSApplicationDelegate {
         check(waitUntil(2) { aiSetting() == true }, "⇧Space turns AI back on")
         reset()
 
-        // 7. Shift alone switches to English and back.
+        // 7. Shift alone switches to English and back. With English AI (config `englishAI`, default on)
+        //    English collects into a draft: Return inserts it and still reaches the app, a double
+        //    Space polishes it.
         print("— Shift: English / Chinese")
         textView.string = ""
         tapShift()
         type("abc")
-        check(waitUntil(2) { self.committed == "abc" && self.marked.isEmpty }, "after Shift, letters are typed as English ('\(committed)')")
+        if englishAIConfigured() {
+            check(waitUntil(2) { self.marked == "abc" && self.committed.isEmpty }, "after Shift, English goes into a draft ('\(marked)')")
+            enter()
+            check(waitUntil(2) { self.committed == "abc\n" && self.marked.isEmpty },
+                  "Return inserts it as typed and makes the new line too ('\(committed.debugDescription)')")
+            print("— English polish (live Bedrock)")
+            textView.string = ""
+            let words = ["this", "is", "a", "blocker", "bug", "your", "team", "need", "fix", "it", "asap"]
+            for word in words {
+                type(word)
+                space()
+            }
+            check(waitUntil(2) { self.marked == words.joined(separator: " ") + " " }, "sentence drafted (\(marked))")
+            let started = Date()
+            space()
+            let polished = waitUntil(20) {
+                if self.committed.isEmpty { self.space() }  // ignored until the first version is complete
+                return !self.committed.isEmpty
+            }
+            check(polished && Self.looksEnglish(committed) && committed != words.joined(separator: " ") && marked.isEmpty,
+                  String(format: "double Space polishes, Space inserts after %.1fs: '%@'", Date().timeIntervalSince(started), committed))
+        } else {
+            check(waitUntil(2) { self.committed == "abc" && self.marked.isEmpty }, "after Shift, letters are typed as English ('\(committed)')")
+        }
+        textView.string = ""
         tapShift()
         type("ni")
         check(waitUntil(2) { !self.marked.isEmpty }, "after Shift again, pinyin input is back (marked: \(marked))")
         reset()
 
         finish()
+    }
+
+    /// `englishAI` from the input method's config file (on unless set to false).
+    func englishAIConfigured() -> Bool {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/aipinyin/config.json")
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
+        return json["englishAI"] as? Bool ?? true
     }
 }
 

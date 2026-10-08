@@ -13,12 +13,12 @@ struct CandidateParserTests {
 
     @Test func parsesWellFormedOutput() {
         let r = CandidateParser.parse(full, isFinal: true)
-        #expect(r.english.map(\.text) == [
+        #expect(r.versions.map(\.text) == [
             "I'm feeling a bit under the weather today.",
             "I'm not feeling great today.",
             "I'm a little off today.",
         ])
-        let allComplete = r.english.allSatisfy { $0.isComplete }
+        let allComplete = r.versions.allSatisfy { $0.isComplete }
         #expect(allComplete)
         #expect(r.rewrites == [
             Rewrite(style: "润色", line: CandidateLine("我今天身体有点不适。")),
@@ -69,11 +69,11 @@ struct CandidateParserTests {
         #expect(CandidateParser.parse("", isFinal: false) == .empty)
         #expect(CandidateParser.parse("E", isFinal: false) == .empty)
         #expect(CandidateParser.parse("EN: I'm feel", isFinal: false)
-            == ConversionResult(english: [CandidateLine("I'm feel", isComplete: false)]))
+            == ConversionResult(versions: [CandidateLine("I'm feel", isComplete: false)]))
         let partialTag = CandidateParser.parse("EN: Hi.\nPOL", isFinal: false)
-        #expect(partialTag == ConversionResult(english: [CandidateLine("Hi.")]))
+        #expect(partialTag == ConversionResult(versions: [CandidateLine("Hi.")]))
         let lineDone = CandidateParser.parse("EN: Hi.\n", isFinal: false)
-        #expect(lineDone.english == [CandidateLine("Hi.")])
+        #expect(lineDone.versions == [CandidateLine("Hi.")])
     }
 
     @Test func toleratesFormattingVariations() {
@@ -84,50 +84,59 @@ struct CandidateParserTests {
             **CONCISE:** 吃了吗？
             en : `Eaten?`
             """, isFinal: true)
-        #expect(r.english.map(\.text) == ["Have you eaten yet?", "Did you have dinner?", "Have you had a meal?"])
+        #expect(r.versions.map(\.text) == ["Have you eaten yet?", "Did you have dinner?", "Have you had a meal?"])
         #expect(r.rewrite("简洁")?.text == "吃了吗？")
     }
 
     @Test func ignoresOldStyleChineseLineAndUnknownTags() {
         let r = CandidateParser.parse("ZH: 你好\nEN: Hello.\nPOETIC: 君安否", isFinal: true)
-        #expect(r == ConversionResult(english: [CandidateLine("Hello.")]))
+        #expect(r == ConversionResult(versions: [CandidateLine("Hello.")]))
+    }
+
+    @Test func chineseOutputReadsZHLinesAndIgnoresEnglishOnes() {
+        let text = "ZH: 我今天不太舒服。\n中文：今天身体有点不适。\nEN: I'm unwell.\nJARGON: 今天身体 bandwidth 不足。"
+        let r = CandidateParser.parse(text, isFinal: true, output: .chinese)
+        #expect(r.versions.map(\.text) == ["我今天不太舒服。", "今天身体有点不适。"])
+        #expect(r.rewrite("黑话")?.text == "今天身体 bandwidth 不足。")
+        let streaming = CandidateParser.parse("ZH: 我今天", isFinal: false, output: .chinese)
+        #expect(streaming.versions == [CandidateLine("我今天", isComplete: false)])
     }
 
     @Test func keepsColonsInsideCandidates() {
         let r = CandidateParser.parse("EN: Heads up: I'll be late.\nPOLISH: 注意：我会迟到", isFinal: true)
-        #expect(r.english.first?.text == "Heads up: I'll be late.")
+        #expect(r.versions.first?.text == "Heads up: I'll be late.")
         #expect(r.rewrite("润色")?.text == "注意：我会迟到")
     }
 
     @Test func dedupesAndCaps() {
         let r = CandidateParser.parse("EN: Hi.\nEN: hi.\nEN: Hello.\nEN: Hey.\nEN: Yo.", isFinal: true)
-        #expect(r.english.map(\.text) == ["Hi.", "Hello.", "Hey."])
+        #expect(r.versions.map(\.text) == ["Hi.", "Hello.", "Hey."])
     }
 
     @Test func fallsBackToUntaggedLinesWhenFinal() {
         let text = "I'm not feeling well today.\nI'm a bit under the weather."
         #expect(CandidateParser.parse(text, isFinal: false) == .empty)
-        #expect(CandidateParser.parse(text, isFinal: true).english.map(\.text)
+        #expect(CandidateParser.parse(text, isFinal: true).versions.map(\.text)
             == ["I'm not feeling well today.", "I'm a bit under the weather."])
     }
 
     @Test func ignoresUntaggedChatterWhenTaggedLinesExist() {
         let r = CandidateParser.parse("Sure! Here you go:\nEN: OK.", isFinal: true)
-        #expect(r.english.map(\.text) == ["OK."])
+        #expect(r.versions.map(\.text) == ["OK."])
     }
 
     @Test func handlesCRLF() {
         let r = CandidateParser.parse("EN: OK.\r\nPOLISH: 好嘞。\r\n", isFinal: true)
-        #expect(r == ConversionResult(english: [CandidateLine("OK.")],
+        #expect(r == ConversionResult(versions: [CandidateLine("OK.")],
                                       rewrites: [Rewrite(style: "润色", line: CandidateLine("好嘞。"))]))
     }
 
     @Test func stripsControlCharacters() {
         let r = CandidateParser.parse(
             "EN: echo hi\u{1B}[2J\u{7}\nEN: a\u{2028}b\u{0085}c\tdone\nPOLISH: 好\u{202E}的", isFinal: true)
-        #expect(r.english.map(\.text) == ["echo hi [2J", "a b c done"])
+        #expect(r.versions.map(\.text) == ["echo hi [2J", "a b c done"])
         #expect(r.rewrite("润色")?.text == "好的")
         let untagged = CandidateParser.parse("plain\u{1B}text", isFinal: true)
-        #expect(untagged.english.map(\.text) == ["plain text"])
+        #expect(untagged.versions.map(\.text) == ["plain text"])
     }
 }

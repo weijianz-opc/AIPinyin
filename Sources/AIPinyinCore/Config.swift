@@ -14,14 +14,37 @@ public struct Config: Codable, Equatable, Sendable {
     public var temperature: Double?
     /// Network idle timeout for one conversion request.
     public var timeoutSeconds: Double
-    /// Chinese rewrite presets offered after the English versions, in this order
-    /// (names from `RewriteStyle.catalog`, e.g. "润色", "简洁", "正式"); empty = translation only.
+    /// Rewrite presets offered after the three main versions, in this order (names from
+    /// `RewriteStyle.catalog`, e.g. "润色", "简洁", "正式"); empty = main versions only.
+    /// Rewrites are in the language the sentence was typed in.
     public var rewriteStyles: [String]
+    /// Language of the three main versions (1–3): a sentence in another language is translated,
+    /// one already in this language is polished.
+    public var outputLanguage: Language
+    /// Mode a new text field starts in: pinyin (Chinese) or English letters.
+    public var defaultInput: Language
+    /// With AI on, English typed in English mode also collects into a draft that a double Space
+    /// sends to the model (false: English letters go straight to the application).
+    public var englishAI: Bool
+    /// Hold the right Option key to dictate into the draft (on-device speech recognition).
+    public var voiceInput: Bool
+    /// The user's own jargon list for the 黑话 style (see `JargonLibrary`); nil = the default file.
+    public var jargonFile: String?
+
+    /// `jargonFile` with "~" expanded, or `JargonLibrary.defaultURL`.
+    public var jargonURL: URL {
+        guard let path = jargonFile?.trimmingCharacters(in: .whitespaces), !path.isEmpty else {
+            return JargonLibrary.defaultURL
+        }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+    }
 
     public init(
         awsProfile: String, region: String?, modelId: String,
         maxTokens: Int, temperature: Double?, timeoutSeconds: Double,
-        rewriteStyles: [String] = RewriteStyle.defaultNames
+        rewriteStyles: [String] = RewriteStyle.defaultNames,
+        outputLanguage: Language = .english, defaultInput: Language = .chinese,
+        englishAI: Bool = true, voiceInput: Bool = true, jargonFile: String? = nil
     ) {
         self.awsProfile = awsProfile
         self.region = region
@@ -30,13 +53,18 @@ public struct Config: Codable, Equatable, Sendable {
         self.temperature = temperature
         self.timeoutSeconds = timeoutSeconds
         self.rewriteStyles = rewriteStyles
+        self.outputLanguage = outputLanguage
+        self.defaultInput = defaultInput
+        self.englishAI = englishAI
+        self.voiceInput = voiceInput
+        self.jargonFile = jargonFile
     }
 
     public static let `default` = Config(
         awsProfile: "default",
         region: nil,
         modelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-        // Three English versions plus the Chinese rewrites; only generated tokens are billed.
+        // Three main versions plus the rewrites; only generated tokens are billed.
         maxTokens: 1000,
         temperature: 0.3,
         timeoutSeconds: 15,
@@ -45,6 +73,7 @@ public struct Config: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case awsProfile, region, modelId, maxTokens, temperature, timeoutSeconds, rewriteStyles
+        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile
     }
 
     public init(from decoder: Decoder) throws {
@@ -60,6 +89,11 @@ public struct Config: Codable, Equatable, Sendable {
             : d.temperature
         timeoutSeconds = try c.decodeIfPresent(Double.self, forKey: .timeoutSeconds) ?? d.timeoutSeconds
         rewriteStyles = try c.decodeIfPresent([String].self, forKey: .rewriteStyles) ?? d.rewriteStyles
+        outputLanguage = try c.decodeIfPresent(Language.self, forKey: .outputLanguage) ?? d.outputLanguage
+        defaultInput = try c.decodeIfPresent(Language.self, forKey: .defaultInput) ?? d.defaultInput
+        englishAI = try c.decodeIfPresent(Bool.self, forKey: .englishAI) ?? d.englishAI
+        voiceInput = try c.decodeIfPresent(Bool.self, forKey: .voiceInput) ?? d.voiceInput
+        jargonFile = try c.decodeIfPresent(String.self, forKey: .jargonFile)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -71,6 +105,11 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(temperature, forKey: .temperature)
         try c.encode(timeoutSeconds, forKey: .timeoutSeconds)
         try c.encode(rewriteStyles, forKey: .rewriteStyles)
+        try c.encode(outputLanguage, forKey: .outputLanguage)
+        try c.encode(defaultInput, forKey: .defaultInput)
+        try c.encode(englishAI, forKey: .englishAI)
+        try c.encode(voiceInput, forKey: .voiceInput)
+        try c.encode(jargonFile, forKey: .jargonFile)  // null: the default file
     }
 
     public static var defaultURL: URL {

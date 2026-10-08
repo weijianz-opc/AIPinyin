@@ -1,6 +1,7 @@
 import AIPinyinCore
 import AIPinyinRime
 import AppKit
+import AVFoundation
 import Carbon
 import InputMethodKit
 import SwiftUI
@@ -70,6 +71,8 @@ final class FakeTextClient: NSObject, IMKTextInput {
 @MainActor
 enum SelfTest {
     static var failures = 0
+    /// What the controller under test reads as its settings (the real config, adjusted per section).
+    static var settings = Config.default
 
     static func check(_ condition: Bool, _ message: String) {
         print("\(condition ? "✓" : "✗") \(message)")
@@ -167,14 +170,20 @@ enum SelfTest {
 
         // Rendered offscreen (nothing appears on screen) for a visual check and the README: the
         // real config, read-only, with a live 测试连接 result.
+        let list = dir.appendingPathComponent("jargon.txt")
+        try? Data("# 我们组的\nbandwidth：精力\nLP\tLeadership Principles\n抓手 - 着力点\n".utf8).write(to: list)
+        model.config.jargonFile = list.path
+        model.refreshJargon()
+        check(model.jargonExists && model.jargonCount == 3, "the user's jargon list is counted (\(model.jargonCount) terms)")
         let preview = SettingsModel(configURL: Config.defaultURL, aiEnabled: true, saveAI: { _ in }, persists: false)
         preview.runTest()
         _ = pump(timeout: 20) { preview.testStatus != .running }
         let host = NSHostingView(rootView: SettingsView(model: preview))
-        let size = NSSize(width: 560, height: 940)
+        let size = NSSize(width: 560, height: 1500)
         let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: size.width, height: size.height),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.alphaValue = 0
+        window.appearance = NSAppearance(named: .aqua)  // README images are light, whatever the Mac uses
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         _ = pump(timeout: 0.5) { false }
@@ -198,6 +207,249 @@ enum SelfTest {
         check((try? Data(contentsOf: Config.defaultURL)) == realBefore, "the real config file was not touched")
     }
 
+    /// Runs `work` while pumping the main run loop (the self-test is synchronous main-thread code).
+    static func runAsync<T>(_ timeout: TimeInterval, _ work: @escaping () async throws -> T) -> T? {
+        var result: T?
+        var done = false
+        Task { @MainActor in
+            result = try? await work()
+            done = true
+        }
+        _ = pump(timeout: timeout) { done }
+        return result
+    }
+
+    /// Waits for a live conversion to finish; returns false (and records a failure) if it failed.
+    static func finishConversion(_ controller: AIPinyinInputController, _ what: String) -> Bool {
+        let started = Date()
+        _ = pump(timeout: 20) { if case .translating = controller.composer.phase { return false } else { return true } }
+        if case let .failed(message) = controller.composer.phase {
+            check(false, "\(what) failed: \(message)")
+            return false
+        }
+        check(controller.composer.phase == .choosing, String(format: "\(what) finished in %.2fs", Date().timeIntervalSince(started)))
+        for choice in controller.composer.choices { print("  \(choice.label) \(choice.text)\(choice.kind.isRewrite ? "  [\(choice.kind)]" : "")") }
+        return controller.composer.phase == .choosing
+    }
+
+    /// English typed in English mode → English polish (and English rewrites, incl. 黑话); Chinese
+    /// output; the default input mode.
+    static func testEnglishAndOutput(_ controller: AIPinyinInputController, _ client: FakeTextClient,
+                                     snapshotDirectory: URL) {
+        print("— English input → English polish + 黑话 (live Bedrock)")
+        settings.rewriteStyles = ["润色", "简洁", "黑话"]
+        let english = settings
+        controller.converter = Converter(loadConfig: { english })
+        tapShift(controller, client)
+        let sentence = "this is a blocker bug your team need fix it asap"
+        type(sentence, controller, client)
+        check(client.marked == sentence && controller.composer.isLatinDraft, "English collects into a draft (\(client.marked))")
+        check(space(controller, client) && controller.composer.draft.hasSuffix(" ") && !controller.composer.isLevelTwo,
+              "first Space after a word is a space")
+        snapshot("7a-english-draft", in: snapshotDirectory)
+        check(space(controller, client), "second Space sends it")
+        if finishConversion(controller, "English polish") {
+            let choices = controller.composer.choices
+            let versions = choices.filter { $0.kind == .version }
+            check(versions.count == 3 && versions.allSatisfy { !$0.text.containsHan && $0.text.wordingKey != sentence.wordingKey },
+                  "3 polished English versions")
+            let rewrites = choices.filter { $0.kind.isRewrite }
+            check(!rewrites.isEmpty && rewrites.allSatisfy { !$0.text.containsHan }, "rewrites stay in English")
+            check(rewrites.contains { $0.kind == .rewrite("黑话") }, "黑话 rewrite present")
+            snapshot("7-english-light", in: snapshotDirectory)
+            // The user's own jargon list: the 黑话 row notes what the list's terms in it mean.
+            let jargonFile = snapshotDirectory.appendingPathComponent("jargon.txt")
+            try? Data("bandwidth：精力、时间\nminor issue：小问题（其实很严重）\n".utf8).write(to: jargonFile)
+            settings.jargonFile = jargonFile.path
+            if let row = choices.firstIndex(where: { $0.kind == .rewrite(RewriteStyle.jargonName) }) {
+                let note = JargonLibrary.annotation(for: choices[row].text, entries: JargonLibrary.load(from: jargonFile))
+                let comment = controller.panelModel().rows[row].comment
+                check(comment == (note.map { "黑话 · \($0)" } ?? "黑话"), "黑话 row explains the user's terms: \(comment)")
+            }
+            settings.jargonFile = nil
+            try? FileManager.default.removeItem(at: jargonFile)
+            _ = space(controller, client)
+            check(client.inserted.last == versions.first?.text, "Space inserts the first polished version")
+        }
+        tapShift(controller, client)
+
+        print("— output Chinese (live Bedrock)")
+        settings.outputLanguage = .chinese
+        settings.rewriteStyles = ["简洁", "黑话"]
+        let chinese = settings
+        controller.converter = Converter(loadConfig: { chinese })
+        type("zhegexiangmudejindutaimanle", controller, client)
+        _ = space(controller, client)
+        let typed = controller.composer.draft
+        check(typed.containsHan, "Chinese sentence confirmed (\(typed))")
+        _ = space(controller, client)
+        if finishConversion(controller, "Chinese polish") {
+            let versions = controller.composer.choices.filter { $0.kind == .version }
+            check(versions.count >= 2 && versions.allSatisfy { $0.text.containsHan && $0.text.wordingKey != typed.wordingKey },
+                  "versions in Chinese, none just repeating the input (\(versions.count) shown)")
+            check(controller.panelModel().rows.count == controller.composer.choices.count, "panel shows every row")
+            snapshot("7b-chinese-output", in: snapshotDirectory)
+        }
+        _ = enter(controller, client)
+        check(client.inserted.last == typed, "Enter inserts the original")
+        settings.outputLanguage = .english
+
+        print("— default input mode")
+        settings.defaultInput = .english
+        controller.applySettings()
+        check(controller.composer.engineState.isAsciiMode, "changing the default to English switches an idle field")
+        tapShift(controller, client)
+        controller.applySettings()
+        check(!controller.composer.engineState.isAsciiMode, "a Shift toggle sticks until the setting changes again")
+        settings.defaultInput = .chinese
+        controller.applySettings()
+        check(!controller.composer.engineState.isAsciiMode, "default back to Chinese")
+    }
+
+    /// Hold the right Option key: audio (synthesized speech played from a file instead of the
+    /// microphone) is recognized on the Mac and continues the draft.
+    static func testVoice(_ controller: AIPinyinInputController, _ client: FakeTextClient,
+                          snapshotDirectory: URL) {
+        print("— voice input (on-device recognition of synthesized speech)")
+        guard #available(macOS 26.0, *), VoiceInput.isSupported else {
+            print("  SpeechAnalyzer not available on this macOS; skipped")
+            return
+        }
+        settings.rewriteStyles = RewriteStyle.defaultNames
+        controller.loadSettings = { SelfTest.settings }
+        controller.applySettings()
+        let voiced = settings
+        controller.converter = Converter(loadConfig: { voiced })
+        for language in [Language.chinese, .english] {
+            if runAsync(5, { await VoiceInput.isModelInstalled(language) }) == true {
+                check(true, "\(language.displayName) speech model installed")
+                continue
+            }
+            print("  downloading the \(language.displayName) speech model (one time)…")
+            var last = -1
+            let ok = runAsync(900) {
+                try await VoiceInput.downloadModel(language) { p in
+                    let percent = Int(p * 100)
+                    if percent / 20 > last / 20 { print("    \(percent)%"); last = percent }
+                }
+                return true
+            }
+            check(ok == true && runAsync(5, { await VoiceInput.isModelInstalled(language) }) == true,
+                  "\(language.displayName) speech model downloaded")
+        }
+
+        func speech(_ text: String, voice: String, name: String) -> URL? {
+            let url = snapshotDirectory.appendingPathComponent("\(name).aiff")
+            let say = Process()
+            say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            say.arguments = ["-v", voice, "-o", url.path, text]
+            guard (try? say.run()) != nil else { return nil }
+            say.waitUntilExit()
+            return say.terminationStatus == 0 ? url : nil
+        }
+        var holding = false
+        controller.isVoiceKeyHeld = { holding }
+        defer { controller.isVoiceKeyHeld = { NSEvent.modifierFlags.contains(.option) && NSEvent.pressedMouseButtons == 0 } }
+        func optionKey(down: Bool) {
+            holding = down
+            // As the system reports it: the Option flag plus the right-Option device bit.
+            let flags = down ? NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue
+                                                     | AIPinyinInputController.rightOptionBit) : []
+            _ = controller.handle(event("", code: VirtualKey.rightOption, flags: flags, type: .flagsChanged), client: client)
+        }
+        /// Holds the key for the length of the file, then releases it and waits for the transcript.
+        func dictate(_ url: URL, snapshotName: String? = nil) -> Bool {
+            controller.voiceFile = (url, speed: 1)
+            let seconds = (try? AVAudioFile(forReading: url)).map { Double($0.length) / $0.processingFormat.sampleRate } ?? 2
+            optionKey(down: true)
+            let started = pump(timeout: 1) { if case .listening = controller.composer.voice { return true } else { return false } }
+            guard started else {
+                check(false, "holding right ⌥ starts listening (\(controller.composer.voice))")
+                return false
+            }
+            var snapped = false
+            _ = pump(timeout: seconds + 0.6) {
+                if let snapshotName, !snapped, controller.composer.voice.text.count >= 4 {
+                    snapped = true
+                    snapshot(snapshotName, in: snapshotDirectory)
+                }
+                return false
+            }
+            check(!controller.composer.voice.text.isEmpty, "live transcript while listening: \(controller.composer.voice.text)")
+            let released = Date()
+            optionKey(down: false)
+            let done = pump(timeout: 8) { controller.composer.voice == .off }
+            check(done, String(format: "final transcript %.2fs after releasing the key", Date().timeIntervalSince(released)))
+            controller.voiceFile = nil
+            return done
+        }
+
+        guard let chineseAudio = speech("我今天有点不舒服", voice: "Tingting", name: "voice-zh"),
+              let englishAudio = speech("This is a blocker bug, your team needs to fix it as soon as possible.",
+                                        voice: "Samantha", name: "voice-en")
+        else {
+            check(false, "could not synthesize test audio with say")
+            return
+        }
+        defer {
+            try? FileManager.default.removeItem(at: chineseAudio)
+            try? FileManager.default.removeItem(at: englishAudio)
+        }
+
+        // A tap is not dictation: released before the hold is confirmed, nothing is recorded.
+        controller.voiceFile = (chineseAudio, speed: 1)
+        optionKey(down: true)
+        optionKey(down: false)
+        let tapNotice = controller.panelModel().detail
+        _ = pump(timeout: 0.5) { false }  // past the arming delay
+        controller.voiceFile = nil
+        check(controller.composer.voice == .off && controller.composer.draft.isEmpty && tapNotice == "按住右 ⌥ 说话",
+              "a quick tap of right ⌥ records nothing and shows the hint")
+        _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // let the hint expire
+
+        // Chinese mode: Chinese speech continues the sentence, Space translates it.
+        type("haode", controller, client)
+        _ = space(controller, client)
+        let before = controller.composer.draft
+        if dictate(chineseAudio, snapshotName: "8-voice") {
+            let draft = controller.composer.draft
+            check(draft.hasPrefix(before) && draft.wordingKey.contains("不舒服"), "transcript continues the draft: \(draft)")
+            check(client.marked == draft, "draft shown inline")
+            _ = space(controller, client)
+            if finishConversion(controller, "voice → translation") {
+                check(controller.composer.choices.filter { $0.kind == .version }.count == 3, "3 English versions of the spoken sentence")
+            }
+        }
+        _ = enter(controller, client)
+
+        // English mode: English speech makes an English draft; one Space then sends it.
+        tapShift(controller, client)
+        if dictate(englishAudio) {
+            let draft = controller.composer.draft
+            check(controller.composer.isLatinDraft && draft.lowercased().contains("blocker"), "English transcript: \(draft)")
+            check(controller.composer.spaceTranslates, "right after dictation one Space translates")
+        }
+        _ = enter(controller, client)
+        check(client.marked.isEmpty && !controller.composer.isComposing, "Return inserts the English transcript")
+        tapShift(controller, client)
+
+        // An ⌥ shortcut (a key while right ⌥ is down) is not dictation.
+        controller.voiceFile = (chineseAudio, speed: 1)
+        optionKey(down: true)
+        _ = press(controller, client, "∑", code: 0x0D, flags: .option)
+        _ = pump(timeout: 0.5) { false }  // past the arming delay
+        check(controller.composer.voice == .off, "an ⌥ shortcut doesn't start a recording")
+        optionKey(down: false)
+        // A key during dictation cancels it.
+        optionKey(down: true)
+        _ = pump(timeout: 1) { if case .listening = controller.composer.voice { return true } else { return false } }
+        _ = escape(controller, client)
+        check(controller.composer.voice == .off && client.marked.isEmpty, "Esc while holding right ⌥ cancels the recording")
+        optionKey(down: false)
+        controller.voiceFile = nil
+        controller.commitComposition(client)
+    }
+
     static func snapshot(_ name: String, in directory: URL, appearance: NSAppearance.Name = .aqua) {
         let view = CandidatePanel.shared.view
         view.appearance = NSAppearance(named: appearance)
@@ -212,6 +464,8 @@ enum SelfTest {
 
     static func run(snapshotDirectory: URL) -> Int32 {
         _ = NSApplication.shared
+        // Voice tests play audio files; the microphone and its permission prompt are never used.
+        AIPinyinInputController.microphoneAllowed = false
         try? FileManager.default.createDirectory(at: snapshotDirectory, withIntermediateDirectories: true)
 
         let className = Bundle.main.object(forInfoDictionaryKey: "InputMethodServerControllerClass") as? String ?? ""
@@ -254,6 +508,14 @@ enum SelfTest {
         }
         controller.clientOverride = client
         controller.saveAIMode = { _ in }  // leave the user's setting alone
+        // The real config (model, styles, credentials) with the new options pinned to known values;
+        // sections below change `settings` and the controller follows (nothing is written to disk).
+        settings = (try? Config.load()) ?? .default
+        settings.outputLanguage = .english
+        settings.defaultInput = .chinese
+        settings.englishAI = true
+        settings.voiceInput = true
+        controller.loadSettings = { SelfTest.settings }
         controller.composer.aiEnabled = true
         controller.ensureEngine()
         check(controller.composer.engine != nil, "Rime session created")
@@ -329,7 +591,16 @@ enum SelfTest {
         print("— Shift switches Chinese / English")
         tapShift(controller, client)
         check(controller.composer.engineState.isAsciiMode, "Shift alone switches to English")
-        check(!press(controller, client, "a", code: 0x00), "letters go straight to the app in English mode")
+        controller.composer.englishAI = false
+        check(!press(controller, client, "a", code: 0x00), "without English AI, letters go straight to the app")
+        controller.composer.englishAI = true
+        type("ok", controller, client)
+        check(client.marked == "ok" && controller.composer.isLatinDraft, "with English AI, letters start an English draft")
+        check(!enter(controller, client) && client.inserted.last == "ok" && client.marked.isEmpty,
+              "Return inserts the English as typed and still reaches the app")
+        type("hi", controller, client)
+        check(!press(controller, client, "a", code: 0x00, flags: .command) && client.inserted.last == "hi",
+              "⌘A inserts the English draft first, then reaches the app")
         tapShift(controller, client)
         check(!controller.composer.engineState.isAsciiMode, "Shift alone switches back to Chinese")
 
@@ -377,7 +648,7 @@ enum SelfTest {
         }
         let choices = controller.composer.choices
         for choice in choices { print("  \(choice.label) \(choice.text)") }
-        check(choices.filter { $0.kind == .english && !$0.text.isEmpty }.count == 3, "3 English versions")
+        check(choices.filter { $0.kind == .version && !$0.text.isEmpty }.count == 3, "3 English versions")
         check(choices.first?.kind == .original && choices.first?.text == sentence, "row 0 is the sentence as typed")
         // Rewrite rows are only shown when their wording differs from the original (and from each other).
         let rewrites = choices.filter { $0.kind.isRewrite }
@@ -410,6 +681,11 @@ enum SelfTest {
         check(controller.composer.draft == "你好吗", "sentence is now 你好吗 (\(controller.composer.draft))")
         _ = enter(controller, client)
         check(client.inserted.last == "你好吗", "Enter inserts it")
+
+        testEnglishAndOutput(controller, client, snapshotDirectory: snapshotDirectory)
+        testVoice(controller, client, snapshotDirectory: snapshotDirectory)
+        controller.loadSettings = { SelfTest.settings }
+        controller.converter = sharedConverter
 
         print("— error display")
         controller.converter = Converter(loadConfig: {
@@ -455,6 +731,10 @@ enum SelfTest {
         }
         check(menu?.items.first?.action == #selector(AIPinyinInputController.showPreferences(_:)),
               "menu starts with 设置… (IMK showPreferences:)")
+        let outputItems = menu?.items.filter { $0.action == #selector(AIPinyinInputController.setOutputLanguage(_:)) } ?? []
+        let configuredOutput = ((try? Config.load()) ?? .default).outputLanguage
+        check(outputItems.count == 2 && outputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String }
+              == [configuredOutput.rawValue], "menu offers the output language, checked per config")
         testSettingsWindow(snapshotDirectory: snapshotDirectory)
         controller.deactivateServer(client)
 

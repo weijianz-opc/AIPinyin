@@ -1,7 +1,7 @@
 import Foundation
 
-/// A preset for the Chinese rewrites in level two ("润色", "简洁", …). Which presets are offered,
-/// and in which order, comes from `Config.rewriteStyles`.
+/// A preset for the level-two rewrites ("润色", "简洁", …), written in the language the sentence was
+/// typed in. Which presets are offered, and in which order, comes from `Config.rewriteStyles`.
 public struct RewriteStyle: Equatable, Sendable {
     /// Shown in the candidate panel and the input menu; also what `Config.rewriteStyles` lists.
     public let name: String
@@ -25,6 +25,7 @@ public struct RewriteStyle: Equatable, Sendable {
                 "不好意思，家里有点事，明天的会我可能去不了了。",
                 "老板觉得这个方案还不够好，让我们再改改。",
                 "I'd really like to go home tomorrow.",
+                "This bug is blocking us, so your team needs to fix it as soon as possible.",
             ]),
         RewriteStyle(
             name: "简洁", tag: "CONCISE", summary: "更短，去掉多余的话",
@@ -36,6 +37,7 @@ public struct RewriteStyle: Equatable, Sendable {
                 "抱歉，家里有事，明天的会可能去不了。",
                 "老板说方案不够好，再改一下。",
                 "Want to go home tomorrow.",
+                "Blocker bug: your team needs to fix it ASAP.",
             ]),
         RewriteStyle(
             name: "正式", tag: "FORMAL", summary: "适合发给领导、客户",
@@ -47,6 +49,7 @@ public struct RewriteStyle: Equatable, Sendable {
                 "非常抱歉，因家中有事，明天的会议我可能无法参加。",
                 "领导认为该方案仍有待完善，需要再修改一下。",
                 "I would like to return home tomorrow.",
+                "This issue is a blocker; could your team please prioritize a fix as soon as possible?",
             ]),
         RewriteStyle(
             name: "口语", tag: "CASUAL", summary: "像跟朋友聊天",
@@ -58,6 +61,7 @@ public struct RewriteStyle: Equatable, Sendable {
                 "不好意思哈，家里有点事，明天的会我估计去不了了。",
                 "老板说这方案还不行，得再改改。",
                 "I wanna go home tomorrow.",
+                "Heads up, this bug's a blocker, so your team's gotta fix it ASAP.",
             ]),
         RewriteStyle(
             name: "委婉", tag: "TACTFUL", summary: "更客气，语气缓和",
@@ -69,10 +73,32 @@ public struct RewriteStyle: Equatable, Sendable {
                 "真不好意思，家里有点事，明天的会我可能没办法参加了，还请见谅。",
                 "老板觉得这个方案还有提升空间，我们再完善一下吧。",
                 "If possible, I'd like to go home tomorrow.",
+                "This bug seems to be blocking us. Would your team be able to take a look soon?",
+            ]),
+        RewriteStyle(
+            name: "黑话", tag: "JARGON", summary: "大厂黑话，英文是 Amazon 腔",
+            instruction: "tongue-in-cheek big-tech corporate jargon. Chinese becomes 互联网大厂黑话 (对齐、拉通、"
+                + "抓手、赋能、闭环、沉淀、颗粒度、链路、owner、bandwidth…); English becomes Amazon-style corporate "
+                + "speak (bandwidth, align, dive deep, circle back, action item, OOO, Day 1, disagree and commit…). "
+                + "Bad news is sugarcoated into a cheerful understatement: a big problem is called a small one "
+                + "(\"this is a blocker bug\" becomes \"Oh! Looks like your team has the bandwidth to fix this "
+                + "minor issue!\", 太慢了 becomes 还有提速空间); the real point stays recognizable, and the "
+                + "jargon replaces plain words rather than adding deadlines or other details",
+            exampleRewrites: [
+                "感谢你的强力支持，这波辛苦了！",
+                "这个功能的用户体验链路还有很大的优化空间。",
+                "不好意思，明天家里有个 P0 事项需要我 own 一下，会议这边可能没有 bandwidth 参加。",
+                "老板觉得这个方案的颗粒度还不够细，抓手不够清晰，我们再迭代一版。",
+                "Heads up: I'm planning to be OOO tomorrow to head home.",
+                "Oh! Looks like your team has the bandwidth to fix this minor issue ASAP!",
             ]),
     ]
 
     public static let defaultNames = ["润色", "简洁", "正式"]
+
+    /// The 黑话 preset (it can use the user's own jargon list).
+    public static let jargonTag = "JARGON"
+    public static let jargonName = "黑话"
 
     public static func named(_ name: String) -> RewriteStyle? {
         let key = name.trimmingCharacters(in: .whitespaces)

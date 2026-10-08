@@ -11,7 +11,7 @@ public struct CandidateLine: Equatable, Sendable {
     }
 }
 
-/// One Chinese rewrite in a preset style ("简洁", "正式", …).
+/// One rewrite in a preset style ("简洁", "正式", …), in the language the sentence was typed in.
 public struct Rewrite: Equatable, Sendable {
     /// `RewriteStyle.name`
     public var style: String
@@ -25,35 +25,39 @@ public struct Rewrite: Equatable, Sendable {
 
 /// Level-two output for one confirmed sentence.
 public struct ConversionResult: Equatable, Sendable {
-    public var english: [CandidateLine]
+    /// The three main versions in the output language (translations, or polished versions of a
+    /// sentence already in that language).
+    public var versions: [CandidateLine]
     /// Rewrites in the original language, in the order the model sent them (one per style).
     public var rewrites: [Rewrite]
 
-    public init(english: [CandidateLine] = [], rewrites: [Rewrite] = []) {
-        self.english = english
+    public init(versions: [CandidateLine] = [], rewrites: [Rewrite] = []) {
+        self.versions = versions
         self.rewrites = rewrites
     }
 
     public static let empty = ConversionResult()
 
-    public var isEmpty: Bool { english.isEmpty && rewrites.isEmpty }
+    public var isEmpty: Bool { versions.isEmpty && rewrites.isEmpty }
 
     public func rewrite(_ style: String) -> CandidateLine? {
         rewrites.first { $0.style == style }?.line
     }
 }
 
-/// Parses model output of the form `EN: …` (x3) followed by one line per rewrite style
-/// (`POLISH: …`, `CONCISE: …`, …), tolerating partial streaming text, full-width colons,
-/// list markers, quotes and markdown emphasis.
+/// Parses model output of the form `EN: …` (x3, `ZH: …` for Chinese output) followed by one line
+/// per rewrite style (`POLISH: …`, `CONCISE: …`, …), tolerating partial streaming text, full-width
+/// colons, list markers, quotes and markdown emphasis.
 public enum CandidateParser {
-    enum Tag: Equatable { case english, rewrite(String), ignored }
+    enum Tag: Equatable { case version, rewrite(String), ignored }
 
-    public static func parse(_ raw: String, isFinal: Bool, maxEnglish: Int = 3) -> ConversionResult {
+    public static func parse(
+        _ raw: String, isFinal: Bool, output: Language = .english, maxVersions: Int = 3
+    ) -> ConversionResult {
         let lines = raw.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .components(separatedBy: "\n")
-        var english: [CandidateLine] = []
+        var versions: [CandidateLine] = []
         var rewrites: [Rewrite] = []
         var sawTag = false
         var untagged: [String] = []
@@ -62,7 +66,7 @@ public enum CandidateParser {
             let isComplete = isFinal || index < lines.count - 1
             let line = stripListMarker(rawLine.trimmingCharacters(in: .whitespaces))
             guard !line.isEmpty else { continue }
-            guard let (tag, body) = splitTag(line) else {
+            guard let (tag, body) = splitTag(line, output: output) else {
                 // While streaming, "E" or "CON" may be the start of a tag; only keep finished lines.
                 if isComplete { untagged.append(line) }
                 continue
@@ -71,8 +75,8 @@ public enum CandidateParser {
             let text = clean(body)
             guard !text.isEmpty || !isComplete else { continue }
             switch tag {
-            case .english:
-                english.append(CandidateLine(text, isComplete: isComplete))
+            case .version:
+                versions.append(CandidateLine(text, isComplete: isComplete))
             case let .rewrite(style):
                 if !rewrites.contains(where: { $0.style == style }) {
                     rewrites.append(Rewrite(style: style, line: CandidateLine(text, isComplete: isComplete)))
@@ -82,20 +86,21 @@ public enum CandidateParser {
             }
         }
 
-        // Model ignored the format entirely: treat whatever it said as English candidates.
+        // Model ignored the format entirely: treat whatever it said as the main versions.
         if isFinal, !sawTag {
-            english = untagged.map { CandidateLine(clean($0)) }.filter { !$0.text.isEmpty }
+            versions = untagged.map { CandidateLine(clean($0)) }.filter { !$0.text.isEmpty }
         }
 
         var seen = Set<String>()
-        english = english.filter { line in
+        versions = versions.filter { line in
             guard line.isComplete else { return true }
             return seen.insert(line.text.lowercased()).inserted
         }
-        return ConversionResult(english: Array(english.prefix(maxEnglish)), rewrites: rewrites)
+        return ConversionResult(versions: Array(versions.prefix(maxVersions)), rewrites: rewrites)
     }
 
-    static func splitTag(_ line: String) -> (Tag, String)? {
+    /// Lines tagged with the output language are the main versions; the other language's tag is ignored.
+    static func splitTag(_ line: String, output: Language = .english) -> (Tag, String)? {
         guard let colon = line.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return nil }
         let name = line[..<colon]
             .trimmingCharacters(in: CharacterSet(charactersIn: "*_` \t"))
@@ -103,13 +108,15 @@ public enum CandidateParser {
         var body = String(line[line.index(after: colon)...])
         // "**EN:** text" leaves the closing emphasis right after the colon.
         while let first = body.first, "*_".contains(first) { body.removeFirst() }
+        let language: Language
         switch name {
-        case "EN", "ENGLISH", "英文": return (.english, body)
-        case "ZH", "CN", "中文", "CHINESE": return (.ignored, body)
+        case "EN", "ENGLISH", "英文": language = .english
+        case "ZH", "CN", "中文", "CHINESE": language = .chinese
         default:
             guard let style = RewriteStyle.forTag(name) else { return nil }
             return (.rewrite(style.name), body)
         }
+        return (language == output ? .version : .ignored, body)
     }
 
     static func stripListMarker(_ line: String) -> String {

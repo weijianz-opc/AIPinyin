@@ -101,7 +101,7 @@ func commits(_ effects: [Composer.Effect]) -> [String] {
 
 struct ComposerTests {
     let final = ConversionResult(
-        english: [CandidateLine("Hi there."), CandidateLine("Hello."), CandidateLine("Hey.")],
+        versions: [CandidateLine("Hi there."), CandidateLine("Hello."), CandidateLine("Hey.")],
         rewrites: [
             Rewrite(style: "润色", line: CandidateLine("你好呀！")),
             Rewrite(style: "简洁", line: CandidateLine("嗨！")),
@@ -112,9 +112,16 @@ struct ComposerTests {
         pairs.map { Rewrite(style: $0.0, line: CandidateLine($0.1, isComplete: complete)) }
     }
 
-    func composer(ai: Bool = true) -> (Composer, FakeEngine) {
+    func composer(ai: Bool = true, englishAI: Bool = true, voice: Bool = true) -> (Composer, FakeEngine) {
         let engine = FakeEngine()
-        return (Composer(engine: engine, aiEnabled: ai), engine)
+        return (Composer(engine: engine, aiEnabled: ai, englishAI: englishAI, voiceEnabled: voice), engine)
+    }
+
+    /// Composer in English mode.
+    func english(ai: Bool = true, englishAI: Bool = true) -> (Composer, FakeEngine) {
+        let (c, e) = composer(ai: ai, englishAI: englishAI)
+        c.setInputMode(.english)
+        return (c, e)
     }
 
     func type(_ s: String, _ c: Composer) {
@@ -243,7 +250,7 @@ struct ComposerTests {
 
     @Test func levelTwoSpaceWaitsForFirstEnglishLine() {
         let (c, _) = translating()
-        let partial = ConversionResult(english: [CandidateLine("Hi th", isComplete: false)])
+        let partial = ConversionResult(versions: [CandidateLine("Hi th", isComplete: false)])
         #expect(c.receive(partial, isFinal: false, id: 1) == [.showPanel])
         #expect(c.highlighted == 1)
         #expect(c.handleKeyDown(spaceKey).effects.isEmpty)
@@ -256,7 +263,7 @@ struct ComposerTests {
         _ = c.receive(final, isFinal: true, id: 1)
         #expect(c.phase == .choosing)
         #expect(c.choices.map(\.label) == ["0", "1", "2", "3", "4", "5", "6"])
-        #expect(c.choices.map(\.kind) == [.original, .english, .english, .english,
+        #expect(c.choices.map(\.kind) == [.original, .version, .version, .version,
                                           .rewrite("润色"), .rewrite("简洁"), .rewrite("正式")])
         #expect(commits(c.handleKeyDown(spaceKey)) == ["Hi there."])
         #expect(c.phase == .idle)
@@ -287,12 +294,12 @@ struct ComposerTests {
 
     @Test func rewritesThatOnlyChangePunctuationAreHidden() {
         let (c, _) = translating()
-        _ = c.receive(ConversionResult(english: [CandidateLine("Hi.")], rewrites: rewrites([("润色", " 你好 ")])),
+        _ = c.receive(ConversionResult(versions: [CandidateLine("Hi.")], rewrites: rewrites([("润色", " 你好 ")])),
                       isFinal: true, id: 1)
         #expect(c.choices.map(\.label) == ["0", "1"])
 
         let (d, _) = translating()
-        _ = d.receive(ConversionResult(english: [CandidateLine("Hi.")],
+        _ = d.receive(ConversionResult(versions: [CandidateLine("Hi.")],
                                        rewrites: rewrites([("润色", "你好。"), ("正式", "您好。")])),
                       isFinal: true, id: 1)
         // "你好。" is the original plus a full stop: hidden, and the formal rewrite takes label 4.
@@ -301,7 +308,7 @@ struct ComposerTests {
         #expect(commits(d.handleKeyDown(k("4"))) == ["您好。"])
 
         let (e, _) = translating()
-        _ = e.receive(ConversionResult(english: [CandidateLine("Hi.")],
+        _ = e.receive(ConversionResult(versions: [CandidateLine("Hi.")],
                                        rewrites: rewrites([("润色", "您好！"), ("正式", "您好。")])),
                       isFinal: true, id: 1)
         #expect(e.choices.map(\.label) == ["0", "1", "4"])  // 正式 repeats the 润色 wording
@@ -310,19 +317,19 @@ struct ComposerTests {
 
     @Test func rewritesFollowTheModelsOrder() {
         let (c, _) = translating()
-        _ = c.receive(ConversionResult(english: [CandidateLine("Hi.")],
+        _ = c.receive(ConversionResult(versions: [CandidateLine("Hi.")],
                                        rewrites: rewrites([("委婉", "你好呀，打扰啦"), ("口语", "嗨～")])),
                       isFinal: true, id: 1)
-        #expect(c.choices.map(\.kind) == [.original, .english, .rewrite("委婉"), .rewrite("口语")])
+        #expect(c.choices.map(\.kind) == [.original, .version, .rewrite("委婉"), .rewrite("口语")])
         #expect(c.choices.map(\.label) == ["0", "1", "4", "5"])
     }
 
     @Test func rewritesAppearOnceComplete() {
         let (c, _) = translating()
-        _ = c.receive(ConversionResult(english: [CandidateLine("Hi.")], rewrites: rewrites([("润色", "你好")], complete: false)),
+        _ = c.receive(ConversionResult(versions: [CandidateLine("Hi.")], rewrites: rewrites([("润色", "你好")], complete: false)),
                       isFinal: false, id: 1)
         #expect(c.choices.map(\.label) == ["0", "1"])  // could still turn out to be a copy
-        _ = c.receive(ConversionResult(english: [CandidateLine("Hi.")],
+        _ = c.receive(ConversionResult(versions: [CandidateLine("Hi.")],
                                        rewrites: rewrites([("润色", "你好呀！")]) + rewrites([("简洁", "嗨")], complete: false)),
                       isFinal: false, id: 1)
         #expect(c.choices.map(\.label) == ["0", "1", "4"])
@@ -407,7 +414,7 @@ struct ComposerTests {
     }
 
     @Test func shiftAloneTogglesLatinAndKeepsTypedLetters() {
-        let (c, e) = composer()
+        let (c, e) = composer(englishAI: false)
         type("ni", c)
         #expect(c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: .shift, timestamp: 10).isEmpty)
         let r = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [], timestamp: 10.1)
@@ -501,5 +508,312 @@ struct ComposerTests {
     @Test func capsLockTypesDirectlyWhenIdle() {
         let (c, _) = composer()
         #expect(c.handleKeyDown(k("W", mods: .capsLock)) == .passThrough)
+    }
+
+    // MARK: - English drafts
+
+    @Test func englishModeTypingStartsADraftAndDoubleSpaceSendsIt() {
+        let (c, _) = english()
+        #expect(c.handleKeyDown(spaceKey) == .passThrough)  // a leading space is just a space
+        let r = c.handleKeyDown(k("o"))
+        #expect(r.handled && r.effects == [.updateMarkedText, .showPanel])
+        type("k", c)
+        #expect(c.draft == "ok" && c.isLatinDraft && c.markedText == "ok")
+        #expect(!c.spaceTranslates)
+        #expect(c.handleKeyDown(spaceKey).effects == [.updateMarkedText, .showPanel])
+        type("go", c)
+        _ = c.handleKeyDown(spaceKey)
+        #expect(c.draft == "ok go " && c.spaceTranslates)
+        #expect(c.handleKeyDown(spaceKey).effects.first == .startConversion(input: "ok go", id: 1))
+    }
+
+    @Test func keysThatEndTypingInsertTheEnglishDraftAndReachTheApp() {
+        let editingKeys = [
+            enterKey, escKey, upKey, downKey,
+            KeyEvent(keyCode: VirtualKey.tab, characters: "\t"),
+            KeyEvent(keyCode: VirtualKey.left, characters: "\u{F702}"),
+            KeyEvent(keyCode: VirtualKey.delete, characters: "\u{7F}", modifiers: .option),  // ⌥⌫
+            KeyEvent(keyCode: 0x00, characters: "a", modifiers: .command),  // ⌘A
+            KeyEvent(keyCode: 0x00, characters: "\u{1}", charactersIgnoringModifiers: "a", modifiers: .control),  // ⌃A
+        ]
+        for key in editingKeys {
+            let (c, _) = english()
+            type("ok", c)
+            let r = c.handleKeyDown(key)
+            #expect(!r.handled, "\(key)")
+            #expect(commits(r) == ["ok"], "\(key)")
+            #expect(c.phase == .idle && c.draft.isEmpty, "\(key)")
+        }
+    }
+
+    @Test func englishDraftEditing() {
+        let (c, _) = english()
+        type("caf", c)
+        // ⌥E is a dead key (no characters); the next key then types é.
+        let dead = c.handleKeyDown(KeyEvent(keyCode: 0x0E, characters: "", charactersIgnoringModifiers: "e", modifiers: .option))
+        #expect(dead.handled && commits(dead).isEmpty && c.draft == "caf")
+        _ = c.handleKeyDown(k("é"))
+        #expect(c.draft == "café")
+    }
+
+    @Test func englishDraftEditingKeys() {
+        let (c, _) = english()
+        type("okk", c)
+        _ = c.handleKeyDown(backspaceKey)
+        #expect(c.draft == "ok")
+        _ = c.handleKeyDown(k("é"))  // no librime key for it: still part of the sentence
+        _ = c.handleKeyDown(k("!", mods: .shift))
+        #expect(c.draft == "oké!")
+        _ = c.handleKeyDown(backspaceKey)
+        _ = c.handleKeyDown(backspaceKey)
+        _ = c.handleKeyDown(backspaceKey)
+        let last = c.handleKeyDown(backspaceKey)
+        #expect(last.effects == [.updateMarkedText, .hidePanel] && c.phase == .idle)
+        #expect(c.handleKeyDown(backspaceKey) == .passThrough)
+    }
+
+    @Test func englishLettersGoToTheAppWithoutEnglishAIOrWithAIOff() {
+        let (c, _) = english(englishAI: false)
+        #expect(c.handleKeyDown(k("a")) == .passThrough)
+        let (d, _) = english(ai: false)
+        #expect(d.handleKeyDown(k("a")) == .passThrough)
+    }
+
+    @Test func pinyinAfterAnEnglishDraftMakesItAChineseSentence() {
+        let (c, _) = english()
+        type("ok", c)
+        _ = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: .shift, timestamp: 1)
+        _ = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [], timestamp: 1.1)
+        type("nihao", c)
+        _ = c.handleKeyDown(spaceKey)
+        #expect(c.draft == "ok你好" && !c.isLatinDraft)
+        #expect(commits(c.handleKeyDown(enterKey)) == ["ok你好"])  // a Chinese draft keeps Return
+    }
+
+    @Test func defaultInputModeOnlyAppliesWhenIdle() {
+        let (c, e) = composer()
+        c.setInputMode(.english)
+        #expect(e.ascii && c.engineState.isAsciiMode)
+        c.setInputMode(.chinese)
+        #expect(!e.ascii)
+        type("ni", c)
+        c.setInputMode(.english)
+        #expect(!e.ascii)  // composing: left alone
+    }
+
+    @Test func rewritesRepeatingAMainVersionAreHidden() {
+        let (c, _) = english()
+        type("hi", c)
+        _ = c.handleKeyDown(spaceKey)
+        _ = c.handleKeyDown(spaceKey)
+        _ = c.receive(ConversionResult(versions: [CandidateLine("Hi there!"), CandidateLine("Hello!")],
+                                       rewrites: rewrites([("润色", "Hi there."), ("简洁", "Hey.")])),
+                      isFinal: true, id: 1)
+        #expect(c.choices.map(\.label) == ["0", "1", "2", "4"])
+        #expect(c.choices.last?.text == "Hey.")
+    }
+
+    // MARK: - Voice
+
+    /// Right Option down / up as modifier changes report them (device bit included).
+    func optionDown(_ c: Composer) -> [Composer.Effect] {
+        c.handleFlagsChanged(keyCode: VirtualKey.rightOption, modifiers: [.option, .rightOption], timestamp: 0)
+    }
+
+    func optionUp(_ c: Composer) -> [Composer.Effect] {
+        c.handleFlagsChanged(keyCode: VirtualKey.rightOption, modifiers: [], timestamp: 0)
+    }
+
+    /// Press and hold past the arming delay: dictation starts.
+    func startDictation(_ c: Composer) -> [Composer.Effect] {
+        #expect(optionDown(c) == [.armVoice(delay: Composer.voiceArmDelay)])
+        return c.voiceHoldElapsed()
+    }
+
+    @Test func holdingRightOptionDictatesIntoTheDraft() {
+        let (c, _) = composer()
+        #expect(optionDown(c) == [.armVoice(delay: Composer.voiceArmDelay)])
+        #expect(c.voice == .off && c.phase == .idle)  // nothing happens until the hold is confirmed
+        #expect(c.voiceHoldElapsed() == [.updateMarkedText, .showPanel, .startVoice(id: 1, language: .chinese)])
+        #expect(c.voice == .listening(id: 1, text: "") && c.isComposing && c.wantsPanel)
+        #expect(c.voiceText("我今天", id: 1) == [.updateMarkedText, .showPanel])
+        #expect(c.markedText == "我今天" && c.markedCursor == 3)
+        #expect(optionUp(c) == [.stopVoice(id: 1), .showPanel])
+        #expect(c.voice == .finishing(id: 1, text: "我今天"))
+        #expect(c.voiceFinished("我今天有点不舒服", id: 1) == [.updateMarkedText, .showPanel])
+        #expect(c.voice == .off && c.draft == "我今天有点不舒服" && c.phase == .drafting)
+        #expect(c.handleKeyDown(spaceKey).effects.first == .startConversion(input: "我今天有点不舒服", id: 1))
+    }
+
+    @Test func tapsAndOptionShortcutsNeverStartDictation() {
+        // A tap: released before the hold is confirmed.
+        let (c, _) = composer()
+        _ = optionDown(c)
+        #expect(optionUp(c) == [.notice("按住右 ⌥ 说话")])
+        #expect(c.voiceHoldElapsed().isEmpty && c.voice == .off)
+        // ⌥← with pinyin pending: the arrow goes to the engine, the pinyin stays as it is.
+        let (d, _) = composer()
+        type("zhongguo", d)
+        _ = optionDown(d)
+        _ = d.handleKeyDown(KeyEvent(keyCode: VirtualKey.left, characters: "\u{F702}", modifiers: .option))
+        #expect(d.voiceHoldElapsed().isEmpty && d.voice == .off && d.engineState.isComposing && d.draft.isEmpty)
+        // Another modifier joining in (⌥⇧, ⌥⌘) is a shortcut.
+        let (e, _) = composer()
+        _ = optionDown(e)
+        _ = e.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [.option, .rightOption, .shift], timestamp: 0)
+        #expect(e.voiceHoldElapsed().isEmpty)
+        // The key is no longer down when the timer fires (its release went unseen).
+        let (f, _) = composer()
+        _ = optionDown(f)
+        #expect(f.voiceHoldElapsed(stillHeld: false).isEmpty && f.voice == .off)
+        // Right ⌥ while left ⌥ is held is not a hold on its own.
+        let (g, _) = composer()
+        let both = g.handleFlagsChanged(keyCode: VirtualKey.rightOption, modifiers: [.option, .leftOption, .rightOption], timestamp: 0)
+        #expect(both.isEmpty && g.voiceHoldElapsed().isEmpty)
+    }
+
+    @Test func aMissedReleaseStillStopsTheRecording() {
+        // Left ⌥ goes down during dictation, right ⌥ is released, then left ⌥.
+        let (c, _) = composer()
+        _ = startDictation(c)
+        #expect(c.handleFlagsChanged(keyCode: VirtualKey.leftOption, modifiers: [.option, .leftOption, .rightOption], timestamp: 0).isEmpty)
+        #expect(c.handleFlagsChanged(keyCode: VirtualKey.rightOption, modifiers: [.option, .leftOption], timestamp: 0)
+                == [.stopVoice(id: 1), .showPanel])
+        // The release itself was never delivered: the next modifier change without right ⌥ ends it.
+        let (d, _) = composer()
+        _ = startDictation(d)
+        #expect(d.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: .shift, timestamp: 0)
+                == [.stopVoice(id: 1), .showPanel])
+        // Without device bits (older event sources) the Option flag decides.
+        let (e, _) = composer()
+        _ = e.handleFlagsChanged(keyCode: VirtualKey.rightOption, modifiers: .option, timestamp: 0)
+        _ = e.voiceHoldElapsed()
+        #expect(e.handleFlagsChanged(keyCode: VirtualKey.rightOption, modifiers: [], timestamp: 0)
+                == [.stopVoice(id: 1), .showPanel])
+    }
+
+    @Test func keysWhileListeningCancelTheRecording() {
+        let (c, _) = composer()
+        _ = startDictation(c)
+        let r = c.handleKeyDown(k("n"))
+        #expect(r.effects.first == .cancelVoice(id: 1) && r.handled)
+        #expect(c.voice == .off && c.markedText == "n")
+        let (d, _) = composer()
+        _ = startDictation(d)
+        #expect(d.handleKeyDown(escKey) == .consumed([.cancelVoice(id: 1), .updateMarkedText, .hidePanel]))
+        let (o, _) = composer()
+        _ = startDictation(o)
+        let chord = o.handleKeyDown(k("∑", mods: .option))  // an ⌥ chord with nothing pending reaches the app
+        #expect(!chord.handled && chord.effects.first == .cancelVoice(id: 1))
+    }
+
+    @Test func aKeyBeforeTheFinalTranscriptKeepsWhatWasHeard() {
+        let (c, _) = composer()
+        _ = startDictation(c)
+        _ = c.voiceText("你好", id: 1)
+        _ = optionUp(c)
+        let r = c.handleKeyDown(spaceKey)
+        #expect(r.effects.prefix(2) == [.cancelVoice(id: 1), .updateMarkedText])
+        #expect(r.effects.contains(.startConversion(input: "你好", id: 1)))
+        let (d, _) = composer()
+        _ = startDictation(d)
+        _ = d.voiceText("你好", id: 1)
+        _ = optionUp(d)
+        #expect(d.handleKeyDown(escKey).effects.first == .cancelVoice(id: 1))
+        #expect(d.draft.isEmpty && d.phase == .idle)
+    }
+
+    @Test func englishDictationMakesAnEnglishDraftThatOneSpaceSends() {
+        let (c, _) = english()
+        type("ok", c)
+        #expect(startDictation(c).last == .startVoice(id: 1, language: .english))
+        _ = c.voiceText("this is", id: 1)
+        #expect(c.markedText == "ok this is")
+        _ = optionUp(c)
+        _ = c.voiceFinished("this is a blocker bug", id: 1)
+        #expect(c.draft == "ok this is a blocker bug" && c.isLatinDraft && c.spaceTranslates)
+        #expect(c.handleKeyDown(spaceKey).effects.first == .startConversion(input: "ok this is a blocker bug", id: 1))
+        // Typing right after an English transcript gets a separating space.
+        let (d, _) = english()
+        _ = startDictation(d)
+        _ = optionUp(d)
+        _ = d.voiceFinished("hello world", id: 1)
+        type("and", d)
+        #expect(d.draft == "hello world and")
+    }
+
+    @Test func dictationConvertsPendingPinyinAndLeavesLevelTwo() {
+        let (c, _) = composer()
+        type("nihao", c)
+        _ = startDictation(c)
+        #expect(c.draft == "你好" && c.markedText == "你好")
+        _ = optionUp(c)
+        _ = c.voiceFinished("吗", id: 1)
+        #expect(c.draft == "你好吗")
+        let (t, _) = translating()
+        #expect(startDictation(t).prefix(1) == [.cancelConversion])
+        #expect(!t.isLevelTwo && t.draft == "你好" && t.voice == .listening(id: 1, text: ""))
+    }
+
+    @Test func dictationWithAIOffInsertsTheTranscript() {
+        let (c, _) = composer(ai: false)
+        _ = startDictation(c)
+        _ = optionUp(c)
+        #expect(commits(c.voiceFinished("你好", id: 1)) == ["你好"])
+        #expect(c.phase == .idle)
+    }
+
+    @Test func voiceOffNotReadyEmptyAndFailedResults() {
+        let (c, _) = composer(voice: false)
+        #expect(optionDown(c).isEmpty && c.voiceHoldElapsed().isEmpty && c.voice == .off)
+        let (n, _) = composer()
+        n.engine = nil
+        #expect(optionDown(n).isEmpty)  // dictionaries not ready: no dictation either
+        let (d, _) = composer()
+        _ = startDictation(d)
+        _ = optionUp(d)
+        #expect(d.voiceFinished("  ", id: 1).last == .notice("没听清，再说一次"))
+        #expect(d.phase == .idle)
+        _ = startDictation(d)
+        #expect(d.voiceFailed("没有麦克风权限", id: 2).last == .notice("没有麦克风权限"))
+        #expect(d.voice == .off && d.phase == .idle)
+        #expect(d.voiceText("迟到", id: 2).isEmpty)
+        #expect(d.voiceFinished("迟到", id: 2).isEmpty)
+    }
+
+    @Test func focusLossKeepsWhatWasHeardAndShiftIsIgnoredWhileListening() {
+        let (c, e) = composer()
+        type("wo", c)
+        _ = c.handleKeyDown(spaceKey)
+        _ = startDictation(c)
+        _ = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [.shift, .option, .rightOption], timestamp: 10.1)
+        _ = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [.option, .rightOption], timestamp: 10.2)
+        #expect(!e.ascii && c.voice == .listening(id: 1, text: ""))
+        _ = c.voiceText("今天", id: 1)
+        #expect(c.commitAll() == [.cancelVoice(id: 1), .hidePanel, .commit("我今天")])
+        #expect(c.voice == .off && c.phase == .idle)
+    }
+
+    @Test func shiftSpaceInAnEnglishDraftIsASpace() {
+        let (c, _) = english()
+        _ = c.handleKeyDown(k("I", mods: .shift))
+        let r = c.handleKeyDown(shiftSpace)  // Shift still down from the capital
+        #expect(r.handled && c.aiEnabled && c.draft == "I ")
+        let (d, _) = english()
+        #expect(d.handleKeyDown(shiftSpace).effects.contains(.aiModeChanged(false)))  // nothing pending: the AI switch
+    }
+
+    @Test func versionsRepeatingTheOriginalAreHidden() {
+        let (c, _) = composer()
+        type("nihao", c)
+        _ = c.handleKeyDown(spaceKey)
+        _ = c.handleKeyDown(spaceKey)
+        _ = c.receive(ConversionResult(versions: [CandidateLine("你好。"), CandidateLine("你好呀！"), CandidateLine("你好呀。")]),
+                      isFinal: true, id: 1)
+        #expect(c.choices.map(\.text) == ["你好", "你好呀！"])
+        #expect(c.choices.map(\.label) == ["0", "1"])
+        let (d, _) = translating()
+        _ = d.receive(ConversionResult(versions: [CandidateLine("你好。")]), isFinal: true, id: 1)
+        #expect(d.phase == .choosing && d.choices.count == 1)  // the model said it's fine as typed
     }
 }

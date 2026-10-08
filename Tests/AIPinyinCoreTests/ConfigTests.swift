@@ -104,6 +104,17 @@ struct ConfigTests {
         #expect(RewriteStyle.resolve(["委婉", "nope", "CONCISE", "简洁"]).map(\.name) == ["委婉", "简洁"])
     }
 
+    @Test func inputOutputAndVoiceSettings() throws {
+        let missing = try decode("{}")
+        #expect(missing.outputLanguage == .english && missing.defaultInput == .chinese)
+        #expect(missing.englishAI && missing.voiceInput)
+        let set = try decode(#"{"outputLanguage": "zh", "defaultInput": "en", "englishAI": false, "voiceInput": false}"#)
+        #expect(set.outputLanguage == .chinese && set.defaultInput == .english)
+        #expect(!set.englishAI && !set.voiceInput)
+        #expect(throws: DecodingError.self) { try decode(#"{"outputLanguage": "fr"}"#) }
+        #expect(Language.of("我check一下") == .chinese && Language.of("check it") == .english)
+    }
+
     @Test func fileRoundTripAndMissingFile() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aipinyin-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -114,10 +125,15 @@ struct ConfigTests {
         c.awsProfile = "work"
         c.temperature = nil
         c.rewriteStyles = ["口语", "正式"]
+        c.outputLanguage = .chinese
+        c.defaultInput = .english
+        c.englishAI = false
+        c.voiceInput = false
         try c.write(to: url)
         #expect(try Config.load(from: url) == c)
         let text = try String(contentsOf: url, encoding: .utf8)
         #expect(text.contains("\"口语\""))  // stays readable, not \u escapes
+        #expect(text.contains("\"outputLanguage\" : \"zh\""))
 
         try Data("{not json".utf8).write(to: url)
         #expect(throws: ConfigError.self) { try Config.load(from: url) }

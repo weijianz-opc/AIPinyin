@@ -9,6 +9,9 @@ public struct KeyModifiers: OptionSet, Sendable, Hashable {
     public static let option = KeyModifiers(rawValue: 1 << 2)
     public static let command = KeyModifiers(rawValue: 1 << 3)
     public static let capsLock = KeyModifiers(rawValue: 1 << 4)
+    /// Which Option key is down (device-dependent bits, only set for modifier-change events).
+    public static let leftOption = KeyModifiers(rawValue: 1 << 5)
+    public static let rightOption = KeyModifiers(rawValue: 1 << 6)
 }
 
 /// A key-down as the input method receives it from AppKit.
@@ -64,6 +67,8 @@ public enum VirtualKey {
     public static let up: UInt16 = 0x7E
     public static let leftShift: UInt16 = 0x38
     public static let rightShift: UInt16 = 0x3C
+    public static let leftOption: UInt16 = 0x3A
+    public static let rightOption: UInt16 = 0x3D
     /// F1–F12 in order.
     public static let functionKeys: [UInt16] = [0x7A, 0x78, 0x63, 0x76, 0x60, 0x61, 0x62, 0x64, 0x65, 0x6D, 0x67, 0x6F]
 }

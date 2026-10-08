@@ -28,6 +28,10 @@
 	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Personal build</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>按住右 ⌥ 说话时录音。语音在这台 Mac 上识别成文字，不会上传。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>按住右 ⌥ 说话时把语音识别成文字（在这台 Mac 上完成）。</string>
 	<key>InputMethodConnectionName</key>
 	<string>com.aipinyin.inputmethod.AIPinyin_Connection</string>
 	<key>InputMethodServerControllerClass</key>

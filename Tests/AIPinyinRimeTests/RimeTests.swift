@@ -134,6 +134,29 @@ struct RimeEngineTests {
         #expect(composer.phase == .idle)
     }
 
+    /// English mode in real librime: letters, capitals and punctuation collect into an English draft,
+    /// a double Space sends it, Return inserts it as typed and still reaches the application.
+    @Test func englishModeDraftsWithTheRealEngine() throws {
+        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)
+        composer.setInputMode(.english)
+        #expect(composer.engineState.isAsciiMode)
+        for ch in "Hi" {
+            _ = composer.handleKeyDown(KeyEvent(keyCode: 0, characters: String(ch),
+                                                modifiers: ch.isUppercase ? .shift : []))
+        }
+        _ = composer.handleKeyDown(key(","))
+        _ = composer.handleKeyDown(space)
+        for ch in "team" { _ = composer.handleKeyDown(key(ch)) }
+        #expect(composer.draft == "Hi, team" && composer.isLatinDraft)
+        _ = composer.handleKeyDown(space)
+        #expect(composer.handleKeyDown(space).effects.first == .startConversion(input: "Hi, team", id: 1))
+        _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.escape, characters: "\u{1B}"))  // back to the draft
+        let r = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.returnKey, characters: "\r"))
+        #expect(!r.handled && r.effects.contains(.commit("Hi, team ")))
+        composer.setInputMode(.chinese)
+        #expect(!composer.engineState.isAsciiMode)
+    }
+
     /// rime-ice rejects keys carrying the Caps Lock mask; turning Caps Lock on mid-word must not freeze it.
     @Test func capsLockMidCompositionKeepsEditing() throws {
         let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)

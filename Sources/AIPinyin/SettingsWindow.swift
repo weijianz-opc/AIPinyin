@@ -1,6 +1,7 @@
 import AIPinyinCore
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Models offered in the settings window (any Bedrock model / inference-profile ID can be typed in).
 /// Measured on 10 everyday sentences with the default presets (2026-10).
@@ -107,6 +108,94 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    // MARK: Voice
+
+    @Published private(set) var installedModels: [Language: Bool] = [:]
+    @Published private(set) var modelProgress: [Language: Double] = [:]
+    @Published private(set) var microphone = VoiceInput.microphoneAccess
+    @Published private(set) var voiceError: String?
+
+    func refreshVoice() {
+        microphone = VoiceInput.microphoneAccess
+        // A download started by the input method (first dictation) shows its progress here too.
+        for language in VoiceInput.downloads.keys where modelProgress[language] == nil { downloadModel(language) }
+        Task { [weak self] in
+            for language in [Language.chinese, .english] {
+                let installed = await VoiceInput.isModelInstalled(language)
+                self?.installedModels[language] = installed
+            }
+        }
+    }
+
+    func downloadModel(_ language: Language) {
+        voiceError = nil
+        modelProgress[language] = 0
+        VoiceInput.startDownload(language, progress: { [weak self] in self?.modelProgress[language] = $0 }) { [weak self] error in
+            self?.modelProgress[language] = nil
+            if let error { self?.voiceError = "下载失败：\(AIPinyinInputController.describe(error))" }
+            self?.refreshVoice()
+        }
+    }
+
+    /// Asks for microphone access (system prompt), or opens the privacy settings once it was denied.
+    func microphoneAction() {
+        switch microphone {
+        case .notDetermined:
+            Task { [weak self] in
+                _ = await VoiceInput.requestMicrophoneAccess()
+                self?.microphone = VoiceInput.microphoneAccess
+            }
+        case .denied:
+            NSWorkspace.shared.open(VoiceInput.microphoneSettingsURL)
+        case .granted:
+            break
+        }
+    }
+
+    // MARK: Jargon list (the user's own; nothing is built in)
+
+    @Published private(set) var jargonCount = 0
+    @Published private(set) var jargonExists = false
+
+    var jargonPath: String { (config.jargonURL.path as NSString).abbreviatingWithTildeInPath }
+
+    func refreshJargon() {
+        let url = config.jargonURL
+        jargonExists = FileManager.default.fileExists(atPath: url.path)
+        jargonCount = jargonExists ? JargonLibrary.load(from: url).count : 0
+    }
+
+    /// Uses a text file the user already has (e.g. the team's list) where it is.
+    func chooseJargonFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText, .tabSeparatedText] + [UTType(filenameExtension: "md")].compactMap { $0 }
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.directoryURL = config.jargonURL.deletingLastPathComponent()
+        panel.message = "选择你的黑话库：文本文件，每行一个词，可以加解释"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        config.jargonFile = (url.path as NSString).abbreviatingWithTildeInPath
+        save()
+        refreshJargon()
+    }
+
+    /// Opens the list in the text editor, first creating it (comments only) if it doesn't exist.
+    func openJargonFile() {
+        let url = config.jargonURL
+        if !FileManager.default.fileExists(atPath: url.path) {
+            guard persists else { return }
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data(JargonLibrary.template.utf8).write(to: url, options: .withoutOverwriting)
+            } catch {
+                saveError = "无法创建黑话库：\(error.localizedDescription)"
+                return
+            }
+        }
+        NSWorkspace.shared.open(url)
+        refreshJargon()
+    }
+
     // MARK: Test
 
     func runTest() {
@@ -123,11 +212,12 @@ final class SettingsModel: ObservableObject {
                     final = update.result
                     elapsed = update.elapsed
                 }
-                guard let english = final.english.first?.text else { throw BedrockError.invalidResponse("没有返回英文") }
-                // Like the candidate panel: a rewrite that only changes punctuation isn't shown.
-                let rewrite = final.rewrites.first { $0.line.text.wordingKey != sample.wordingKey }
+                guard let first = final.versions.first?.text else { throw BedrockError.invalidResponse("没有返回结果") }
+                // Like the candidate panel: a rewrite that only changes punctuation or repeats a row isn't shown.
+                let shown = Set(([sample] + final.versions.map(\.text)).map(\.wordingKey))
+                let rewrite = final.rewrites.first { !shown.contains($0.line.text.wordingKey) }
                     .map { "\n\($0.style)：\($0.line.text)" } ?? ""
-                self?.testStatus = .passed(String(format: "%.1f 秒：%@%@", elapsed, english, rewrite))
+                self?.testStatus = .passed(String(format: "%.1f 秒：%@%@", elapsed, first, rewrite))
             } catch {
                 self?.testStatus = .failed(AIPinyinInputController.describe(error))
             }
@@ -151,11 +241,27 @@ struct SettingsView: View {
 
             Section {
                 Toggle("开启 AI 翻译和改写（⇧空格）", isOn: Binding(get: { model.aiEnabled }, set: { model.setAI($0) }))
-                Text("整句打完按空格：1–3 是英文，后面是下方勾选的中文改写。关闭后就是普通拼音输入法。")
+                Text("整句打完按空格：1–3 是\(model.config.outputLanguage.displayName)，后面是下方勾选的改写。关闭后就是普通拼音输入法。")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("中文改写风格") {
+            Section("输入和输出") {
+                Picker("默认输入", selection: $model.config.defaultInput) {
+                    Text("中文（拼音）").tag(Language.chinese)
+                    Text("英文").tag(Language.english)
+                }
+                .pickerStyle(.segmented)
+                Picker("输出（1–3 行）", selection: $model.config.outputLanguage) {
+                    Text("英文").tag(Language.english)
+                    Text("中文").tag(Language.chinese)
+                }
+                .pickerStyle(.segmented)
+                Toggle("英文模式也用 AI（打完连按两次空格）", isOn: $model.config.englishAI)
+                Text(inputSummary).font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!model.canSave)
+
+            Section("改写风格") {
                 ForEach(RewriteStyle.catalog, id: \.name) { style in
                     Toggle(isOn: Binding(get: { model.isStyleOn(style) },
                                          set: { model.setStyle(style, on: $0) })) {
@@ -166,8 +272,42 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(!model.canSave)
-                if model.config.rewriteStyles.isEmpty {
-                    Text("都不勾选时只出英文。").font(.caption).foregroundStyle(.secondary)
+                Text(model.config.rewriteStyles.isEmpty
+                     ? "都不勾选时只出 1–3 行。"
+                     : "改写用原文的语言：打中文出中文改写，打英文出英文改写。")
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("黑话库") {
+                    HStack(spacing: 8) {
+                        Text(model.jargonExists ? "\(model.jargonCount) 个词" : "未设置").foregroundStyle(.secondary)
+                        Button("选择文件…") { model.chooseJargonFile() }
+                        Button(model.jargonExists ? "打开" : "新建") { model.openJargonFile() }
+                    }
+                }
+                .disabled(!model.canSave)
+                Text("用你自己的词表：文本文件，每行一个词，可以加解释（如 bandwidth：精力、时间）。勾上「黑话」后模型优先用这些词，候选里会注明意思。"
+                     + (model.jargonExists ? "\n文件：\(model.jargonPath)" : ""))
+                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+
+            Section("语音输入") {
+                Toggle("按住右 ⌥ 说话，松开结束", isOn: $model.config.voiceInput)
+                    .disabled(!model.canSave)
+                if VoiceInput.isSupported {
+                    ForEach([Language.chinese, .english], id: \.self) { language in
+                        LabeledContent("\(language.displayName)语音模型") { modelStatus(language) }
+                    }
+                    LabeledContent("麦克风") {
+                        switch model.microphone {
+                        case .granted: Text("已允许").foregroundStyle(.secondary)
+                        case .notDetermined: Button("允许使用麦克风") { model.microphoneAction() }
+                        case .denied: Button("已拒绝，去系统设置打开") { model.microphoneAction() }
+                        }
+                    }
+                    if let error = model.voiceError { Text(error).foregroundStyle(.red) }
+                    Text("中文模式说中文，英文模式说英文。语音在这台 Mac 上识别，不上传；识别出的文字和打字一样进草稿。")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("需要 macOS 26 或更新版本。").font(.caption).foregroundStyle(.secondary)
                 }
             }
 
@@ -237,7 +377,44 @@ struct SettingsView: View {
         .onChange(of: model.config.maxTokens) { model.save() }
         .onChange(of: model.config.temperature) { model.save() }
         .onChange(of: model.config.timeoutSeconds) { model.save() }
+        .onChange(of: model.config.defaultInput) { model.save() }
+        .onChange(of: model.config.outputLanguage) { model.save() }
+        .onChange(of: model.config.englishAI) { model.save() }
+        .onChange(of: model.config.voiceInput) { model.save() }
+        .onAppear {
+            model.refreshVoice()
+            model.refreshJargon()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            model.refreshJargon()  // the list may have been edited in the text editor
+        }
         .onDisappear { model.save() }
+    }
+
+    /// What Space does for Chinese and for English input with the current settings.
+    private var inputSummary: String {
+        let chinese = AIPinyinInputController.actionText(input: .chinese, config: model.config)
+        let english = AIPinyinInputController.actionText(input: .english, config: model.config)
+        let englishPart = model.config.englishAI
+            ? "打英文连按两次空格：\(english)"
+            : "英文模式下字母直接上屏"
+        return "打中文按空格：\(chinese)；\(englishPart)。单按 Shift 切换中英文。"
+    }
+
+    @ViewBuilder
+    private func modelStatus(_ language: Language) -> some View {
+        if let progress = model.modelProgress[language] {
+            HStack {
+                ProgressView(value: progress).frame(width: 120)
+                Text(String(format: "%.0f%%", progress * 100)).foregroundStyle(.secondary).monospacedDigit()
+            }
+        } else {
+            switch model.installedModels[language] {
+            case true?: Text("已安装").foregroundStyle(.secondary)
+            case false?: Button("下载（只需一次）") { model.downloadModel(language) }
+            case nil: ProgressView().controlSize(.small)
+            }
+        }
     }
 
     private var modelSelection: Binding<String> {
@@ -284,9 +461,9 @@ final class SettingsWindow {
             window.title = "AI 拼音 设置"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
-            // The whole form is about 930 pt tall; on smaller screens it scrolls.
+            // The whole form is about 1350 pt tall; on smaller screens it scrolls.
             let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 900
-            window.setContentSize(NSSize(width: 560, height: min(940, visible - 60)))
+            window.setContentSize(NSSize(width: 560, height: min(1360, visible - 60)))
             window.center()
             self.window = window
         }
