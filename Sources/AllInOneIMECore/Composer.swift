@@ -14,6 +14,12 @@ import Foundation
 ///      ▲               │   ▲ ◀──────────── Esc / ⌫ / typing more ────────────────────────┘ │
 ///      └── ⏎ commits draft ┘ ◀──────────────── Space / digits / ⏎ commit ──────────────────┘
 ///
+/// The selection key (`selectionKey`: the translate key, or ⌥Space when that is Space) with nothing
+/// being composed sends the text selected in the document (read by the controller, see `Selection`)
+/// straight to level two. The selection stays in the document, untouched, until a line is chosen,
+/// which then replaces it (`replaceSelection`); Esc, 0 and anything that ends the composition leave
+/// it exactly as it was.
+///
 /// With AI off, level one behaves like a plain Rime input method (commits go straight to the document).
 /// The input controller performs the returned `Effect`s in order. Main thread only.
 public final class Composer {
@@ -49,11 +55,27 @@ public final class Composer {
         }
     }
 
+    /// What is selected in the document when the selection key is pressed with nothing being composed.
+    public enum Selection: Equatable, Sendable {
+        /// Nothing is selected (or the application doesn't say): the key goes on as usual.
+        case none
+        /// The selected text, without surrounding whitespace (see `trimSelection`). Blank text (the
+        /// controller sends it for a selected empty line) is refused with a notice, like the cases
+        /// below: only `none` lets ⌥Space reach the application.
+        case text(String)
+        /// Text is selected, but the application doesn't hand all of it over.
+        case unreadable
+        /// More is selected than `maxSelectionLength`.
+        case tooLong
+    }
+
     public enum Effect: Equatable, Sendable {
         /// Re-render the inline marked text from `markedText` / `markedCursor`.
         case updateMarkedText
         /// Insert text into the document, replacing the marked text.
         case commit(String)
+        /// Replace the selected text that was sent with this (only if it is still selected and unchanged).
+        case replaceSelection(String)
         case startConversion(input: String, id: Int)
         case cancelConversion
         /// Show or refresh the candidate panel.
@@ -122,14 +144,29 @@ public final class Composer {
         public var aiOn: String
         public var aiOff: String
         public var noResult: String
+        /// Selected text that can't be sent (the selection key is consumed, so nothing types over it).
+        public var selectionNeedsAI: String
+        public var selectionUnreadable: String
+        public var selectionTooLong: String
+        public var selectionBlank: String
+        public var selectionMultiline: String
+        public var selectionAttachment: String
 
         public static let chinese = Messages(
             notReady: "词库准备中，稍候可用", holdToTalk: "按住右 ⌥ 说话", didNotHear: "没听清，再说一次",
-            chineseMode: "中", englishMode: "英", aiOn: "AI 翻译：开", aiOff: "AI 翻译：关", noResult: "没有得到结果")
+            chineseMode: "中", englishMode: "英", aiOn: "AI 翻译：开", aiOff: "AI 翻译：关", noResult: "没有得到结果",
+            selectionNeedsAI: "AI 翻译已关（⇧空格开启）", selectionUnreadable: "读不到选中的文字（这个应用不支持）",
+            selectionTooLong: "选中的文字太长：最多 \(Composer.maxSelectionLength) 字", selectionBlank: "选中的只有空格或换行",
+            selectionMultiline: "选中的文字跨了几行：一次选一段", selectionAttachment: "选中的内容里有图片或附件：只能改文字")
         public static let english = Messages(
             notReady: "Loading the dictionaries, one moment", holdToTalk: "Hold right ⌥ to talk",
             didNotHear: "Didn't catch that, try again", chineseMode: "Chinese", englishMode: "English",
-            aiOn: "AI: on", aiOff: "AI: off", noResult: "No result")
+            aiOn: "AI: on", aiOff: "AI: off", noResult: "No result",
+            selectionNeedsAI: "AI is off (⇧Space turns it on)", selectionUnreadable: "Can't read the selected text (this app doesn't share it)",
+            selectionTooLong: "Too much selected: \(Composer.maxSelectionLength) characters at most",
+            selectionBlank: "Only spaces or line breaks are selected",
+            selectionMultiline: "The selection spans several lines: select one paragraph",
+            selectionAttachment: "The selection has an image or attachment: only text can be rewritten")
     }
     /// Confirmed text waiting for level two (AI mode only).
     public private(set) var draft = ""
@@ -137,6 +174,9 @@ public final class Composer {
     public private(set) var engineState = EngineSnapshot.empty
     public private(set) var result = ConversionResult.empty
     public private(set) var voice = Voice.off
+    /// Level two is working on text selected in the document (⌥Space). That text stays where it is,
+    /// untouched and not marked, until a line is chosen.
+    public private(set) var replacesSelection = false
     public var aiEnabled: Bool
     /// With AI on, English-mode typing starts a draft (otherwise letters go to the application).
     public var englishAI: Bool
@@ -201,14 +241,16 @@ public final class Composer {
     }
 
     /// Inline text: the draft followed by the engine's composition and any speech being recognized.
+    /// Nothing while converting selected text (the selection itself shows what is being converted).
     public var markedText: String {
+        if replacesSelection { return "" }
         if isLevelTwo { return draft }
         return draft + (engineState.isComposing ? engineState.preedit : "") + appendix(voice.text)
     }
 
     /// Caret position in `markedText`, in Characters.
     public var markedCursor: Int {
-        if voice != .off { return markedText.count }
+        if voice != .off || replacesSelection { return markedText.count }
         guard !isLevelTwo, engineState.isComposing else { return draft.count }
         return draft.count + min(max(engineState.cursor, 0), engineState.preedit.count)
     }
@@ -257,7 +299,9 @@ public final class Composer {
 
     // MARK: - Keys
 
-    public func handleKeyDown(_ event: KeyEvent) -> Response {
+    /// `selection` reads what is selected in the document; it is only called for the selection key
+    /// (when that is ⌥Space) with nothing being composed.
+    public func handleKeyDown(_ event: KeyEvent, selection: () -> Selection = { .none }) -> Response {
         shiftPressedAt = nil
         optionPressed = nil  // ⌥ with a key is a shortcut, not a tap
         voiceArmed = false  // a key with right ⌥ down is an ⌥ shortcut, not dictation
@@ -265,6 +309,8 @@ public final class Composer {
             draftEndsWithVoice = false
             return .consumed(effects)
         }
+        // A key that ends a dictation (⌥Space while right ⌥ is held) is not about selected text.
+        let selection = phase == .idle ? selection : { .none }
         let afterVoice = draftEndsWithVoice
         draftEndsWithVoice = false
         var prefix: [Effect] = []
@@ -281,16 +327,24 @@ public final class Composer {
         case .off:
             break
         }
-        let response = dispatchKey(event, afterVoice: afterVoice || !prefix.isEmpty && draftEndsWithVoice)
+        let response = dispatchKey(event, afterVoice: afterVoice || !prefix.isEmpty && draftEndsWithVoice,
+                                   selection: selection)
         return Response(effects: prefix + response.effects, handled: response.handled)
     }
 
-    private func dispatchKey(_ event: KeyEvent, afterVoice: Bool) -> Response {
+    private func dispatchKey(_ event: KeyEvent, afterVoice: Bool, selection: () -> Selection) -> Response {
         draftEndsWithVoice = false
         let modifiers = event.modifiers.subtracting(.capsLock)
         if modifiers.contains(.command) {
+            // ⌘C, ⌘X, ⌘Z … act on the selected text itself: stop converting it (nothing is replaced later).
+            if replacesSelection { return Response(effects: finish(committing: ""), handled: false) }
             // A shortcut with an English draft pending acts on the text as typed (⌘A, ⌘⏎ …).
             return isLatinDraft && !isLevelTwo ? Response(effects: commitAll(), handled: false) : .passThrough
+        }
+        // Selected text needs no pinyin engine, so this works while the dictionaries are prepared too.
+        if event.keyCode == VirtualKey.space, modifiers == [.option], selectionKey == .optionSpace, phase == .idle,
+           let response = convertSelection(selection()) {
+            return response
         }
         if event.keyCode == VirtualKey.space, modifiers == [.shift] {
             // Typing English, Shift is often still down for the Space after a capital ("I am").
@@ -307,11 +361,13 @@ public final class Composer {
     /// Words already picked are kept and remaining letters are committed as typed (librime's
     /// `commit_code`). The right Option key held on its own records speech until it is released.
     /// With the `optionTap` translate key, either Option key pressed and released on its own sends
-    /// the sentence (a hold of the right one still dictates).
+    /// the sentence (a hold of the right one still dictates), or with nothing being composed the
+    /// selected text (`selection` is only called then).
     /// The application always receives modifier changes as well. `timestamp` is in seconds.
-    public func handleFlagsChanged(keyCode: UInt16, modifiers: KeyModifiers, timestamp: TimeInterval) -> [Effect] {
+    public func handleFlagsChanged(keyCode: UInt16, modifiers: KeyModifiers, timestamp: TimeInterval,
+                                   selection: () -> Selection = { .none }) -> [Effect] {
         if isOptionTap(keyCode: keyCode, modifiers: modifiers, timestamp: timestamp), translateKey == .optionTap,
-           let effects = translateKeyPressed() {
+           let effects = translateKeyPressed() ?? (phase == .idle ? convertSelection(selection())?.effects : nil) {
             voiceArmed = false  // a tap of right ⌥, not a hold
             shiftPressedAt = nil
             return effects
@@ -484,7 +540,9 @@ public final class Composer {
 
     /// The application ends the composition (focus change, click elsewhere, input source switch):
     /// everything pending is committed as converted text, including speech recognized so far.
+    /// Selected text being converted is left as it is.
     public func commitAll() -> [Effect] {
+        if replacesSelection { return finish(committing: "") }
         var effects: [Effect] = []
         var spoken = ""
         if let id = voice.id {
@@ -502,6 +560,7 @@ public final class Composer {
     /// Commits everything exactly as typed (draft plus raw letters), without converting.
     /// Speech being recognized is dropped (this runs when a password field takes over).
     public func commitAsTyped() -> [Effect] {
+        if replacesSelection { return finish(committing: "") }
         var effects: [Effect] = []
         if let id = voice.id { effects = cancelVoice(id, refresh: false) }
         var text = draft
@@ -514,6 +573,78 @@ public final class Composer {
     /// Re-reads the engine (e.g. after it became available).
     public func refreshEngineState() {
         engineState = engine?.snapshot() ?? .empty
+    }
+
+    // MARK: - Selected text
+
+    /// The most selected text one press sends to the model, in Characters.
+    public static let maxSelectionLength = 500
+
+    /// The key that sends selected text: the translate key, or ⌥Space when that is Space (Space on
+    /// selected text types over it, as in any text field).
+    public var selectionKey: TranslateKey { translateKey == .optionTap ? .optionTap : .optionSpace }
+
+    /// The selection key with nothing being composed: the selected text goes to the model right away
+    /// (it stays selected in the document meanwhile). Nil when nothing usable is selected: the key then
+    /// does what it does otherwise (⌥Space reaches the application, a tap of right ⌥ hints at dictation).
+    private func convertSelection(_ selection: Selection) -> Response? {
+        guard selection != .none else { return nil }
+        // Text is selected: from here on ⌥Space must not reach the application, which would replace it.
+        guard aiEnabled else { return .consumed([.notice(messages.selectionNeedsAI)]) }
+        guard case let .text(text) = selection else {
+            return .consumed([.notice(selection == .tooLong ? messages.selectionTooLong : messages.selectionUnreadable)])
+        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .consumed([.notice(messages.selectionBlank)])
+        }
+        guard text.count <= Self.maxSelectionLength else { return .consumed([.notice(messages.selectionTooLong)]) }
+        // One paragraph: the model answers one line per version.
+        guard !text.contains(where: \.isNewline) else { return .consumed([.notice(messages.selectionMultiline)]) }
+        // An image, file or tag in the text can't go to the model, and replacing would delete it.
+        guard !text.unicodeScalars.contains(Self.attachmentCharacter) else {
+            return .consumed([.notice(messages.selectionAttachment)])
+        }
+        draft = text
+        draftStartedLatin = false
+        replacesSelection = true
+        return startTranslation()
+    }
+
+    /// What text fields hand over for an inline attachment (NSTextAttachment.character). Checked per
+    /// scalar: a combining mark after it would make it part of a larger Character.
+    static let attachmentCharacter: Unicode.Scalar = "\u{FFFC}"
+
+    /// `text` without leading and trailing whitespace and line breaks, and where that part is in
+    /// `text` (UTF-16 offset and length, as IMK ranges count): only that part is replaced, so a
+    /// selection that took in the line break after it (triple-click) keeps it. Nil when `text` isn't
+    /// well-formed UTF-16 (the selection splits a character, e.g. half of an emoji).
+    public static func trimSelection(_ text: String) -> (text: String, offset: Int, length: Int)? {
+        let string = text as NSString
+        guard isWellFormedUTF16(string) else { return nil }
+        let visible = CharacterSet.whitespacesAndNewlines.inverted
+        let first = string.rangeOfCharacter(from: visible)
+        guard first.location != NSNotFound else { return ("", 0, 0) }
+        let last = string.rangeOfCharacter(from: visible, options: .backwards)
+        guard last.location != NSNotFound, NSMaxRange(last) > first.location else { return nil }
+        let range = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+        return (string.substring(with: range), range.location, range.length)
+    }
+
+    /// Whether every surrogate in `string` is half of a pair.
+    static func isWellFormedUTF16(_ string: NSString) -> Bool {
+        var i = 0
+        while i < string.length {
+            let unit = string.character(at: i)
+            if UTF16.isLeadSurrogate(unit) {
+                guard i + 1 < string.length, UTF16.isTrailSurrogate(string.character(at: i + 1)) else { return false }
+                i += 2
+            } else if UTF16.isTrailSurrogate(unit) {
+                return false
+            } else {
+                i += 1
+            }
+        }
+        return true
     }
 
     // MARK: - Level one
@@ -690,12 +821,15 @@ public final class Composer {
         .consumed(setAI(!aiEnabled))
     }
 
-    /// Turns level two on or off (⇧Space or the menu). Turning it off inserts a pending draft as is.
+    /// Turns level two on or off (⇧Space or the menu). Turning it off inserts a pending draft as is
+    /// (selected text being converted is left as it is).
     public func setAI(_ on: Bool) -> [Effect] {
         guard on != aiEnabled else { return [] }
         aiEnabled = on
         var effects: [Effect] = []
-        if !on, !draft.isEmpty {
+        if !on, replacesSelection {
+            effects = finish(committing: "")
+        } else if !on, !draft.isEmpty {
             if case .translating = phase { effects.append(.cancelConversion) }
             effects += [.hidePanel, .commit(draft)]
             draft = ""
@@ -759,8 +893,8 @@ public final class Composer {
             return .consumed(acceptInLevelTwo())
         case VirtualKey.returnKey, VirtualKey.keypadEnter:
             // Like Space: the highlighted row (row 0 is the sentence as typed). After a failure
-            // nothing is highlighted, and Return keeps the sentence as typed.
-            if case .failed = phase { return .consumed(finish(committing: draft)) }
+            // nothing is highlighted, and Return keeps the sentence as typed (selected text: as it is).
+            if case .failed = phase { return .consumed(finish(committing: replacesSelection ? "" : draft)) }
             return .consumed(commitChoice(at: highlighted))
         case VirtualKey.escape, VirtualKey.delete:
             return .consumed(backToDraft())
@@ -780,10 +914,12 @@ public final class Composer {
             guard let index = choices.firstIndex(where: { $0.label == text }) else { return .consumed() }
             return .consumed(commitChoice(at: index))
         }
-        // Typing more: back to the draft and continue the sentence with this key.
+        // Typing more: back to the draft and continue the sentence with this key. On selected text
+        // the key then does what it does with nothing pending (typing replaces the selection, as anywhere).
+        let wasSelection = replacesSelection
         let back = backToDraft()
         let next = handleLevelOne(event)
-        return .consumed(back + next.effects)
+        return Response(effects: back + next.effects, handled: !wasSelection || next.handled)
     }
 
     private func startTranslation() -> Response {
@@ -809,9 +945,10 @@ public final class Composer {
     /// goes once the transcript is final. Nil when there is nothing to send (the key then has its
     /// usual meaning, e.g. ⌥Space reaches the application).
     private func translateKeyPressed() -> [Effect]? {
-        guard aiEnabled, let engine else { return nil }
+        guard aiEnabled else { return nil }
         if voice != .off { return translateAfterVoice() }
-        if isLevelTwo { return acceptInLevelTwo() }
+        if isLevelTwo { return acceptInLevelTwo() }  // selected text gets here without an engine too
+        guard let engine else { return nil }
         let composing = engine.snapshot().isComposing
         guard composing || !draft.isEmpty else { return nil }
         let effects = composing ? convertComposition(engine) : []
@@ -860,6 +997,8 @@ public final class Composer {
     }
 
     private func backToDraft() -> [Effect] {
+        // Selected text was never taken out of the document: there is no draft to go back to.
+        if replacesSelection { return finish(committing: "") }
         var effects: [Effect] = []
         if case .translating = phase { effects.append(.cancelConversion) }
         result = .empty
@@ -871,6 +1010,8 @@ public final class Composer {
     private func commitChoice(at index: Int) -> [Effect] {
         let all = choices
         guard all.indices.contains(index), all[index].isComplete, !all[index].text.isEmpty else { return [] }
+        // For selected text, the original means leaving it as it is.
+        if replacesSelection, all[index].kind == .original { return finish(committing: "") }
         return finish(committing: all[index].text)
     }
 
@@ -882,22 +1023,29 @@ public final class Composer {
         return [.showPanel]
     }
 
-    /// Ends the composition, inserting `text`, and clears the engine.
+    /// Ends the composition, inserting `text`, and clears the engine. For selected text, `text`
+    /// replaces the selection instead, and an empty `text` leaves it as it was.
     private func finish(committing text: String) -> [Effect] {
         var effects: [Effect] = []
         if case .translating = phase { effects.append(.cancelConversion) }
         if let id = voice.id { effects += cancelVoice(id, refresh: false) }
+        let selection = replacesSelection
         engine?.clearComposition()
         engineState = engine?.snapshot() ?? .empty
         draft = ""
         draftStartedLatin = false
         draftEndsWithVoice = false
         translatesAfterVoice = false
+        replacesSelection = false
         result = .empty
         highlightOverride = nil
         phase = .idle
         effects.append(.hidePanel)
-        effects.append(text.isEmpty ? .updateMarkedText : .commit(text))
+        if selection {
+            if !text.isEmpty { effects.append(.replaceSelection(text)) }
+        } else {
+            effects.append(text.isEmpty ? .updateMarkedText : .commit(text))
+        }
         return effects
     }
 }

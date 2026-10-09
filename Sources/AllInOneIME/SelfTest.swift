@@ -6,12 +6,27 @@ import Carbon
 import InputMethodKit
 import SwiftUI
 
-/// Records what the input method does to a text field.
+/// Records what the input method does to a text field. Like NSTextView, marked or inserted text
+/// takes the place of the selection when nothing is marked (empty marked text too, which deletes it).
 final class FakeTextClient: NSObject, IMKTextInput {
     var marked = ""
     var markedSelection = NSRange(location: 0, length: 0)
     var inserted: [String] = []
+    /// The text field's contents, without the marked text.
     var document = ""
+    /// Selected range of `document`; nil: just a caret, at `anchor`.
+    var selection: NSRange?
+    /// Where the caret (and marked text) is; nil: the end of `document`.
+    var anchor: Int?
+    /// How much of a requested range the field hands over, in UTF-16 units (Chromium only keeps the
+    /// text near the selection on the input method's side); 0: none at all.
+    var readLimit = Int.max
+    /// Replacement ranges passed with inserted text.
+    var replacements: [NSRange] = []
+    /// Like Java's text views: a replacement range is ignored, inserted text replaces the selection.
+    var ignoresReplacementRange = false
+    /// Pretend to be another application (nil: this one).
+    var bundleIDOverride: String?
     /// Screen rect of the caret line, used to position the candidate panel.
     var caretRect = NSRect(x: 420, y: 560, width: 1, height: 18)
 
@@ -20,27 +35,78 @@ final class FakeTextClient: NSObject, IMKTextInput {
         return value as? String ?? ""
     }
 
+    /// Puts the field in a known state: `document` with `selected` (its first occurrence) selected.
+    func reset(_ document: String = "", selecting selected: String? = nil) {
+        self.document = document
+        anchor = nil
+        replacements.removeAll()
+        selection = selected.map { (document as NSString).range(of: $0) }
+    }
+
     func insertText(_ string: Any!, replacementRange: NSRange) {
+        if replacementRange.location != NSNotFound, !ignoresReplacementRange {
+            replacements.append(replacementRange)
+            remove(replacementRange)
+        } else if marked.isEmpty, let selection {
+            remove(selection)  // typed over the selection
+        }
         let s = Self.plain(string)
         inserted.append(s)
-        document += s
+        let doc = NSMutableString(string: document)
+        let at = min(anchor ?? doc.length, doc.length)
+        doc.insert(s, at: at)
+        document = doc as String
+        if anchor != nil { anchor = at + (s as NSString).length }
         marked = ""
     }
 
     func setMarkedText(_ string: Any!, selectionRange: NSRange, replacementRange: NSRange) {
+        if replacementRange.location != NSNotFound {
+            remove(replacementRange)
+        } else if marked.isEmpty, let selection {
+            remove(selection)
+        }
         marked = Self.plain(string)
         markedSelection = selectionRange
     }
 
-    func selectedRange() -> NSRange { NSRange(location: (document as NSString).length, length: 0) }
+    /// Takes `range` out of the document; marked or inserted text then goes in its place.
+    private func remove(_ range: NSRange) {
+        let doc = NSMutableString(string: document)
+        guard NSMaxRange(range) <= doc.length else { return }
+        doc.deleteCharacters(in: range)
+        document = doc as String
+        anchor = range.location
+        selection = nil
+    }
+
+    func selectedRange() -> NSRange {
+        selection ?? NSRange(location: anchor ?? (document as NSString).length, length: 0)
+    }
 
     func markedRange() -> NSRange {
         marked.isEmpty
             ? NSRange(location: NSNotFound, length: 0)
-            : NSRange(location: (document as NSString).length, length: (marked as NSString).length)
+            : NSRange(location: anchor ?? (document as NSString).length, length: (marked as NSString).length)
     }
 
-    func attributedSubstring(from range: NSRange) -> NSAttributedString! { nil }
+    /// The part of `range` the field hands over (see `readLimit`).
+    private func readable(_ range: NSRange) -> NSRange? {
+        guard readLimit > 0, range.location != NSNotFound, NSMaxRange(range) <= (document as NSString).length
+        else { return nil }
+        return NSRange(location: range.location, length: min(range.length, readLimit))
+    }
+
+    func attributedSubstring(from range: NSRange) -> NSAttributedString! {
+        readable(range).map { NSAttributedString(string: (document as NSString).substring(with: $0)) }
+    }
+
+    func string(from range: NSRange, actualRange: NSRangePointer!) -> String! {
+        guard let part = readable(range) else { return nil }
+        actualRange?.pointee = part
+        return (document as NSString).substring(with: part)
+    }
+
     func length() -> Int { (document as NSString).length }
 
     func characterIndex(
@@ -59,11 +125,10 @@ final class FakeTextClient: NSObject, IMKTextInput {
     func overrideKeyboard(withKeyboardNamed keyboardUniqueName: String!) {}
     func selectMode(_ modeIdentifier: String!) {}
     func supportsUnicode() -> Bool { true }
-    func bundleIdentifier() -> String! { Bundle.main.bundleIdentifier ?? "com.aipinyin.selftest" }
+    func bundleIdentifier() -> String! { bundleIDOverride ?? Bundle.main.bundleIdentifier ?? "com.aipinyin.selftest" }
     func windowLevel() -> CGWindowLevel { CGWindowLevelForKey(.normalWindow) }
     func supportsProperty(_ property: TSMDocumentPropertyTag) -> Bool { false }
     func uniqueClientIdentifierString() -> String! { "allinoneime-selftest" }
-    func string(from range: NSRange, actualRange: NSRangePointer!) -> String! { nil }
     func firstRect(forCharacterRange aRange: NSRange, actualRange: NSRangePointer!) -> NSRect { caretRect }
 }
 
@@ -88,13 +153,14 @@ enum SelfTest {
     ]
 
     static func event(
-        _ characters: String, code: UInt16, flags: NSEvent.ModifierFlags = [], type: NSEvent.EventType = .keyDown
+        _ characters: String, code: UInt16, flags: NSEvent.ModifierFlags = [], type: NSEvent.EventType = .keyDown,
+        isRepeat: Bool = false
     ) -> NSEvent {
         NSEvent.keyEvent(
             with: type, location: .zero, modifierFlags: flags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
             characters: characters, charactersIgnoringModifiers: characters,
-            isARepeat: false, keyCode: code)!
+            isARepeat: isRepeat, keyCode: code)!
     }
 
     @discardableResult
@@ -287,6 +353,269 @@ enum SelfTest {
         check(controller.composer.phase == .choosing, String(format: "\(what) finished in %.2fs", Date().timeIntervalSince(started)))
         for choice in controller.composer.choices { print("  \(choice.label) \(choice.text)\(choice.kind.isRewrite ? "  [\(choice.kind)]" : "")") }
         return controller.composer.phase == .choosing
+    }
+
+    /// Selected text: the selection key (a tap of ⌥ by default; ⌥Space when that is the translate key,
+    /// or when the translate key is Space) sends it to the model. It stays selected and untouched until
+    /// a line is chosen, which then takes exactly its place; every other way out leaves the field as it
+    /// was. The sentence is the one level two already translated, so it comes from the cache.
+    static func testSelection(_ controller: AllInOneIMEInputController, _ client: FakeTextClient,
+                              snapshotDirectory: URL) {
+        print("— selected text: the translate key rewrites it in place")
+        settings.translateKey = .optionTap
+        controller.applySettings()
+        /// Presses the selection key for the current setting (a tap of ⌥ always reaches the app too).
+        func send() {
+            if controller.composer.selectionKey == .optionTap { tapOption(controller, client) } else { _ = optionSpace(controller, client) }
+        }
+        func notice() -> String { controller.panelModel().detail ?? "" }
+        func answered() { _ = pump(timeout: 2) { controller.composer.phase == .choosing } }
+        let sentence = "我今天有点不舒服"
+        let line = "回复：\(sentence)\n下一行"
+        let selected = (line as NSString).range(of: sentence)
+        /// The field is as it was: same text, same selection, nothing marked.
+        func untouched() -> Bool { client.document == line && client.selection == selected && client.marked.isEmpty }
+
+        // Triple-click selects the line with its line break: only the sentence is replaced, so the
+        // line break (in a web editor, the paragraph boundary) stays.
+        client.reset(line, selecting: sentence + "\n")
+        send()
+        check(controller.composer.replacesSelection && client.marked.isEmpty && client.document == line && client.selection != nil,
+              "单按 ⌥ sends the selected text; it stays in the document, untouched, meanwhile")
+        if finishConversion(controller, "selection translation") {
+            check(controller.panelModel().footer == "空格 / ⏎ 替换 · 数字选择 · 0 / Esc 保留原文",
+                  "footer: \(controller.panelModel().footer)")
+            snapshot("10-selection", in: snapshotDirectory)
+            let chosen = controller.composer.choices[controller.composer.highlighted].text
+            // Held down, Space repeats: that must not pick a line by itself.
+            check(controller.handle(event(" ", code: VirtualKey.space, isRepeat: true), client: client)
+                  && client.document == line && controller.composer.phase == .choosing,
+                  "a repeating Space doesn't pick a line (auto-repeat is ignored)")
+            check(enter(controller, client) && client.document == "回复：\(chosen)\n下一行" && client.replacements == [selected],
+                  "⏎ puts the highlighted line in place of the sentence, line break kept: \(client.document)")
+        }
+        // Space too; a field that ignores the replacement range (Java's) replaces its whole selection.
+        client.reset(line, selecting: sentence)
+        client.ignoresReplacementRange = true
+        send()
+        answered()
+        let first = controller.composer.choices.first { $0.kind == .version }?.text ?? ""
+        check(space(controller, client) && client.document == "回复：\(first)\n下一行",
+              "Space too, also in a field that ignores the replacement range (\(client.document))")
+        client.ignoresReplacementRange = false
+        // A click or scroll while ⌥ was down (an ⌥-click, an ⌥-drag) is not a tap.
+        let pointer = controller.pointerUsedWithin
+        controller.pointerUsedWithin = { _ in true }
+        client.reset(line, selecting: sentence)
+        send()
+        check(!controller.composer.isComposing && untouched(), "an ⌥-click doesn't send the selected text")
+        // The guard looks back over the press only: also for the right ⌥, and for synthesized events
+        // without a timestamp (automation tools, the real-app test).
+        var looked: [TimeInterval] = []
+        controller.pointerUsedWithin = { seconds in
+            looked.append(seconds)
+            return false
+        }
+        let rightDown = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | AllInOneIMEInputController.rightOptionBit)
+        for (code, flags, stamp) in [(VirtualKey.rightOption, rightDown, ProcessInfo.processInfo.systemUptime),
+                                     (VirtualKey.leftOption, NSEvent.ModifierFlags.option, 0.0)] {
+            client.reset(line, selecting: sentence)
+            for down in [true, false] {
+                let e = NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: down ? flags : [],
+                                         timestamp: stamp, windowNumber: 0, context: nil, characters: "",
+                                         charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+                _ = controller.handle(e, client: client)
+            }
+            check(controller.composer.replacesSelection, "a tap of \(code == VirtualKey.rightOption ? "right" : "left") ⌥ "
+                  + "(timestamp \(stamp == 0 ? "0" : "set")) sends the selected text")
+            _ = escape(controller, client)
+        }
+        check(looked.count == 2 && looked.allSatisfy { $0 >= 0 && $0 <= 0.5 }, "the ⌥-click check covers just the press (\(looked))")
+        controller.pointerUsedWithin = pointer
+
+        let leaving: [(String, () -> Void)] = [
+            ("Esc", { _ = escape(controller, client) }),
+            ("0 (the original)", { _ = press(controller, client, "0", code: 0x1D) }),
+            ("⌫", { _ = press(controller, client, "\u{7F}", code: VirtualKey.delete) }),
+            ("focus loss", { controller.commitComposition(client) }),
+        ]
+        for (name, leave) in leaving {
+            client.reset(line, selecting: sentence)
+            send()
+            answered()
+            leave()
+            check(untouched() && !controller.composer.isComposing, "\(name) leaves the selected text as it was")
+        }
+        client.reset(line, selecting: sentence)
+        send()  // still waiting for the answer
+        _ = press(controller, client, " ", code: VirtualKey.space, flags: .shift)
+        check(untouched() && !controller.composer.aiEnabled && !controller.composer.isComposing,
+              "so does turning AI off (⇧Space) while it is converted")
+        _ = press(controller, client, " ", code: VirtualKey.space, flags: .shift)
+
+        // The field changed while the panel was up: nothing is replaced.
+        client.reset(line, selecting: sentence)
+        send()
+        answered()
+        client.selection = NSRange(location: 0, length: 2)  // something else selected meanwhile
+        check(space(controller, client) && client.document == line && client.replacements.isEmpty && notice().contains("变了"),
+              "a selection that moved is left alone (\(notice()))")
+        client.reset(line, selecting: sentence)
+        send()
+        answered()
+        let edited = line.replacingOccurrences(of: "今天", with: "明天")
+        client.document = edited  // same range, different text
+        check(space(controller, client) && client.document == edited && client.replacements.isEmpty,
+              "so is selected text that was edited meanwhile")
+
+        // Typing with the panel up types over the selection, as in any text field.
+        client.reset(line, selecting: sentence)
+        send()
+        type("ni", controller, client)
+        check(!controller.composer.replacesSelection && controller.composer.phase == .drafting && !client.marked.isEmpty
+              && client.document == "回复：\n下一行", "typing closes the panel and types over the selection (\(client.marked))")
+        _ = escape(controller, client)
+
+        // ⌘X, ⌘Z … act on the selected text: the panel closes and the shortcut reaches the app.
+        client.reset(line, selecting: sentence)
+        send()
+        answered()
+        check(!press(controller, client, "x", code: 0x07, flags: .command) && !controller.composer.isComposing && untouched(),
+              "a ⌘ shortcut closes the panel and reaches the app")
+        check(!space(controller, client) && client.replacements.isEmpty, "and nothing is replaced afterwards")
+
+        // With nothing of ours marked, clearing marked text would delete the selection in NSTextView.
+        client.reset(line, selecting: sentence)
+        tapShift(controller, client)
+        tapShift(controller, client)
+        check(untouched(), "switching 中/英 with text selected leaves it alone")
+        controller.commitComposition(client)
+        check(untouched(), "so does the app ending a composition when nothing is composed")
+
+        controller.secureInputActive = { true }
+        client.reset(line, selecting: sentence)
+        send()
+        if case let .failed(message) = controller.composer.phase {
+            check(message.contains("安全输入"), "nothing is sent while secure input is on: \(message)")
+        } else {
+            check(false, "expected the selection to be refused under secure input, got \(controller.composer.phase)")
+        }
+        check(escape(controller, client) && untouched(), "Esc then leaves it as it was")
+        controller.secureInputActive = { false }
+        // In the app holding secure input nothing is composed or read; the tap does nothing.
+        controller.blocksComposing = { _ in true }
+        client.reset(line, selecting: sentence)
+        send()
+        check(untouched() && !controller.composer.isComposing, "in the app holding secure input, 单按 ⌥ does nothing")
+        controller.blocksComposing = { SecureInput.blocksComposing($0) }
+        // Secure input turns on while the panel is up: the panel closes; the next key doesn't type
+        // over the text if it is still selected, but reaches the app if focus moved on (a password field).
+        client.reset(line, selecting: sentence)
+        send()
+        answered()
+        controller.blocksComposing = { _ in true }
+        check(space(controller, client) && untouched() && !controller.composer.isComposing && client.replacements.isEmpty,
+              "secure input mid-panel: Space doesn't type over the selected text")
+        controller.blocksComposing = { SecureInput.blocksComposing($0) }
+        client.reset(line, selecting: sentence)
+        send()
+        answered()
+        client.selection = nil  // focus moved to an empty password field
+        controller.blocksComposing = { _ in true }
+        check(!press(controller, client, "a", code: 0x00) && !controller.composer.isComposing,
+              "but a key in the field that took focus reaches it")
+        controller.blocksComposing = { SecureInput.blocksComposing($0) }
+
+        // Refused, with a notice, without touching the field (the order keeps the notices distinct).
+        let long = String(repeating: "长", count: Composer.maxSelectionLength * 5)
+        client.reset(long, selecting: long)
+        send()
+        check(client.document == long && client.selection != nil && notice().contains("太长"), "a long selection is refused (\(notice()))")
+        client.reset(line, selecting: sentence)
+        client.readLimit = 3  // like Chromium, which only keeps the text near the selection
+        send()
+        check(untouched() && !controller.composer.isComposing && notice().contains("读不到"),
+              "a selection the app only partly hands over is left alone (\(notice()))")
+        client.readLimit = .max
+        client.reset("第一行\n第二行", selecting: "第一行\n第二行")
+        send()
+        check(client.document == "第一行\n第二行" && notice().contains("几行"), "several lines are refused (\(notice()))")
+        client.reset("上一行\n\n下一行")
+        client.selection = NSRange(location: 4, length: 1)  // triple-click on the empty line
+        send()
+        check(client.document == "上一行\n\n下一行" && client.selection != nil && notice().contains("空格或换行"),
+              "an empty line is refused (\(notice()))")
+        client.reset("看这个\u{FFFC}图很好", selecting: "看这个\u{FFFC}图很好")
+        send()
+        check(client.document == "看这个\u{FFFC}图很好" && notice().contains("图片或附件"),
+              "text with an inline image is refused, so the image is kept (\(notice()))")
+        let halfEmoji = NSString(characters: [0x597D, 0xD83D], length: 2) as String  // 好 + half of 😀
+        client.reset(halfEmoji, selecting: halfEmoji)
+        send()
+        check(client.document == halfEmoji && notice().contains("读不到"), "a selection that splits a character is refused (\(notice()))")
+        client.reset(line, selecting: sentence)
+        client.readLimit = 0
+        send()
+        check(untouched() && notice().contains("读不到"), "so is a selection the app doesn't hand over at all")
+        client.readLimit = .max
+        _ = press(controller, client, " ", code: VirtualKey.space, flags: .shift)  // AI off
+        client.reset(line, selecting: sentence)
+        send()
+        check(untouched() && notice().contains("AI 翻译已关"), "with AI off the selection is kept (\(notice()))")
+        _ = press(controller, client, " ", code: VirtualKey.space, flags: .shift)
+        check(controller.composer.aiEnabled, "AI back on")
+        settings.uiLanguage = .english
+        controller.applySettings()
+        client.reset("第一行\n第二行", selecting: "第一行\n第二行")
+        send()
+        check(notice() == Composer.Messages.english.selectionMultiline, "in the English interface: \(notice())")
+        settings.uiLanguage = .chinese
+        controller.applySettings()
+        client.reset(line)
+        send()
+        check(!controller.composer.isComposing, "a tap with nothing selected does nothing")
+        client.reset(line, selecting: sentence)
+        client.bundleIDOverride = "com.apple.Terminal"
+        send()
+        check(!controller.composer.isComposing && untouched(), "in a terminal the selection is left to the terminal")
+        client.bundleIDOverride = nil
+        // With 单按 ⌥ as the key, ⌥Space is just ⌥Space (nothing is read).
+        client.reset(line, selecting: sentence)
+        check(!optionSpace(controller, client) && !controller.composer.isComposing, "with 单按 ⌥, ⌥Space reaches the app")
+
+        // ⌥Space when it is the translate key, or when the translate key is Space.
+        for key in [TranslateKey.optionSpace, .space] {
+            settings.translateKey = key
+            controller.applySettings()
+            client.reset(line, selecting: sentence)
+            check(optionSpace(controller, client) && controller.composer.replacesSelection && untouched(),
+                  "\(UIText.name(key)) as the key: ⌥Space sends the selected text")
+            answered()
+            check(controller.handle(event("\u{A0}", code: VirtualKey.space, flags: .option, isRepeat: true), client: client)
+                  && controller.composer.phase == .choosing && untouched(), "holding ⌥Space doesn't pick a line")
+            _ = escape(controller, client)
+            client.reset(long, selecting: long)
+            check(optionSpace(controller, client) && client.document == long && notice().contains("太长"),
+                  "a refusal consumes ⌥Space, so no space is typed over the selection")
+            client.reset("10 km", selecting: " ")
+            check(!optionSpace(controller, client) && !controller.composer.isComposing,
+                  "a selected space: ⌥Space types a no-break space, as usual")
+            client.reset(line)
+            check(!optionSpace(controller, client), "⌥Space with nothing selected reaches the app")
+            client.reset(line, selecting: sentence)
+            client.bundleIDOverride = "com.apple.Terminal"
+            check(!optionSpace(controller, client) && !controller.composer.isComposing, "in a terminal ⌥Space reaches the app")
+            client.bundleIDOverride = nil
+            // In the app holding secure input, ⌥Space would type over the selection: kept (only the range is read).
+            controller.blocksComposing = { _ in true }
+            client.reset(line, selecting: sentence)
+            check(optionSpace(controller, client) && untouched() && notice().contains("安全输入"),
+                  "in the app holding secure input, ⌥Space keeps the selection (\(notice()))")
+            controller.blocksComposing = { SecureInput.blocksComposing($0) }
+        }
+        settings.translateKey = .optionTap
+        controller.applySettings()
+        client.reset()
     }
 
     /// English typed in English mode → English polish (and English rewrites, incl. 黑话); Chinese
@@ -825,6 +1154,7 @@ enum SelfTest {
         check(controller.composer.messages == .chinese && UIText.chinese, "back to Chinese")
         _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // let the 中 notice expire
 
+        testSelection(controller, client, snapshotDirectory: snapshotDirectory)
         testEnglishAndOutput(controller, client, snapshotDirectory: snapshotDirectory)
         testVoice(controller, client, snapshotDirectory: snapshotDirectory)
         controller.loadSettings = { SelfTest.settings }
