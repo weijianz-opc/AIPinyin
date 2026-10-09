@@ -167,14 +167,19 @@ final class AIPinyinInputController: IMKInputController {
         applySettings()
     }
 
-    /// Takes over the current settings: AI switch, English drafts, voice key, and the default input
-    /// mode (applied to new sessions, and again when the setting changes; a Shift toggle otherwise sticks).
+    /// Takes over the current settings: AI switch, English drafts, voice key, translate key, and the
+    /// default input mode (applied to new sessions, and again when the setting changes; a Shift toggle
+    /// otherwise sticks).
     @MainActor
     func applySettings() {
         let config = loadSettings()
         composer.aiEnabled = Settings.aiEnabled
         composer.englishAI = config.englishAI
         composer.voiceEnabled = config.voiceInput && VoiceInput.isSupported
+        composer.translateKey = config.translateKey
+        // The interface language (config `uiLanguage`, else the system's) for the panel, notices and menu.
+        UIText.choice = config.uiLanguage
+        composer.messages = UIText.chinese ? .chinese : .english
         if appliedDefaultInput != config.defaultInput, composer.engine != nil, !composer.isComposing {
             composer.setInputMode(config.defaultInput)
             appliedDefaultInput = config.defaultInput
@@ -197,7 +202,8 @@ final class AIPinyinInputController: IMKInputController {
             if !secureNoticeShown, let chars = event.characters, !chars.isEmpty,
                event.modifierFlags.isDisjoint(with: [.command, .control]) {
                 secureNoticeShown = true
-                perform([.notice("安全输入中：暂停拼音，直接输入")], client: client)
+                perform([.notice(tr("安全输入中：暂停拼音，直接输入", "Secure input: pinyin paused, keys go straight in"))],
+                        client: client)
             }
             return false
         }
@@ -266,7 +272,9 @@ final class AIPinyinInputController: IMKInputController {
                 if secureInputActive() {
                     // A password field or prompt may be active somewhere: never send text off the Mac.
                     log.info("conversion \(id) not sent: secure input \(SecureInput.ownerDescription(), privacy: .public)")
-                    perform(composer.fail("系统安全输入已开启（密码框或锁屏），未发送给 AI", id: id), client: target)
+                    perform(composer.fail(tr("系统安全输入已开启（密码框或锁屏），未发送给 AI",
+                                             "Secure input is on (a password field or the lock screen): nothing was sent to the AI"),
+                                          id: id), client: target)
                 } else {
                     startConversion(input, id: id)
                 }
@@ -303,30 +311,36 @@ final class AIPinyinInputController: IMKInputController {
     @MainActor
     private func startVoice(id: Int, language: Language) {
         guard #available(macOS 26.0, *), VoiceInput.isSupported else {
-            perform(composer.voiceFailed(VoiceError.unsupportedSystem.localizedDescription, id: id), client: nil)
+            perform(composer.voiceFailed(UIText.describe(VoiceError.unsupportedSystem), id: id), client: nil)
             return
         }
         if voiceFile == nil {
             guard Self.microphoneAllowed else {
-                perform(composer.voiceFailed("（自检）没有音频文件，不使用麦克风", id: id), client: nil)
+                perform(composer.voiceFailed(tr("（自检）没有音频文件，不使用麦克风", "(self-test) no audio file; the microphone stays off"),
+                                             id: id), client: nil)
                 return
             }
             switch VoiceInput.microphoneAccess {
             case .granted:
                 break
             case .notDetermined:
-                perform(composer.voiceFailed("请在弹窗里允许使用麦克风，然后再按住右 ⌥ 说话", id: id), client: nil)
+                perform(composer.voiceFailed(tr("请在弹窗里允许使用麦克风，然后再按住右 ⌥ 说话",
+                                                "Allow the microphone in the dialog, then hold right ⌥ again"), id: id),
+                        client: nil)
                 Task { _ = await VoiceInput.requestMicrophoneAccess() }
                 return
             case .denied:
-                perform(composer.voiceFailed("没有麦克风权限：系统设置 → 隐私与安全性 → 麦克风 → 打开 AIPinyin", id: id),
+                perform(composer.voiceFailed(tr("没有麦克风权限：系统设置 → 隐私与安全性 → 麦克风 → 打开 AIPinyin",
+                                                "No microphone access: System Settings → Privacy & Security → Microphone → turn on AIPinyin"),
+                                             id: id),
                         client: nil)
                 return
             }
         }
         if let progress = VoiceInput.downloads[language] {
-            perform(composer.voiceFailed(String(format: "%@语音模型下载中 %.0f%%，好了会提示", language.displayName,
-                                                progress * 100), id: id), client: nil)
+            perform(composer.voiceFailed(String(format: tr("%@语音模型下载中 %.0f%%，好了会提示",
+                                                           "Downloading the %@ speech model: %.0f%%. You'll be told when it's ready"),
+                                                UIText.name(language), progress * 100), id: id), client: nil)
             return
         }
         cancelVoiceSession()  // never two recordings at once
@@ -385,14 +399,18 @@ final class AIPinyinInputController: IMKInputController {
             log.notice("voice \(id) finished (\(text.count) chars)")
             perform(composer.voiceFinished(text, id: id), client: nil)
         case let .failure(VoiceError.modelMissing(missing)):
-            perform(composer.voiceFailed("首次使用：正在下载\(missing.displayName)语音模型，好了会提示", id: id), client: nil)
+            let name = UIText.name(missing)
+            perform(composer.voiceFailed(tr("首次使用：正在下载\(name)语音模型，好了会提示",
+                                            "First use: downloading the \(name) speech model. You'll be told when it's ready"),
+                                         id: id), client: nil)
             VoiceInput.startDownload(missing) { [weak self] error in
-                self?.showNotice(error.map { "语音模型下载失败：\(Self.describe($0))" }
-                                 ?? "\(missing.displayName)语音模型已就绪：按住右 ⌥ 说话", client: nil)
+                self?.showNotice(error.map { tr("语音模型下载失败：", "Speech model download failed: ") + UIText.describe($0) }
+                                 ?? tr("\(name)语音模型已就绪：按住右 ⌥ 说话", "\(name) speech model ready: hold right ⌥ to talk"),
+                                 client: nil)
             }
         case let .failure(error):
             log.error("voice \(id) failed: \(String(describing: error), privacy: .public)")
-            perform(composer.voiceFailed(Self.describe(error), id: id), client: nil)
+            perform(composer.voiceFailed(UIText.describe(error), id: id), client: nil)
         }
     }
 
@@ -451,7 +469,7 @@ final class AIPinyinInputController: IMKInputController {
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 log.error("conversion \(id) failed: \(Self.errorKind(error), privacy: .public) \(String(describing: error), privacy: .private)")
-                self.perform(self.composer.fail(Self.describe(error), id: id), client: nil)
+                self.perform(self.composer.fail(UIText.describe(error), id: id), client: nil)
             }
         }
     }
@@ -543,12 +561,21 @@ final class AIPinyinInputController: IMKInputController {
         }
     }
 
-    /// What Space does to a sentence in `input`: "翻译成英文", "英文润色" …, plus " / 改写" when
-    /// rewrite styles are on.
+    /// What the translate key does to a sentence in `input`: "翻译成英文", "英文润色" …, plus " / 改写"
+    /// when rewrite styles are on.
     static func actionText(input: Language, config: Config) -> String {
         let output = config.outputLanguage
         let action = input == output ? "\(output.displayName)润色" : "翻译成\(output.displayName)"
         return action + (RewriteStyle.resolve(config.rewriteStyles).isEmpty ? "" : " / 改写")
+    }
+
+    /// The hint under a pending draft: "单按 ⌥ → 翻译成英文 / 改写", "Tap ⌥ → translate to English / rewrite" …
+    @MainActor
+    func draftHint(config: Config) -> String {
+        let key = composer.translateKey
+        let how = key != .space ? UIText.name(key)
+            : composer.spaceTranslates ? UIText.name(TranslateKey.space) : tr("连按两次空格", "Space twice")
+        return "\(how) → " + UIText.action(input: Language.of(composer.draft), config: config)
     }
 
     @MainActor
@@ -560,7 +587,8 @@ final class AIPinyinInputController: IMKInputController {
             model.rows = choices.map { choice in
                 switch choice.kind {
                 case .original:
-                    return CandidateView.Row(label: choice.label, text: choice.text, comment: "原文", style: .original)
+                    return CandidateView.Row(label: choice.label, text: choice.text, comment: tr("原文", "original"),
+                                             style: .original)
                 case .version:
                     return CandidateView.Row(label: choice.label, text: choice.text, style: .translation,
                                              isComplete: choice.isComplete)
@@ -568,8 +596,9 @@ final class AIPinyinInputController: IMKInputController {
                     // A 黑话 line notes what the terms from the user's jargon list in it mean.
                     let note = style == RewriteStyle.jargonName
                         ? JargonLibrary.annotation(for: choice.text, entries: LiveJargon.entries(for: config)) : nil
+                    let name = RewriteStyle.named(style).map(UIText.name) ?? style
                     return CandidateView.Row(label: choice.label, text: choice.text,
-                                             comment: note.map { "\(style) · \($0)" } ?? style,
+                                             comment: note.map { "\(name) · \($0)" } ?? name,
                                              style: .translation, isComplete: choice.isComplete)
                 }
             }
@@ -577,41 +606,53 @@ final class AIPinyinInputController: IMKInputController {
             switch composer.phase {
             case .translating:
                 let polishing = Language.of(composer.draft) == config.outputLanguage
-                model.status = choices.count <= 1 ? .loading(polishing ? "AI 润色中…" : "AI 翻译中…") : .none
-                model.footer = "生成中… · ⏎ 上屏原文 · Esc 返回"
+                model.status = choices.count <= 1
+                    ? .loading(polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")) : .none
+                model.footer = tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
             case .choosing:
-                model.footer = "空格 上屏 · 数字选择 · ⏎ 原文 · Esc 返回"
-                model.detail = lastFromCache ? "缓存" : lastElapsed.map { String(format: "%.1fs", $0) }
+                model.footer = tr("空格 / ⏎ 上屏 · 数字选择 · 0 原文 · Esc 返回",
+                                  "Space / ⏎ insert · digits pick · 0 original · Esc back")
+                model.detail = lastFromCache ? tr("缓存", "cached") : lastElapsed.map { String(format: "%.1fs", $0) }
             case let .failed(message):
                 model.status = .error(message)
                 model.highlighted = nil  // Space retries; nothing is selected
-                model.footer = "空格 重试 · ⏎ 上屏原文 · Esc 返回"
+                model.footer = tr("空格 重试 · ⏎ 上屏原文 · Esc 返回", "Space retry · ⏎ insert original · Esc back")
             case .idle, .drafting:
                 break
             }
         } else if composer.voice != .off {
             let heard = composer.voice.text
             if case .listening = composer.voice {
-                model.status = .hint("🎙 " + (heard.isEmpty ? "正在听…" : heard))
-                model.footer = "松开右 ⌥ 结束 · Esc 取消"
+                model.status = .hint("🎙 " + (heard.isEmpty ? tr("正在听…", "Listening…") : heard))
+                // Space while right ⌥ is still held is ⌥Space: stop and send right away.
+                model.footer = composer.aiEnabled && composer.translateKey == .optionSpace
+                    ? tr("松开右 ⌥ 结束 · 空格 直接出结果 · Esc 取消", "Release right ⌥ to stop · Space for results now · Esc cancel")
+                    : tr("松开右 ⌥ 结束 · Esc 取消", "Release right ⌥ to stop · Esc cancel")
             } else {
-                model.status = .hint("🎙 " + (heard.isEmpty ? "识别中…" : heard))
-                model.footer = "识别中… · Esc 取消"
+                model.status = .hint("🎙 " + (heard.isEmpty ? tr("识别中…", "Recognizing…") : heard))
+                model.footer = composer.translatesAfterVoice
+                    ? tr("识别完就发送 · Esc 取消", "Sends once recognized · Esc cancel")
+                    : tr("识别中… · Esc 取消", "Recognizing… · Esc cancel")
             }
-            model.detail = composer.engineState.isAsciiMode ? "英" : "中"
+            model.detail = composer.engineState.isAsciiMode ? composer.messages.englishMode : composer.messages.chineseMode
         } else if composer.engineState.isComposing {
             let state = composer.engineState
             model.rows = state.candidates.map {
                 CandidateView.Row(label: $0.label, text: $0.text, comment: $0.comment, style: .candidate)
             }
             model.highlighted = state.highlighted
-            let action = config.outputLanguage == .chinese ? "润色" : "翻译"
-            model.footer = composer.aiEnabled ? "空格 选词 · 整句打完再按空格\(action)" : "空格 选词 · AI 翻译已关（⇧空格开启）"
-            if state.pageNumber > 0 || !state.isLastPage { model.detail = "第 \(state.pageNumber + 1) 页" }
+            let action = config.outputLanguage == .chinese ? tr("润色", "polish") : tr("翻译", "translate")
+            let key = composer.translateKey
+            model.footer = !composer.aiEnabled ? tr("空格 选词 · AI 翻译已关（⇧空格开启）", "Space picks · AI is off (⇧Space turns it on)")
+                : key == .space ? tr("空格 选词 · 整句打完再按空格\(action)", "Space picks · Space again when done to \(action)")
+                : tr("空格 选词 · \(UIText.name(key)) \(action)", "Space picks · \(UIText.name(key)) to \(action)")  // converts what is still being typed, too
+            if state.pageNumber > 0 || !state.isLastPage {
+                model.detail = tr("第 \(state.pageNumber + 1) 页", "page \(state.pageNumber + 1)")
+            }
         } else if !composer.draft.isEmpty {
-            let action = Self.actionText(input: Language.of(composer.draft), config: config)
-            model.status = .hint((composer.spaceTranslates ? "空格 → " : "连按两次空格 → ") + action)
-            model.footer = composer.isLatinDraft ? "⏎ 直接上屏 · ⌫ 删字" : "⏎ 上屏原文 · ⌫ 删字 · Esc 清除"
+            model.status = .hint(draftHint(config: config))
+            model.footer = composer.isLatinDraft ? tr("⏎ 直接上屏 · ⌫ 删字", "⏎ insert as typed · ⌫ delete")
+                : tr("⏎ 上屏原文 · ⌫ 删字 · Esc 清除", "⏎ insert as typed · ⌫ delete · Esc clear")
         }
         if let notice { model.detail = notice }
         return model
@@ -622,27 +663,29 @@ final class AIPinyinInputController: IMKInputController {
     @MainActor
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        let settings = NSMenuItem(title: "设置…", action: #selector(showPreferences(_:)), keyEquivalent: "")
+        let config = try? Config.load()
+        UIText.choice = loadSettings().uiLanguage  // the menu can open before any text field in this process
+        let settings = NSMenuItem(title: tr("设置…", "Settings…"), action: #selector(showPreferences(_:)), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
         menu.addItem(.separator())
-        let ai = NSMenuItem(title: "AI 翻译 / 改写（⇧空格）", action: #selector(toggleAI(_:)), keyEquivalent: "")
+        let ai = NSMenuItem(title: tr("AI 翻译 / 改写（⇧空格）", "AI Translation / Rewrites (⇧Space)"),
+                            action: #selector(toggleAI(_:)), keyEquivalent: "")
         ai.target = self
         ai.state = Settings.aiEnabled ? .on : .off
         menu.addItem(ai)
-        let config = try? Config.load()
-        let model = config.map { "模型：\($0.modelId)" } ?? "配置文件有误"
+        let model = config.map { tr("模型：", "Model: ") + $0.modelId } ?? tr("配置文件有误", "The config file has an error")
         let info = NSMenuItem(title: model, action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
 
         menu.addItem(.separator())
-        let outputHeader = NSMenuItem(title: "输出（1–3 行）", action: nil, keyEquivalent: "")
+        let outputHeader = NSMenuItem(title: tr("输出（1–3 行）", "Output (lines 1–3)"), action: nil, keyEquivalent: "")
         outputHeader.isEnabled = false
         menu.addItem(outputHeader)
         for language in [Language.english, .chinese] {
-            let item = NSMenuItem(title: "翻译 / 润色成\(language.displayName)", action: #selector(setOutputLanguage(_:)),
-                                  keyEquivalent: "")
+            let item = NSMenuItem(title: tr("翻译 / 润色成\(language.displayName)", "Translate / Polish into \(UIText.name(language))"),
+                                  action: #selector(setOutputLanguage(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = language.rawValue
             item.state = (config?.outputLanguage ?? Config.default.outputLanguage) == language ? .on : .off
@@ -651,13 +694,13 @@ final class AIPinyinInputController: IMKInputController {
         }
 
         menu.addItem(.separator())
-        let header = NSMenuItem(title: "改写风格", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: tr("改写风格", "Rewrite Styles"), action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         let enabled = Set(RewriteStyle.resolve(config?.rewriteStyles ?? Config.default.rewriteStyles).map(\.name))
         for style in RewriteStyle.catalog {
-            let item = NSMenuItem(title: "\(style.name)　\(style.summary)", action: #selector(toggleStyle(_:)),
-                                  keyEquivalent: "")
+            let item = NSMenuItem(title: UIText.name(style) + tr("　", "  ") + UIText.summary(style),
+                                  action: #selector(toggleStyle(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = style.name
             item.state = enabled.contains(style.name) ? .on : .off
@@ -665,10 +708,11 @@ final class AIPinyinInputController: IMKInputController {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let rimeDir = NSMenuItem(title: "打开 Rime 用户目录", action: #selector(openRimeDirectory(_:)), keyEquivalent: "")
+        let rimeDir = NSMenuItem(title: tr("打开 Rime 用户目录", "Open Rime User Folder"), action: #selector(openRimeDirectory(_:)),
+                                 keyEquivalent: "")
         rimeDir.target = self
         menu.addItem(rimeDir)
-        let deploy = NSMenuItem(title: "重新部署词库", action: #selector(redeploy(_:)), keyEquivalent: "")
+        let deploy = NSMenuItem(title: tr("重新部署词库", "Redeploy Dictionaries"), action: #selector(redeploy(_:)), keyEquivalent: "")
         deploy.target = self
         menu.addItem(deploy)
         return menu

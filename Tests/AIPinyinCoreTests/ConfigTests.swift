@@ -115,6 +115,20 @@ struct ConfigTests {
         #expect(Language.of("我check一下") == .chinese && Language.of("check it") == .english)
     }
 
+    @Test func translateKey() throws {
+        #expect(try decode("{}").translateKey == .optionTap)
+        #expect(try decode(#"{"translateKey": "optionSpace"}"#).translateKey == .optionSpace)
+        #expect(try decode(#"{"translateKey": "space"}"#).translateKey == .space)
+        #expect(throws: DecodingError.self) { try decode(#"{"translateKey": "fn"}"#) }
+    }
+
+    @Test func uiLanguage() throws {
+        #expect(try decode("{}").uiLanguage == nil)
+        #expect(try decode(#"{"uiLanguage": null}"#).uiLanguage == nil)
+        #expect(try decode(#"{"uiLanguage": "zh"}"#).uiLanguage == .chinese)
+        #expect(try decode(#"{"uiLanguage": "en"}"#).uiLanguage == .english)
+    }
+
     @Test func fileRoundTripAndMissingFile() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aipinyin-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -129,11 +143,14 @@ struct ConfigTests {
         c.defaultInput = .english
         c.englishAI = false
         c.voiceInput = false
+        c.translateKey = .optionSpace
+        c.uiLanguage = .chinese
         try c.write(to: url)
         #expect(try Config.load(from: url) == c)
         let text = try String(contentsOf: url, encoding: .utf8)
         #expect(text.contains("\"口语\""))  // stays readable, not \u escapes
         #expect(text.contains("\"outputLanguage\" : \"zh\""))
+        #expect(text.contains("\"translateKey\" : \"optionSpace\""))
 
         try Data("{not json".utf8).write(to: url)
         #expect(throws: ConfigError.self) { try Config.load(from: url) }

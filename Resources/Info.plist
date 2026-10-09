@@ -4,6 +4,10 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
+	<!-- System-provided UI (file panels, text field menus) follows the user's language, like the
+	     settings window does (UIText). -->
+	<key>CFBundleAllowMixedLocalizations</key>
+	<true/>
 	<key>CFBundleExecutable</key>
 	<string>AIPinyin</string>
 	<key>CFBundleIdentifier</key>

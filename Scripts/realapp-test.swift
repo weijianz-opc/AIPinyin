@@ -80,7 +80,7 @@ let keyCodes: [Character: UInt16] = [
     "j": 0x26, "k": 0x28, "n": 0x2D, "m": 0x2E, ",": 0x2B, ".": 0x2F,
 ]
 let spaceCode: UInt16 = 0x31, returnCode: UInt16 = 0x24, escapeCode: UInt16 = 0x35
-let deleteCode: UInt16 = 0x33, leftShiftCode: UInt16 = 0x38
+let deleteCode: UInt16 = 0x33, leftShiftCode: UInt16 = 0x38, leftOptionCode: UInt16 = 0x3A
 
 final class Harness: NSObject, NSApplicationDelegate {
     var window: NSWindow!
@@ -207,6 +207,29 @@ final class Harness: NSObject, NSApplicationDelegate {
             cg.flags = down ? .maskShift : []
             if let event = NSEvent(cgEvent: cg) { dispatch(event) }
             pump(0.05)
+        }
+    }
+
+    /// Left Option pressed and released on its own, with the left-Option device bit as the system sets it.
+    func tapOption() {
+        for down in [true, false] {
+            guard let cg = CGEvent(keyboardEventSource: eventSource, virtualKey: leftOptionCode, keyDown: down) else { return }
+            cg.type = .flagsChanged
+            cg.flags = down ? [.maskAlternate, CGEventFlags(rawValue: 0x20)] : []  // NX_DEVICELALTKEYMASK
+            if let event = NSEvent(cgEvent: cg) { dispatch(event) }
+            pump(0.05)
+        }
+    }
+
+    /// The input method's translate key (config `translateKey`): a tap of ⌥ unless set otherwise.
+    lazy var translateKey = configValue("translateKey") as? String ?? "optionTap"
+
+    /// Presses the translate key: sends the sentence (converting pinyin still being typed).
+    func translate() {
+        switch translateKey {
+        case "optionSpace": space(.option)
+        case "space": space()
+        default: tapOption()
         }
     }
 
@@ -386,8 +409,9 @@ final class Harness: NSObject, NSApplicationDelegate {
         check(waitUntil(2) { self.marked.isEmpty && self.committed == "你好，\n" }, "Esc cancels pinyin")
         reset()
 
-        // 3. Level two: Space on the finished sentence translates; Space inserts the first English line.
-        print("— level two: translate (live Bedrock)")
+        // 3. Level two: the translate key on the finished sentence translates; Space inserts the first
+        //    English line.
+        print("— level two: translate (live Bedrock, key: \(translateKey))")
         textView.string = ""
         type("wojintianyoudianbushufu")
         _ = waitUntil(3) { !self.marked.isEmpty }
@@ -395,7 +419,7 @@ final class Harness: NSObject, NSApplicationDelegate {
         check(waitUntil(3) { Self.hasHan(self.marked) && !Self.hasLatinLetter(self.marked) },
               "sentence confirmed (marked: \(marked))")
         let started = Date()
-        space()
+        translate()
         let translated = waitUntil(20) {
             if self.committed.isEmpty { self.space() }  // ignored until the first English line is complete
             return !self.committed.isEmpty
@@ -405,15 +429,16 @@ final class Harness: NSObject, NSApplicationDelegate {
               String(format: "Space inserts English after %.1fs: '%@'", Date().timeIntervalSince(started), english))
         reset()
 
-        // 4. Digit picks another candidate.
+        // 4. Digit picks another candidate. With ⌥Space or a tap of ⌥ the key goes right on the pinyin
+        //    (it is converted first); with Space the sentence is confirmed first.
         print("— level two: digit 2")
         textView.string = ""
         type("zhegexiangmudejindutaimanle")
         _ = waitUntil(3) { !self.marked.isEmpty }
-        confirmAll()
-        let sentence = marked
-        check(Self.hasHan(sentence) && !Self.hasLatinLetter(sentence), "sentence confirmed (\(sentence))")
-        space()
+        if translateKey == "space" { confirmAll() }
+        translate()
+        check(waitUntil(3) { Self.hasHan(self.marked) && !Self.hasLatinLetter(self.marked) },
+              "sentence converted and sent (\(marked))")
         let picked = waitUntil(20) {
             if self.committed.isEmpty { self.key("2", keyCodes["2"]!); self.pump(0.3) }
             return !self.committed.isEmpty
@@ -421,17 +446,17 @@ final class Harness: NSObject, NSApplicationDelegate {
         check(picked && Self.looksEnglish(committed), "digit 2 inserts another English version: '\(committed)'")
         reset()
 
-        // 5. In level two, Enter keeps the Chinese and Esc goes back to the draft.
-        print("— level two: Enter / Esc")
+        // 5. In level two, 0 keeps the Chinese and Esc goes back to the draft.
+        print("— level two: 0 / Esc")
         textView.string = ""
         type("nihao")
         space()
-        space()
-        enter()
-        check(waitUntil(3) { self.committed == "你好" && self.marked.isEmpty }, "Enter inserts the Chinese original")
+        translate()
+        key("0", keyCodes["0"]!)
+        check(waitUntil(3) { self.committed == "你好" && self.marked.isEmpty }, "0 inserts the Chinese original")
         type("nihao")
         space()
-        space()
+        translate()
         escape()
         check(waitUntil(3) { self.marked == "你好" && self.committed == "你好" }, "Esc returns to the draft")
         type("ma")
@@ -457,8 +482,8 @@ final class Harness: NSObject, NSApplicationDelegate {
         reset()
 
         // 7. Shift alone switches to English and back. With English AI (config `englishAI`, default on)
-        //    English collects into a draft: Return inserts it and still reaches the app, a double
-        //    Space polishes it.
+        //    English collects into a draft: Return inserts it and still reaches the app, the translate
+        //    key polishes it.
         print("— Shift: English / Chinese")
         textView.string = ""
         tapShift()
@@ -477,13 +502,13 @@ final class Harness: NSObject, NSApplicationDelegate {
             }
             check(waitUntil(2) { self.marked == words.joined(separator: " ") + " " }, "sentence drafted (\(marked))")
             let started = Date()
-            space()
+            translate()
             let polished = waitUntil(20) {
                 if self.committed.isEmpty { self.space() }  // ignored until the first version is complete
                 return !self.committed.isEmpty
             }
             check(polished && Self.looksEnglish(committed) && committed != words.joined(separator: " ") && marked.isEmpty,
-                  String(format: "double Space polishes, Space inserts after %.1fs: '%@'", Date().timeIntervalSince(started), committed))
+                  String(format: "the translate key polishes, Space inserts after %.1fs: '%@'", Date().timeIntervalSince(started), committed))
         } else {
             check(waitUntil(2) { self.committed == "abc" && self.marked.isEmpty }, "after Shift, letters are typed as English ('\(committed)')")
         }
@@ -498,10 +523,15 @@ final class Harness: NSObject, NSApplicationDelegate {
 
     /// `englishAI` from the input method's config file (on unless set to false).
     func englishAIConfigured() -> Bool {
+        configValue("englishAI") as? Bool ?? true
+    }
+
+    /// A value from the input method's config file (nil if unset or the file is missing).
+    func configValue(_ key: String) -> Any? {
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/aipinyin/config.json")
         guard let data = try? Data(contentsOf: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
-        return json["englishAI"] as? Bool ?? true
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return json[key]
     }
 }
 

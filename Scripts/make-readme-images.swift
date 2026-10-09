@@ -88,12 +88,12 @@ func composite(_ steps: [Step], to name: String) throws {
 try composite([
     Step(caption: "① 打拼音：本地候选，和普通拼音输入法一样", marked: "wo jin tian you dian bu shu fu",
          panel: load("1b-sentence-pinyin.png")),
-    Step(caption: "② 整句确认后再按空格：英文 + 中文改写", marked: "我今天有点不舒服",
+    Step(caption: "② 单按 ⌥：英文 + 中文改写", marked: "我今天有点不舒服",
          panel: load("4-final-light.png")),
 ], to: "demo.png")
 
 try composite([
-    Step(caption: "直接打英文，连按两次空格：英文润色（含黑话）", marked: "this is a blocker bug your team need fix it asap",
+    Step(caption: "直接打英文，单按 ⌥：英文润色（含黑话）", marked: "this is a blocker bug your team need fix it asap",
          panel: load("7-english-light.png")),
     Step(caption: "输出设成中文：中文润色 + 改写", marked: "这个项目的进度太慢了",
          panel: load("7b-chinese-output.png")),

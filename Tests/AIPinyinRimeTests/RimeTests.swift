@@ -106,7 +106,7 @@ struct RimeEngineTests {
     }
 
     @Test func composerDraftsChineseAndTranslatesOnSecondSpace() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)
+        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true, translateKey: .space)
         for ch in "wojintianyoudianbushufu" { _ = composer.handleKeyDown(key(ch)) }
         #expect(composer.markedText.hasSuffix("fu"))
         let confirm = composer.handleKeyDown(space)
@@ -126,6 +126,41 @@ struct RimeEngineTests {
         #expect(composer.phase == .translating(id: 1))
     }
 
+    /// ⌥Space with real librime: it converts the pinyin still being typed and sends the sentence;
+    /// Space picks words and, once nothing is left to convert, types a space.
+    @Test func optionSpaceTranslatesWithTheRealEngine() throws {
+        let optionSpace = KeyEvent(keyCode: VirtualKey.space, characters: "\u{A0}", charactersIgnoringModifiers: " ",
+                                   modifiers: .option)
+        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true, translateKey: .optionSpace)
+        for ch in "wojintianyoudianbushufu" { _ = composer.handleKeyDown(key(ch)) }
+        let r = composer.handleKeyDown(optionSpace)
+        #expect(r.handled && r.effects.first == .startConversion(input: "我今天有点不舒服", id: 1))
+        #expect(composer.phase == .translating(id: 1) && !composer.engineState.isComposing)
+        _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.escape, characters: "\u{1B}"))  // back to the draft
+
+        for ch in "xiangqingjia" { _ = composer.handleKeyDown(key(ch)) }
+        _ = composer.handleKeyDown(space)  // picks the words
+        let typed = composer.draft
+        #expect(typed.hasPrefix("我今天有点不舒服") && !composer.engineState.isComposing)
+        _ = composer.handleKeyDown(space)  // nothing left to convert: a space
+        #expect(composer.draft == typed + " " && composer.phase == .drafting)
+        #expect(composer.handleKeyDown(optionSpace).effects.first == .startConversion(input: typed, id: 2))
+        composer.engine?.clearComposition()
+    }
+
+    /// The default translate key with real librime: a tap of ⌥ converts the pinyin and sends it.
+    @Test func optionTapTranslatesWithTheRealEngine() throws {
+        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)
+        #expect(composer.translateKey == .optionTap)
+        for ch in "wojintianyoudianbushufu" { _ = composer.handleKeyDown(key(ch)) }
+        _ = composer.handleFlagsChanged(keyCode: VirtualKey.leftOption, modifiers: [.option, .leftOption], timestamp: 1)
+        let tap = composer.handleFlagsChanged(keyCode: VirtualKey.leftOption, modifiers: [], timestamp: 1.08)
+        #expect(tap.first == .startConversion(input: "我今天有点不舒服", id: 1))
+        #expect(composer.phase == .translating(id: 1) && !composer.engineState.isComposing)
+        _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.escape, characters: "\u{1B}"))
+        composer.engine?.clearComposition()
+    }
+
     @Test func composerWithAIOffCommitsDirectly() throws {
         let composer = Composer(engine: try RimeFixture.session(), aiEnabled: false)
         for ch in "nihao" { _ = composer.handleKeyDown(key(ch)) }
@@ -135,9 +170,10 @@ struct RimeEngineTests {
     }
 
     /// English mode in real librime: letters, capitals and punctuation collect into an English draft,
-    /// a double Space sends it, Return inserts it as typed and still reaches the application.
+    /// a double Space sends it (`space` translate key), Return inserts it as typed and still reaches
+    /// the application.
     @Test func englishModeDraftsWithTheRealEngine() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)
+        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true, translateKey: .space)
         composer.setInputMode(.english)
         #expect(composer.engineState.isAsciiMode)
         for ch in "Hi" {

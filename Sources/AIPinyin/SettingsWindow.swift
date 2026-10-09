@@ -10,14 +10,16 @@ struct SuggestedModel: Identifiable, Hashable {
     let title: String
     let note: String
 
-    static let all: [SuggestedModel] = [
-        SuggestedModel(id: "us.anthropic.claude-haiku-4-5-20251001-v1:0", title: "Claude Haiku 4.5",
-                       note: "推荐：约 1.3 秒，质量好"),
-        SuggestedModel(id: "us.anthropic.claude-sonnet-4-6", title: "Claude Sonnet 4.6",
-                       note: "约 2.2 秒，改写最用心"),
-        SuggestedModel(id: "us.amazon.nova-2-lite-v1:0", title: "Amazon Nova 2 Lite",
-                       note: "约 1 秒，最便宜，润色偏弱"),
-    ]
+    static var all: [SuggestedModel] {
+        [
+            SuggestedModel(id: "us.anthropic.claude-haiku-4-5-20251001-v1:0", title: "Claude Haiku 4.5",
+                           note: tr("推荐：约 1.3 秒，质量好", "Recommended: about 1.3 s, good quality")),
+            SuggestedModel(id: "us.anthropic.claude-sonnet-4-6", title: "Claude Sonnet 4.6",
+                           note: tr("约 2.2 秒，改写最用心", "About 2.2 s, the most careful rewrites")),
+            SuggestedModel(id: "us.amazon.nova-2-lite-v1:0", title: "Amazon Nova 2 Lite",
+                           note: tr("约 1 秒，最便宜，润色偏弱", "About 1 s, cheapest, weaker polish")),
+        ]
+    }
 }
 
 /// State of the settings window. Every change is written to the config file right away;
@@ -57,7 +59,7 @@ final class SettingsModel: ObservableObject {
         } catch {
             // Keep the broken file untouched: the window shows the error instead of overwriting it.
             config = .default
-            loadError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            loadError = UIText.describe(error)
         }
         profiles = AWSSharedConfig.profileNames()
         if !profiles.contains(config.awsProfile) { profiles.insert(config.awsProfile, at: 0) }
@@ -71,13 +73,21 @@ final class SettingsModel: ObservableObject {
             try config.write(to: configURL)
             saveError = nil
         } catch {
-            saveError = "保存失败：\(error.localizedDescription)"
+            saveError = tr("保存失败：", "Couldn't save: ") + error.localizedDescription
         }
     }
 
     func setAI(_ on: Bool) {
         aiEnabled = on
         saveAI(on)
+    }
+
+    /// Switches the window's language at once (nil: follow the system) and saves the choice.
+    func setUILanguage(_ language: Language?) {
+        UIText.choice = language  // before the change is published, so the window redraws in it
+        config.uiLanguage = language
+        save()
+        SettingsWindow.shared.updateTitle()
     }
 
     // MARK: Styles
@@ -99,12 +109,14 @@ final class SettingsModel: ObservableObject {
         (try? AWSSharedConfig.load(profile: config.awsProfile).region) ?? "us-east-1"
     }
 
+    static var credentialsFound: String { tr("已找到这个 profile 的密钥", "Found the keys for this profile") }
+
     var credentialStatus: String {
         do {
             _ = try AWSSharedConfig.load(profile: config.awsProfile)
-            return "已找到这个 profile 的密钥"
+            return Self.credentialsFound
         } catch {
-            return (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            return UIText.describe(error)
         }
     }
 
@@ -132,7 +144,7 @@ final class SettingsModel: ObservableObject {
         modelProgress[language] = 0
         VoiceInput.startDownload(language, progress: { [weak self] in self?.modelProgress[language] = $0 }) { [weak self] error in
             self?.modelProgress[language] = nil
-            if let error { self?.voiceError = "下载失败：\(AIPinyinInputController.describe(error))" }
+            if let error { self?.voiceError = tr("下载失败：", "Download failed: ") + UIText.describe(error) }
             self?.refreshVoice()
         }
     }
@@ -172,7 +184,8 @@ final class SettingsModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.directoryURL = config.jargonURL.deletingLastPathComponent()
-        panel.message = "选择你的黑话库：文本文件，每行一个词，可以加解释"
+        panel.message = tr("选择你的黑话库：文本文件，每行一个词，可以加解释",
+                           "Choose your jargon list: a text file, one term per line, optionally with its meaning")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         config.jargonFile = (url.path as NSString).abbreviatingWithTildeInPath
         save()
@@ -188,7 +201,7 @@ final class SettingsModel: ObservableObject {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data(JargonLibrary.template.utf8).write(to: url, options: .withoutOverwriting)
             } catch {
-                saveError = "无法创建黑话库：\(error.localizedDescription)"
+                saveError = tr("无法创建黑话库：", "Couldn't create the jargon list: ") + error.localizedDescription
                 return
             }
         }
@@ -212,14 +225,16 @@ final class SettingsModel: ObservableObject {
                     final = update.result
                     elapsed = update.elapsed
                 }
-                guard let first = final.versions.first?.text else { throw BedrockError.invalidResponse("没有返回结果") }
+                guard let first = final.versions.first?.text else {
+                    throw BedrockError.invalidResponse(tr("没有返回结果", "no result"))
+                }
                 // Like the candidate panel: a rewrite that only changes punctuation or repeats a row isn't shown.
                 let shown = Set(([sample] + final.versions.map(\.text)).map(\.wordingKey))
                 let rewrite = final.rewrites.first { !shown.contains($0.line.text.wordingKey) }
-                    .map { "\n\($0.style)：\($0.line.text)" } ?? ""
-                self?.testStatus = .passed(String(format: "%.1f 秒：%@%@", elapsed, first, rewrite))
+                    .map { "\n" + (RewriteStyle.named($0.style).map(UIText.name) ?? $0.style) + tr("：", ": ") + $0.line.text } ?? ""
+                self?.testStatus = .passed(String(format: tr("%.1f 秒：%@%@", "%.1f s: %@%@"), elapsed, first, rewrite))
             } catch {
-                self?.testStatus = .failed(AIPinyinInputController.describe(error))
+                self?.testStatus = .failed(UIText.describe(error))
             }
         }
     }
@@ -233,103 +248,135 @@ struct SettingsView: View {
         Form {
             if let loadError = model.loadError {
                 Section {
-                    Label("配置文件有误，未做修改：\(loadError)", systemImage: "exclamationmark.triangle")
+                    Label(tr("配置文件有误，未做修改：", "The config file has an error and was left as is: ") + loadError,
+                          systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
-                    Button("打开配置文件") { NSWorkspace.shared.open(model.configURL) }
+                    Button(tr("打开配置文件", "Open Config File")) { NSWorkspace.shared.open(model.configURL) }
                 }
             }
 
             Section {
-                Toggle("开启 AI 翻译和改写（⇧空格）", isOn: Binding(get: { model.aiEnabled }, set: { model.setAI($0) }))
-                Text("整句打完按空格：1–3 是\(model.config.outputLanguage.displayName)，后面是下方勾选的改写。关闭后就是普通拼音输入法。")
+                // 中文 and English are written in their own language, so they can be found either way.
+                Picker(tr("界面语言", "Language"), selection: Binding(get: { model.config.uiLanguage },
+                                                                    set: { model.setUILanguage($0) })) {
+                    Text(tr("跟随系统", "System")).tag(Language?.none)
+                    Text("中文").tag(Language?.some(.chinese))
+                    Text("English").tag(Language?.some(.english))
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section {
+                Toggle(tr("开启 AI 翻译和改写（⇧空格）", "AI translation and rewrites (⇧Space)"),
+                       isOn: Binding(get: { model.aiEnabled }, set: { model.setAI($0) }))
+                Text(aiSummary).font(.caption).foregroundStyle(.secondary)
+                Picker(tr("出结果的键", "Translate key"), selection: $model.config.translateKey) {
+                    ForEach([TranslateKey.optionTap, .optionSpace, .space], id: \.self) { key in
+                        Text(UIText.name(key)).tag(key)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(!model.canSave)
+                Text(Self.translateKeyNote(model.config.translateKey))
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("输入和输出") {
-                Picker("默认输入", selection: $model.config.defaultInput) {
-                    Text("中文（拼音）").tag(Language.chinese)
-                    Text("英文").tag(Language.english)
+            Section(tr("输入和输出", "Input and Output")) {
+                Picker(tr("默认输入", "Default input"), selection: $model.config.defaultInput) {
+                    Text(tr("中文（拼音）", "Chinese (pinyin)")).tag(Language.chinese)
+                    Text(UIText.name(Language.english)).tag(Language.english)
                 }
                 .pickerStyle(.segmented)
-                Picker("输出（1–3 行）", selection: $model.config.outputLanguage) {
-                    Text("英文").tag(Language.english)
-                    Text("中文").tag(Language.chinese)
+                Picker(tr("输出（1–3 行）", "Output (lines 1–3)"), selection: $model.config.outputLanguage) {
+                    Text(UIText.name(Language.english)).tag(Language.english)
+                    Text(UIText.name(Language.chinese)).tag(Language.chinese)
                 }
                 .pickerStyle(.segmented)
-                Toggle("英文模式也用 AI（打完连按两次空格）", isOn: $model.config.englishAI)
+                Toggle(tr("英文模式也用 AI（打完\(UIText.howToPress(model.config.translateKey, english: true))）",
+                          "AI for English input too (\(UIText.howToPress(model.config.translateKey, english: true)) when done)"),
+                       isOn: $model.config.englishAI)
                 Text(inputSummary).font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.canSave)
 
-            Section("改写风格") {
+            Section(tr("改写风格", "Rewrite Styles")) {
                 ForEach(RewriteStyle.catalog, id: \.name) { style in
                     Toggle(isOn: Binding(get: { model.isStyleOn(style) },
                                          set: { model.setStyle(style, on: $0) })) {
                         HStack {
-                            Text(style.name)
-                            Text(style.summary).foregroundStyle(.secondary)
+                            Text(UIText.name(style))
+                            Text(UIText.summary(style)).foregroundStyle(.secondary)
                         }
                     }
                 }
                 .disabled(!model.canSave)
                 Text(model.config.rewriteStyles.isEmpty
-                     ? "都不勾选时只出 1–3 行。"
-                     : "改写用原文的语言：打中文出中文改写，打英文出英文改写。")
+                     ? tr("都不勾选时只出 1–3 行。", "With none checked, you get lines 1–3 only.")
+                     : tr("改写用原文的语言：打中文出中文改写，打英文出英文改写。",
+                          "Rewrites are in the language you typed: Chinese for Chinese, English for English."))
                     .font(.caption).foregroundStyle(.secondary)
-                LabeledContent("黑话库") {
+                LabeledContent(tr("黑话库", "Jargon list")) {
                     HStack(spacing: 8) {
-                        Text(model.jargonExists ? "\(model.jargonCount) 个词" : "未设置").foregroundStyle(.secondary)
-                        Button("选择文件…") { model.chooseJargonFile() }
-                        Button(model.jargonExists ? "打开" : "新建") { model.openJargonFile() }
+                        Text(model.jargonExists ? tr("\(model.jargonCount) 个词", "\(model.jargonCount) terms") : tr("未设置", "Not set"))
+                            .foregroundStyle(.secondary)
+                        Button(tr("选择文件…", "Choose File…")) { model.chooseJargonFile() }
+                        Button(model.jargonExists ? tr("打开", "Open") : tr("新建", "New")) { model.openJargonFile() }
                     }
                 }
                 .disabled(!model.canSave)
-                Text("用你自己的词表：文本文件，每行一个词，可以加解释（如 bandwidth：精力、时间）。勾上「黑话」后模型优先用这些词，候选里会注明意思。"
-                     + (model.jargonExists ? "\n文件：\(model.jargonPath)" : ""))
+                Text(tr("用你自己的词表：文本文件，每行一个词，可以加解释（如 bandwidth：精力、时间）。勾上「黑话」后模型优先用这些词，候选里会注明意思。",
+                        "Your own term list: a text file, one term per line, optionally with its meaning (e.g. bandwidth: time and energy). With Jargon checked, the model prefers these terms and the candidates explain them.")
+                     + (model.jargonExists ? tr("\n文件：", "\nFile: ") + model.jargonPath : ""))
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
 
-            Section("语音输入") {
-                Toggle("按住右 ⌥ 说话，松开结束", isOn: $model.config.voiceInput)
+            Section(tr("语音输入", "Voice Input")) {
+                Toggle(tr("按住右 ⌥ 说话，松开结束", "Hold right ⌥ to talk, release to stop"), isOn: $model.config.voiceInput)
                     .disabled(!model.canSave)
                 if VoiceInput.isSupported {
                     ForEach([Language.chinese, .english], id: \.self) { language in
-                        LabeledContent("\(language.displayName)语音模型") { modelStatus(language) }
+                        LabeledContent(tr("\(language.displayName)语音模型", "\(UIText.name(language)) speech model")) {
+                            modelStatus(language)
+                        }
                     }
-                    LabeledContent("麦克风") {
+                    LabeledContent(tr("麦克风", "Microphone")) {
                         switch model.microphone {
-                        case .granted: Text("已允许").foregroundStyle(.secondary)
-                        case .notDetermined: Button("允许使用麦克风") { model.microphoneAction() }
-                        case .denied: Button("已拒绝，去系统设置打开") { model.microphoneAction() }
+                        case .granted: Text(tr("已允许", "Allowed")).foregroundStyle(.secondary)
+                        case .notDetermined: Button(tr("允许使用麦克风", "Allow Microphone")) { model.microphoneAction() }
+                        case .denied: Button(tr("已拒绝，去系统设置打开", "Denied: Open System Settings")) { model.microphoneAction() }
                         }
                     }
                     if let error = model.voiceError { Text(error).foregroundStyle(.red) }
-                    Text("中文模式说中文，英文模式说英文。语音在这台 Mac 上识别，不上传；识别出的文字和打字一样进草稿。")
+                    Text(tr("中文模式说中文，英文模式说英文。语音在这台 Mac 上识别，不上传；识别出的文字和打字一样进草稿。",
+                            "Speak Chinese in Chinese mode and English in English mode. Speech is recognized on this Mac and never uploaded; the text goes into the draft like typing."))
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("需要 macOS 26 或更新版本。").font(.caption).foregroundStyle(.secondary)
+                    Text(tr("需要 macOS 26 或更新版本。", "Needs macOS 26 or later.")).font(.caption).foregroundStyle(.secondary)
                 }
             }
 
-            Section("模型（Amazon Bedrock）") {
-                Picker("模型", selection: modelSelection) {
+            Section(tr("模型（Amazon Bedrock）", "Model (Amazon Bedrock)")) {
+                Picker(tr("模型", "Model"), selection: modelSelection) {
                     ForEach(SuggestedModel.all) { m in
-                        Text("\(m.title)　\(m.note)").tag(m.id)
+                        Text(m.title + tr("　", "  ") + m.note).tag(m.id)
                     }
-                    Text("自定义…").tag("custom")
+                    Text(tr("自定义…", "Custom…")).tag("custom")
                 }
                 if customModel || !SuggestedModel.all.contains(where: { $0.id == model.config.modelId }) {
-                    TextField("模型 ID", text: $model.config.modelId, prompt: Text("例如 us.anthropic.claude-haiku-4-5-20251001-v1:0"))
+                    TextField(tr("模型 ID", "Model ID"), text: $model.config.modelId,
+                              prompt: Text(tr("例如 ", "e.g. ") + "us.anthropic.claude-haiku-4-5-20251001-v1:0"))
                         .onSubmit { model.save() }
                 }
                 Picker("AWS Profile", selection: $model.config.awsProfile) {
                     ForEach(model.profiles, id: \.self) { Text($0).tag($0) }
                 }
-                TextField("区域", text: regionBinding, prompt: Text("留空用 profile 的区域（\(model.profileRegion)）"))
+                TextField(tr("区域", "Region"), text: regionBinding,
+                          prompt: Text(tr("留空用 profile 的区域（\(model.profileRegion)）",
+                                          "Empty: the profile's region (\(model.profileRegion))")))
                     .onSubmit { model.save() }
                 Text(model.credentialStatus).font(.caption).foregroundStyle(.secondary)
                 HStack {
-                    Button("测试连接") { model.runTest() }
+                    Button(tr("测试连接", "Test Connection")) { model.runTest() }
                         .disabled(model.testStatus == .running)
                     switch model.testStatus {
                     case .idle: EmptyView()
@@ -341,29 +388,32 @@ struct SettingsView: View {
             }
             .disabled(!model.canSave)
 
-            Section("高级") {
+            Section(tr("高级", "Advanced")) {
                 Stepper(value: $model.config.maxTokens, in: 200...4000, step: 100) {
-                    Text("最多输出 \(model.config.maxTokens) tokens")
+                    Text(tr("最多输出 \(model.config.maxTokens) tokens", "Up to \(model.config.maxTokens) output tokens"))
                 }
-                Toggle("发送 temperature（有的模型不支持，报错时关掉）", isOn: temperatureOn)
+                Toggle(tr("发送 temperature（有的模型不支持，报错时关掉）",
+                          "Send temperature (some models don't support it; turn it off if requests fail)"),
+                       isOn: temperatureOn)
                 if let t = model.config.temperature {
                     Slider(value: Binding(get: { t }, set: { model.config.temperature = ($0 * 10).rounded() / 10 }),
                            in: 0...1) { Text("temperature \(String(format: "%.1f", t))") }
                 }
                 Stepper(value: $model.config.timeoutSeconds, in: 5...60, step: 5) {
-                    Text("超时 \(Int(model.config.timeoutSeconds)) 秒")
+                    Text(tr("超时 \(Int(model.config.timeoutSeconds)) 秒", "Timeout \(Int(model.config.timeoutSeconds)) s"))
                 }
             }
             .disabled(!model.canSave)
 
             Section {
                 HStack {
-                    Button("打开配置文件") { NSWorkspace.shared.open(model.configURL) }
-                    Button("打开 Rime 用户目录") {
+                    Button(tr("打开配置文件", "Open Config File")) { NSWorkspace.shared.open(model.configURL) }
+                    Button(tr("打开 Rime 用户目录", "Open Rime User Folder")) {
                         NSWorkspace.shared.open(RimeDirectories.user)
                     }
                 }
-                Text("所有设置都存在 \((model.configURL.path as NSString).abbreviatingWithTildeInPath)，改完立即生效。")
+                let path = (model.configURL.path as NSString).abbreviatingWithTildeInPath
+                Text(tr("所有设置都存在 \(path)，改完立即生效。", "All settings are stored in \(path) and apply right away."))
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 if let saveError = model.saveError {
                     Text(saveError).foregroundStyle(.red)
@@ -381,6 +431,7 @@ struct SettingsView: View {
         .onChange(of: model.config.outputLanguage) { model.save() }
         .onChange(of: model.config.englishAI) { model.save() }
         .onChange(of: model.config.voiceInput) { model.save() }
+        .onChange(of: model.config.translateKey) { model.save() }
         .onAppear {
             model.refreshVoice()
             model.refreshJargon()
@@ -391,14 +442,46 @@ struct SettingsView: View {
         .onDisappear { model.save() }
     }
 
-    /// What Space does for Chinese and for English input with the current settings.
+    /// What the translate key gives, under the AI switch.
+    private var aiSummary: String {
+        let key = UIText.howToPress(model.config.translateKey)
+        let output = UIText.name(model.config.outputLanguage)
+        return tr("整句打完\(key)：1–3 是\(output)，后面是下方勾选的改写。关闭后就是普通拼音输入法。",
+                  "When the sentence is done, \(key): lines 1–3 in \(output), then the rewrites checked below. "
+                      + "Off: a plain pinyin input method.")
+    }
+
+    /// What the translate key does for Chinese and for English input with the current settings.
     private var inputSummary: String {
-        let chinese = AIPinyinInputController.actionText(input: .chinese, config: model.config)
-        let english = AIPinyinInputController.actionText(input: .english, config: model.config)
+        let key = model.config.translateKey
+        let chinese = UIText.action(input: .chinese, config: model.config)
+        let english = UIText.action(input: .english, config: model.config)
+        guard UIText.chinese else {
+            let englishPart = model.config.englishAI
+                ? "English: \(UIText.howToPress(key, english: true)) to \(english)"
+                : "in English mode, letters go straight into the app"
+            return "Chinese: \(UIText.howToPress(key)) to \(chinese); \(englishPart). Tap Shift to switch between Chinese and English."
+        }
         let englishPart = model.config.englishAI
-            ? "打英文连按两次空格：\(english)"
+            ? "打英文\(key.howToPress(english: true))：\(english)"
             : "英文模式下字母直接上屏"
-        return "打中文按空格：\(chinese)；\(englishPart)。单按 Shift 切换中英文。"
+        return "打中文\(key.howToPress())：\(chinese)；\(englishPart)。单按 Shift 切换中英文。"
+    }
+
+    /// How the chosen translate key works, and what Space does with it.
+    static func translateKeyNote(_ key: TranslateKey) -> String {
+        switch key {
+        case .optionTap:
+            return tr("按一下 ⌥ 马上松开，左右都行；按住右 ⌥ 仍然是说话。空格照常选词、打空格。",
+                      "Press either ⌥ and let go right away; holding right ⌥ still dictates. Space picks words and types spaces as usual.")
+        case .optionSpace:
+            return tr("空格照常选词、打空格；拼音没选完也可以直接按 ⌥空格。⌥空格被 Alfred、Raycast 等占用时，改用「单按 ⌥」。",
+                      "Space picks words and types spaces as usual; ⌥Space also works before the pinyin is picked. "
+                          + "If Alfred, Raycast or another app uses ⌥Space, choose Tap ⌥.")
+        case .space:
+            return tr("空格先选词，整句没有要选的了再按一次空格出结果；英文模式下连按两次空格。",
+                      "Space picks words; once nothing is left to pick, Space again shows the results. In English mode, press Space twice.")
+        }
     }
 
     @ViewBuilder
@@ -410,8 +493,8 @@ struct SettingsView: View {
             }
         } else {
             switch model.installedModels[language] {
-            case true?: Text("已安装").foregroundStyle(.secondary)
-            case false?: Button("下载（只需一次）") { model.downloadModel(language) }
+            case true?: Text(tr("已安装", "Installed")).foregroundStyle(.secondary)
+            case false?: Button(tr("下载（只需一次）", "Download (once)")) { model.downloadModel(language) }
             case nil: ProgressView().controlSize(.small)
             }
         }
@@ -451,19 +534,25 @@ final class SettingsWindow {
     static let shared = SettingsWindow()
     private var window: NSWindow?
 
+    static var title: String { tr("AI 拼音 设置", "AI Pinyin Settings") }
+
+    /// After the window's language changed.
+    func updateTitle() { window?.title = Self.title }
+
     func show() {
         if window?.isVisible != true {
             // (Re)build so the window reflects the config file as it is now.
             window?.close()
             let model = SettingsModel()
+            UIText.choice = model.config.uiLanguage
             let host = NSHostingController(rootView: SettingsView(model: model))
             let window = NSWindow(contentViewController: host)
-            window.title = "AI 拼音 设置"
+            window.title = Self.title
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
-            // The whole form is about 1350 pt tall; on smaller screens it scrolls.
+            // The whole form is about 1420 pt tall; on smaller screens it scrolls.
             let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 900
-            window.setContentSize(NSSize(width: 560, height: min(1360, visible - 60)))
+            window.setContentSize(NSSize(width: 560, height: min(1430, visible - 60)))
             window.center()
             self.window = window
         }

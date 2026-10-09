@@ -5,11 +5,12 @@ import Foundation
 /// Level one is a local pinyin engine (Rime): typing, selecting and committing words works like any
 /// pinyin input method. With AI on, text the engine commits is collected into a *draft* (shown inline,
 /// not yet in the document) instead of being inserted. In English mode, typed letters can start a
-/// draft too (`englishAI`), and holding the right Option key dictates into the draft. Space on a
-/// finished draft starts level two: the sentence goes to the model, which streams three versions in
-/// the output language and rewrites in the configured styles.
+/// draft too (`englishAI`), and holding the right Option key dictates into the draft. The translate
+/// key (`TranslateKey`: an Option tap by default, ⌥Space, or Space on a finished draft) starts level
+/// two: pinyin still being typed is converted first, then the sentence goes to the model, which
+/// streams three versions in the output language and rewrites in the configured styles.
 ///
-///     idle ─letters / voice─▶ drafting ─Space (nothing left to convert)─▶ translating ─final─▶ choosing
+///     idle ─letters / voice─▶ drafting ─translate key─▶ translating ─final─▶ choosing
 ///      ▲               │   ▲ ◀──────────── Esc / ⌫ / typing more ────────────────────────┘ │
 ///      └── ⏎ commits draft ┘ ◀──────────────── Space / digits / ⏎ commit ──────────────────┘
 ///
@@ -108,6 +109,28 @@ public final class Composer {
     }
 
     public private(set) var phase: Phase = .idle
+    /// What the composer itself says (notices near the caret, a failure without a result), in the
+    /// interface language. Chinese unless the controller sets another.
+    public var messages = Messages.chinese
+
+    public struct Messages: Equatable, Sendable {
+        public var notReady: String
+        public var holdToTalk: String
+        public var didNotHear: String
+        public var chineseMode: String
+        public var englishMode: String
+        public var aiOn: String
+        public var aiOff: String
+        public var noResult: String
+
+        public static let chinese = Messages(
+            notReady: "词库准备中，稍候可用", holdToTalk: "按住右 ⌥ 说话", didNotHear: "没听清，再说一次",
+            chineseMode: "中", englishMode: "英", aiOn: "AI 翻译：开", aiOff: "AI 翻译：关", noResult: "没有得到结果")
+        public static let english = Messages(
+            notReady: "Loading the dictionaries, one moment", holdToTalk: "Hold right ⌥ to talk",
+            didNotHear: "Didn't catch that, try again", chineseMode: "Chinese", englishMode: "English",
+            aiOn: "AI: on", aiOff: "AI: off", noResult: "No result")
+    }
     /// Confirmed text waiting for level two (AI mode only).
     public private(set) var draft = ""
     /// Last known state of the level-one engine.
@@ -119,6 +142,10 @@ public final class Composer {
     public var englishAI: Bool
     /// Holding the right Option key records speech.
     public var voiceEnabled: Bool
+    /// The key that sends the sentence to the model.
+    public var translateKey: TranslateKey
+    /// The translate key was pressed during dictation: the sentence goes once the transcript is final.
+    public private(set) var translatesAfterVoice = false
     /// Level one. Nil while the dictionaries are being prepared; keys then go to the application.
     public var engine: PinyinEngine? {
         didSet { engineState = engine?.snapshot() ?? .empty }
@@ -133,17 +160,21 @@ public final class Composer {
     private var voiceKeySided = false
     /// When Shift went down with no other key since (nil once any key is pressed).
     private var shiftPressedAt: TimeInterval?
+    /// Which Option key went down on its own, and when (nil once anything else happens).
+    private var optionPressed: (keyCode: UInt16, at: TimeInterval)?
     private var warnedNotReady = false
     /// The draft was started by English-mode typing or English dictation.
     private var draftStartedLatin = false
     /// The last thing added to the draft was a transcript (Space then translates right away).
     private var draftEndsWithVoice = false
 
-    public init(engine: PinyinEngine? = nil, aiEnabled: Bool = true, englishAI: Bool = true, voiceEnabled: Bool = true) {
+    public init(engine: PinyinEngine? = nil, aiEnabled: Bool = true, englishAI: Bool = true, voiceEnabled: Bool = true,
+                translateKey: TranslateKey = .optionTap) {
         self.engine = engine
         self.aiEnabled = aiEnabled
         self.englishAI = englishAI
         self.voiceEnabled = voiceEnabled
+        self.translateKey = translateKey
         engineState = engine?.snapshot() ?? .empty
     }
 
@@ -162,10 +193,11 @@ public final class Composer {
     /// typing (Return, Tab, arrows, Esc, shortcuts) insert it as typed and then reach the application.
     public var isLatinDraft: Bool { draftStartedLatin && !draft.isEmpty && !draft.containsHan }
 
-    /// Whether Space on the draft starts level two now (in English mode the first Space after a
-    /// word is a space; right after dictation one Space is enough).
+    /// Whether Space on the draft starts level two now. Only with the `space` translate key (in English
+    /// mode the first Space after a word is a space; right after dictation one Space is enough);
+    /// otherwise Space in a draft is a space.
     public var spaceTranslates: Bool {
-        !engineState.isAsciiMode || draft.hasSuffix(" ") || draftEndsWithVoice
+        translateKey == .space && (!engineState.isAsciiMode || draft.hasSuffix(" ") || draftEndsWithVoice)
     }
 
     /// Inline text: the draft followed by the engine's composition and any speech being recognized.
@@ -206,7 +238,7 @@ public final class Composer {
     }
 
     /// Index into `choices`. Defaults to the first main version, even before it has streamed in,
-    /// so an early Space never commits something else by accident.
+    /// so an early Space or Return never commits something else by accident.
     public var highlighted: Int {
         let all = choices
         if let highlightOverride { return all.isEmpty ? 0 : min(highlightOverride, all.count - 1) }
@@ -227,7 +259,12 @@ public final class Composer {
 
     public func handleKeyDown(_ event: KeyEvent) -> Response {
         shiftPressedAt = nil
+        optionPressed = nil  // ⌥ with a key is a shortcut, not a tap
         voiceArmed = false  // a key with right ⌥ down is an ⌥ shortcut, not dictation
+        if isTranslateKey(event), let effects = translateKeyPressed() {
+            draftEndsWithVoice = false
+            return .consumed(effects)
+        }
         let afterVoice = draftEndsWithVoice
         draftEndsWithVoice = false
         var prefix: [Effect] = []
@@ -239,6 +276,7 @@ public final class Composer {
         case let .finishing(id, text):
             // The final transcript hasn't arrived yet: keep what was recognized so far.
             if event.keyCode == VirtualKey.escape { return .consumed(cancelVoice(id)) }
+            translatesAfterVoice = false  // another key after the translate key: not sending after all
             prefix = [.cancelVoice(id: id)] + voiceFinished(text, id: id)
         case .off:
             break
@@ -268,8 +306,16 @@ public final class Composer {
     /// Shift-click selection doesn't count) switches the engine between Chinese and Latin input.
     /// Words already picked are kept and remaining letters are committed as typed (librime's
     /// `commit_code`). The right Option key held on its own records speech until it is released.
+    /// With the `optionTap` translate key, either Option key pressed and released on its own sends
+    /// the sentence (a hold of the right one still dictates).
     /// The application always receives modifier changes as well. `timestamp` is in seconds.
     public func handleFlagsChanged(keyCode: UInt16, modifiers: KeyModifiers, timestamp: TimeInterval) -> [Effect] {
+        if isOptionTap(keyCode: keyCode, modifiers: modifiers, timestamp: timestamp), translateKey == .optionTap,
+           let effects = translateKeyPressed() {
+            voiceArmed = false  // a tap of right ⌥, not a hold
+            shiftPressedAt = nil
+            return effects
+        }
         if let effects = handleVoiceKey(keyCode: keyCode, modifiers: modifiers) { return effects }
         let isShift = keyCode == VirtualKey.leftShift || keyCode == VirtualKey.rightShift
         let others = modifiers.subtracting([.shift, .capsLock, .leftOption, .rightOption])
@@ -284,9 +330,35 @@ public final class Composer {
     }
 
     static let shiftTapWindow: TimeInterval = 0.5
+    /// Longest press of an Option key that still counts as a tap (`optionTap`). A hold of the right
+    /// Option key turns into dictation sooner, after `voiceArmDelay`.
+    static let optionTapWindow: TimeInterval = 0.5
     /// How long the right Option key must be held on its own before dictation starts (so ⌥
     /// shortcuts, ⌥-arrows and taps never touch the microphone).
     public static let voiceArmDelay: TimeInterval = 0.2
+
+    /// Tracks the Option keys. True for the release of one that went down on its own and came back
+    /// up within `optionTapWindow`, with no key or other modifier (including the other Option) between.
+    private func isOptionTap(keyCode: UInt16, modifiers: KeyModifiers, timestamp: TimeInterval) -> Bool {
+        let side: KeyModifiers
+        switch keyCode {
+        case VirtualKey.leftOption: side = .leftOption
+        case VirtualKey.rightOption: side = .rightOption
+        default:
+            optionPressed = nil  // another modifier changed
+            return false
+        }
+        let sided = !modifiers.isDisjoint(with: [.leftOption, .rightOption])
+        let down = sided ? modifiers.contains(side) : modifiers.contains(.option)
+        if down {
+            let alone = modifiers.subtracting([.option, side, .capsLock]).isEmpty && optionPressed == nil
+            optionPressed = alone ? (keyCode, timestamp) : nil
+            return false
+        }
+        defer { optionPressed = nil }
+        guard let pressed = optionPressed, pressed.keyCode == keyCode else { return false }
+        return timestamp - pressed.at <= Self.optionTapWindow
+    }
 
     /// The voice key: arms on press, dictation runs while it is held, stops on release. Nil for
     /// modifier changes that are for the Shift logic.
@@ -316,7 +388,7 @@ public final class Composer {
         }
         guard voiceArmed else { return [] }
         voiceArmed = false
-        return [.notice("按住右 ⌥ 说话")]  // released before dictation started: a tap
+        return [.notice(messages.holdToTalk)]  // released before dictation started: a tap
     }
 
     /// `voiceArmDelay` after `.armVoice`: starts dictation if the key is still held on its own
@@ -352,7 +424,7 @@ public final class Composer {
         if isFinal {
             // Versions that only repeat the original are hidden, but the answer still counts.
             let answered = !result.versions.isEmpty || choices.contains { $0.kind != .original && !$0.text.isEmpty }
-            phase = answered ? .choosing : .failed("没有得到结果")
+            phase = answered ? .choosing : .failed(messages.noResult)
         }
         return [.showPanel]
     }
@@ -375,14 +447,17 @@ public final class Composer {
         return [.updateMarkedText, .showPanel]
     }
 
-    /// The final transcript: it continues the draft (AI on) or is inserted (AI off).
+    /// The final transcript: it continues the draft (AI on) or is inserted (AI off). If the translate
+    /// key was pressed during dictation, the sentence then goes to the model.
     public func voiceFinished(_ text: String, id: Int) -> [Effect] {
         guard voice.id == id else { return [] }
         voice = .off
+        let translate = translatesAfterVoice
+        translatesAfterVoice = false
         let spoken = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !spoken.isEmpty else {
             setLevelOnePhase()
-            return [.updateMarkedText, wantsPanel ? .showPanel : .hidePanel, .notice("没听清，再说一次")]
+            return [.updateMarkedText, wantsPanel ? .showPanel : .hidePanel, .notice(messages.didNotHear)]
         }
         guard aiEnabled else {
             setLevelOnePhase()
@@ -392,6 +467,7 @@ public final class Composer {
         draft += appendix(spoken)
         draftEndsWithVoice = true
         setLevelOnePhase()
+        if translate { return startTranslation().effects }
         return [.updateMarkedText, .showPanel]
     }
 
@@ -399,6 +475,7 @@ public final class Composer {
     public func voiceFailed(_ message: String, id: Int) -> [Effect] {
         guard voice.id == id else { return [] }
         voice = .off
+        translatesAfterVoice = false
         setLevelOnePhase()
         return [.updateMarkedText, wantsPanel ? .showPanel : .hidePanel, .notice(message)]
     }
@@ -445,7 +522,7 @@ public final class Composer {
         guard let engine else {
             guard event.printableText != nil, !warnedNotReady else { return .passThrough }
             warnedNotReady = true
-            return Response(effects: [.notice("词库准备中，稍候可用")], handled: false)
+            return Response(effects: [.notice(messages.notReady)], handled: false)
         }
         let composing = engine.snapshot().isComposing
         let modifiers = event.modifiers.subtracting(.capsLock)
@@ -518,9 +595,10 @@ public final class Composer {
             return commitDraftAndPassThrough()  // ⌃ shortcuts act on the text as typed
         }
         switch event.keyCode {
-        case VirtualKey.space where plain:
+        case VirtualKey.space where plain && translateKey == .space:
             // In English (Latin) mode Space separates words; a second Space in a row translates.
-            // Right after dictation the sentence is finished, so one Space does.
+            // Right after dictation the sentence is finished, so one Space does. (With the other
+            // translate keys, Space in a draft is just a space: it goes on below.)
             if engineState.isAsciiMode, !draft.hasSuffix(" "), !afterVoice {
                 draft += " "
                 return .consumed([.updateMarkedText, .showPanel])
@@ -605,7 +683,7 @@ public final class Composer {
             engine.setAsciiMode(!latin)
         }
         effects = afterEngineChange(engine, effects: effects)
-        return effects + [.notice(latin ? "中" : "英")]
+        return effects + [.notice(latin ? messages.chineseMode : messages.englishMode)]
     }
 
     private func toggleAI() -> Response {
@@ -626,7 +704,7 @@ public final class Composer {
             setLevelOnePhase()
             if engineState.isComposing || voice != .off { effects += [.updateMarkedText, .showPanel] }
         }
-        return effects + [.aiModeChanged(on), .notice(on ? "AI 翻译：开" : "AI 翻译：关")]
+        return effects + [.aiModeChanged(on), .notice(on ? messages.aiOn : messages.aiOff)]
     }
 
     // MARK: - Voice
@@ -641,6 +719,8 @@ public final class Composer {
         }
         voiceCounter += 1
         voice = .listening(id: voiceCounter, text: "")
+        optionPressed = nil  // the hold became dictation: its release is not a tap
+        translatesAfterVoice = false
         setLevelOnePhase()
         let language: Language = engineState.isAsciiMode ? .english : .chinese
         // Start last: if it fails at once, its notice must not be hidden by these updates.
@@ -654,6 +734,7 @@ public final class Composer {
 
     private func cancelVoice(_ id: Int, refresh: Bool = true) -> [Effect] {
         voice = .off
+        translatesAfterVoice = false
         guard refresh else { return [.cancelVoice(id: id)] }
         setLevelOnePhase()
         return [.cancelVoice(id: id), .updateMarkedText, wantsPanel ? .showPanel : .hidePanel]
@@ -675,10 +756,12 @@ public final class Composer {
     private func handleLevelTwo(_ event: KeyEvent) -> Response {
         switch event.keyCode {
         case VirtualKey.space:
-            if case .failed = phase { return startTranslation() }
-            return .consumed(commitChoice(at: highlighted))
+            return .consumed(acceptInLevelTwo())
         case VirtualKey.returnKey, VirtualKey.keypadEnter:
-            return .consumed(finish(committing: draft))
+            // Like Space: the highlighted row (row 0 is the sentence as typed). After a failure
+            // nothing is highlighted, and Return keeps the sentence as typed.
+            if case .failed = phase { return .consumed(finish(committing: draft)) }
+            return .consumed(commitChoice(at: highlighted))
         case VirtualKey.escape, VirtualKey.delete:
             return .consumed(backToDraft())
         case VirtualKey.up, VirtualKey.pageUp:
@@ -711,6 +794,69 @@ public final class Composer {
         result = .empty
         highlightOverride = nil
         return .consumed([.startConversion(input: input, id: requestCounter), .updateMarkedText, .showPanel])
+    }
+
+    // MARK: - Translate key
+
+    /// ⌥Space, when that is the translate key (an Option tap arrives as modifier changes instead).
+    private func isTranslateKey(_ event: KeyEvent) -> Bool {
+        translateKey == .optionSpace && event.keyCode == VirtualKey.space
+            && event.modifiers.subtracting(.capsLock) == .option
+    }
+
+    /// The translate key: pinyin still being typed is converted as Space would pick it, then the
+    /// sentence goes to the model. In level two it accepts like Space; during dictation the sentence
+    /// goes once the transcript is final. Nil when there is nothing to send (the key then has its
+    /// usual meaning, e.g. ⌥Space reaches the application).
+    private func translateKeyPressed() -> [Effect]? {
+        guard aiEnabled, let engine else { return nil }
+        if voice != .off { return translateAfterVoice() }
+        if isLevelTwo { return acceptInLevelTwo() }
+        let composing = engine.snapshot().isComposing
+        guard composing || !draft.isEmpty else { return nil }
+        let effects = composing ? convertComposition(engine) : []
+        setLevelOnePhase()
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return effects + [.updateMarkedText, wantsPanel ? .showPanel : .hidePanel]
+        }
+        return effects + startTranslation().effects
+    }
+
+    /// The translate key during dictation: recording stops (as if the key was released) and the
+    /// sentence goes to the model as soon as the final transcript is in.
+    private func translateAfterVoice() -> [Effect] {
+        translatesAfterVoice = true
+        if case let .listening(id, text) = voice { return releaseVoice(id: id, text: text) }
+        return [.showPanel]
+    }
+
+    private static let maxPicks = 16
+
+    /// Picks the highlighted candidate as Space would until no pinyin is left (a long input can take
+    /// several picks); the words go to the draft.
+    private func convertComposition(_ engine: PinyinEngine) -> [Effect] {
+        var effects: [Effect] = []
+        for _ in 0..<Self.maxPicks {
+            let before = engine.snapshot()
+            guard before.isComposing else { break }
+            _ = engine.processKey(RimeKey.space, mask: 0)
+            let committed = engine.takeCommit() ?? ""
+            if !committed.isEmpty { effects += accept(committed, picked: true) }
+            if committed.isEmpty, engine.snapshot() == before { break }  // Space picks nothing here
+        }
+        // Whatever Space didn't convert goes in the way the engine commits a composition.
+        if engine.snapshot().isComposing, let rest = engine.commitComposition(), !rest.isEmpty {
+            effects += accept(rest, picked: true)
+        }
+        engineState = engine.snapshot()
+        return effects
+    }
+
+    /// Space (or the translate key) in level two: inserts the highlighted line once it is complete;
+    /// after a failure, asks again.
+    private func acceptInLevelTwo() -> [Effect] {
+        if case .failed = phase { return startTranslation().effects }
+        return commitChoice(at: highlighted)
     }
 
     private func backToDraft() -> [Effect] {
@@ -746,6 +892,7 @@ public final class Composer {
         draft = ""
         draftStartedLatin = false
         draftEndsWithVoice = false
+        translatesAfterVoice = false
         result = .empty
         highlightOverride = nil
         phase = .idle

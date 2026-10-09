@@ -113,6 +113,35 @@ enum SelfTest {
         press(c, client, " ", code: VirtualKey.space)
     }
 
+    /// ⌥Space as a US layout delivers it (it types a no-break space).
+    static func optionSpace(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
+        press(c, client, "\u{A0}", code: VirtualKey.space, flags: .option)
+    }
+
+    /// Left Option pressed and released on its own, as the system reports it (with the device bit).
+    static func tapOption(_ c: AIPinyinInputController, _ client: FakeTextClient) {
+        let down = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | AIPinyinInputController.leftOptionBit)
+        _ = c.handle(event("", code: VirtualKey.leftOption, flags: down, type: .flagsChanged), client: client)
+        _ = c.handle(event("", code: VirtualKey.leftOption, flags: [], type: .flagsChanged), client: client)
+    }
+
+    /// Presses the translate key the controller is set to.
+    @discardableResult
+    static func translate(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
+        switch c.composer.translateKey {
+        case .optionSpace: return optionSpace(c, client)
+        case .optionTap: tapOption(c, client); return true  // modifier changes always reach the app too
+        case .space: return space(c, client)
+        }
+    }
+
+    /// The hint shown under a draft in `input`, for the current translate key and interface language.
+    static func draftHint(_ c: AIPinyinInputController, input: Language) -> CandidateView.Status {
+        let key = c.composer.translateKey
+        let how = key != .space ? UIText.name(key) : c.composer.spaceTranslates ? UIText.name(TranslateKey.space) : tr("连按两次空格", "Space twice")
+        return .hint("\(how) → " + UIText.action(input: input, config: settings))
+    }
+
     static func enter(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
         press(c, client, "\r", code: VirtualKey.returnKey)
     }
@@ -151,13 +180,19 @@ enum SelfTest {
         let model = SettingsModel(configURL: url, aiEnabled: true, saveAI: { _ in })
         check(model.canSave && model.config == real, "loads the config")
         check(model.profiles.contains(real.awsProfile), "profile picker lists \(real.awsProfile) (\(model.profiles))")
-        check(model.credentialStatus.hasPrefix("已找到"), "credentials found: \(model.credentialStatus)")
+        check(model.credentialStatus == SettingsModel.credentialsFound, "credentials found: \(model.credentialStatus)")
         let casual = RewriteStyle.named("口语")!
         let wasOn = model.isStyleOn(casual)
         model.setStyle(casual, on: !wasOn)
         let saved = (try? Config.load(from: url))?.rewriteStyles ?? []
         check(saved.contains("口语") == !wasOn, "toggling 口语 saves at once (\(saved))")
         model.setStyle(casual, on: wasOn)
+        let key = model.config.translateKey
+        model.config.translateKey = key == .optionSpace ? .space : .optionSpace
+        model.save()
+        check((try? Config.load(from: url))?.translateKey == model.config.translateKey, "the translate key is saved")
+        model.config.translateKey = key
+        model.save()
 
         // The test button makes a live request with the window's settings.
         model.runTest()
@@ -175,26 +210,48 @@ enum SelfTest {
         model.config.jargonFile = list.path
         model.refreshJargon()
         check(model.jargonExists && model.jargonCount == 3, "the user's jargon list is counted (\(model.jargonCount) terms)")
-        let preview = SettingsModel(configURL: Config.defaultURL, aiEnabled: true, saveAI: { _ in }, persists: false)
-        preview.runTest()
-        _ = pump(timeout: 20) { preview.testStatus != .running }
-        let host = NSHostingView(rootView: SettingsView(model: preview))
-        let size = NSSize(width: 560, height: 1500)
-        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: size.width, height: size.height),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.alphaValue = 0
-        window.appearance = NSAppearance(named: .aqua)  // README images are light, whatever the Mac uses
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        _ = pump(timeout: 0.5) { false }
-        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-            host.cacheDisplay(in: host.bounds, to: rep)
-            if let png = rep.representation(using: .png, properties: [:]) {
-                try? png.write(to: snapshotDirectory.appendingPathComponent("6-settings.png"))
-                print("  snapshot \(snapshotDirectory.path)/6-settings.png (\(Int(size.width))×\(Int(size.height)))")
-            }
+        // The window follows the system language: Chinese only when it comes before English.
+        check(!UIText.prefersChinese(["en-US", "zh-Hans-US"]) && UIText.prefersChinese(["zh-Hans-CN", "en-US"])
+              && UIText.prefersChinese(["ja-JP", "zh-Hant-TW", "en"]) && !UIText.prefersChinese(["ja-JP"]),
+              "the settings language follows the preferred languages (this Mac: \(UIText.systemPrefersChinese ? "中文" : "English"))")
+        // Unless one is picked in the window: it applies at once and is saved.
+        let pickedBefore = UIText.choice
+        defer { UIText.choice = pickedBefore }
+        for picked in [Language.english, .chinese] {
+            model.setUILanguage(picked)
+            check(UIText.chinese == (picked == .chinese) && (try? Config.load(from: url))?.uiLanguage == picked
+                  && model.credentialStatus == SettingsModel.credentialsFound,
+                  "界面语言 \(picked.rawValue): applies at once and is saved (\(model.credentialStatus))")
         }
-        window.close()
+        model.setUILanguage(nil)
+        check(UIText.chinese == UIText.systemPrefersChinese && (try? Config.load(from: url))?.uiLanguage == nil,
+              "界面语言 跟随系统 is saved as null")
+        func render(_ name: String, chinese: Bool) {
+            UIText.choice = chinese ? .chinese : .english
+            let preview = SettingsModel(configURL: Config.defaultURL, aiEnabled: true, saveAI: { _ in }, persists: false)
+            preview.runTest()
+            _ = pump(timeout: 20) { preview.testStatus != .running }
+            let host = NSHostingView(rootView: SettingsView(model: preview))
+            let size = NSSize(width: 560, height: 1700)
+            let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: size.width, height: size.height),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.alphaValue = 0
+            window.appearance = NSAppearance(named: .aqua)  // README images are light, whatever the Mac uses
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            _ = pump(timeout: 0.5) { false }
+            if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: rep)
+                if let png = rep.representation(using: .png, properties: [:]) {
+                    try? png.write(to: snapshotDirectory.appendingPathComponent("\(name).png"))
+                    print("  snapshot \(snapshotDirectory.path)/\(name).png (\(Int(size.width))×\(Int(size.height)))")
+                }
+            }
+            window.close()
+        }
+        render("6-settings", chinese: true)  // README
+        render("6-settings-en", chinese: false)
+        UIText.choice = pickedBefore
 
         // A config file that doesn't parse is shown as an error and never overwritten.
         try? Data("{ broken".utf8).write(to: url)
@@ -245,9 +302,11 @@ enum SelfTest {
         type(sentence, controller, client)
         check(client.marked == sentence && controller.composer.isLatinDraft, "English collects into a draft (\(client.marked))")
         check(space(controller, client) && controller.composer.draft.hasSuffix(" ") && !controller.composer.isLevelTwo,
-              "first Space after a word is a space")
+              "Space after a word is a space")
+        check(controller.panelModel().status == draftHint(controller, input: .english),
+              "the hint names the translate key (\(controller.panelModel().status))")
         snapshot("7a-english-draft", in: snapshotDirectory)
-        check(space(controller, client), "second Space sends it")
+        check(translate(controller, client), "the translate key sends it")
         if finishConversion(controller, "English polish") {
             let choices = controller.composer.choices
             let versions = choices.filter { $0.kind == .version }
@@ -282,16 +341,18 @@ enum SelfTest {
         _ = space(controller, client)
         let typed = controller.composer.draft
         check(typed.containsHan, "Chinese sentence confirmed (\(typed))")
-        _ = space(controller, client)
+        translate(controller, client)
         if finishConversion(controller, "Chinese polish") {
             let versions = controller.composer.choices.filter { $0.kind == .version }
             check(versions.count >= 2 && versions.allSatisfy { $0.text.containsHan && $0.text.wordingKey != typed.wordingKey },
                   "versions in Chinese, none just repeating the input (\(versions.count) shown)")
             check(controller.panelModel().rows.count == controller.composer.choices.count, "panel shows every row")
             snapshot("7b-chinese-output", in: snapshotDirectory)
+            let highlighted = controller.composer.choices[controller.composer.highlighted].text
+            _ = enter(controller, client)
+            check(client.inserted.last == highlighted, "Enter inserts the highlighted line (\(highlighted))")
         }
-        _ = enter(controller, client)
-        check(client.inserted.last == typed, "Enter inserts the original")
+        if controller.composer.isComposing { _ = enter(controller, client) }  // after a failure: the original
         settings.outputLanguage = .english
 
         print("— default input mode")
@@ -358,7 +419,9 @@ enum SelfTest {
             _ = controller.handle(event("", code: VirtualKey.rightOption, flags: flags, type: .flagsChanged), client: client)
         }
         /// Holds the key for the length of the file, then releases it and waits for the transcript.
-        func dictate(_ url: URL, snapshotName: String? = nil) -> Bool {
+        /// With `sendWhileHolding`, ⌥Space is pressed before the key is released: the recording stops
+        /// and the sentence goes to the model once the transcript is final.
+        func dictate(_ url: URL, snapshotName: String? = nil, sendWhileHolding: Bool = false) -> Bool {
             controller.voiceFile = (url, speed: 1)
             let seconds = (try? AVAudioFile(forReading: url)).map { Double($0.length) / $0.processingFormat.sampleRate } ?? 2
             optionKey(down: true)
@@ -377,6 +440,10 @@ enum SelfTest {
             }
             check(!controller.composer.voice.text.isEmpty, "live transcript while listening: \(controller.composer.voice.text)")
             let released = Date()
+            if sendWhileHolding {
+                check(optionSpace(controller, client) && controller.composer.translatesAfterVoice,
+                      "⌥Space while holding right ⌥ stops the recording and sends once it's recognized")
+            }
             optionKey(down: false)
             let done = pump(timeout: 8) { controller.composer.voice == .off }
             check(done, String(format: "final transcript %.2fs after releasing the key", Date().timeIntervalSince(released)))
@@ -407,7 +474,7 @@ enum SelfTest {
               "a quick tap of right ⌥ records nothing and shows the hint")
         _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // let the hint expire
 
-        // Chinese mode: Chinese speech continues the sentence, Space translates it.
+        // Chinese mode: Chinese speech continues the sentence, the translate key (a tap of ⌥) translates it.
         type("haode", controller, client)
         _ = space(controller, client)
         let before = controller.composer.draft
@@ -415,23 +482,31 @@ enum SelfTest {
             let draft = controller.composer.draft
             check(draft.hasPrefix(before) && draft.wordingKey.contains("不舒服"), "transcript continues the draft: \(draft)")
             check(client.marked == draft, "draft shown inline")
-            _ = space(controller, client)
+            translate(controller, client)
             if finishConversion(controller, "voice → translation") {
                 check(controller.composer.choices.filter { $0.kind == .version }.count == 3, "3 English versions of the spoken sentence")
             }
         }
         _ = enter(controller, client)
 
-        // English mode: English speech makes an English draft; one Space then sends it.
+        // English mode with ⌥Space as the translate key: English speech makes an English draft;
+        // ⌥Space while still holding right ⌥ sends it as soon as it is recognized.
+        settings.translateKey = .optionSpace
+        controller.applySettings()
         tapShift(controller, client)
-        if dictate(englishAudio) {
+        if dictate(englishAudio, sendWhileHolding: true) {
             let draft = controller.composer.draft
             check(controller.composer.isLatinDraft && draft.lowercased().contains("blocker"), "English transcript: \(draft)")
-            check(controller.composer.spaceTranslates, "right after dictation one Space translates")
+            if finishConversion(controller, "voice + ⌥Space → English polish") {
+                check(controller.composer.choices.filter { $0.kind == .version }.allSatisfy { !$0.text.containsHan },
+                      "English versions of the spoken sentence")
+            }
         }
         _ = enter(controller, client)
-        check(client.marked.isEmpty && !controller.composer.isComposing, "Return inserts the English transcript")
+        check(client.marked.isEmpty && !controller.composer.isComposing, "Return inserts the highlighted line")
         tapShift(controller, client)
+        settings.translateKey = .optionTap
+        controller.applySettings()
 
         // An ⌥ shortcut (a key while right ⌥ is down) is not dictation.
         controller.voiceFile = (chineseAudio, speed: 1)
@@ -515,6 +590,8 @@ enum SelfTest {
         settings.defaultInput = .chinese
         settings.englishAI = true
         settings.voiceInput = true
+        settings.translateKey = .optionTap  // the default; the translate key section tries the others
+        settings.uiLanguage = .chinese  // README images; the interface language section tries English
         controller.loadSettings = { SelfTest.settings }
         controller.composer.aiEnabled = true
         controller.ensureEngine()
@@ -576,6 +653,8 @@ enum SelfTest {
         type("nihao", controller, client)
         _ = space(controller, client)
         check(client.marked == "你好" && controller.composer.draft == "你好", "Space confirms 你好 into the draft (not inserted yet)")
+        check(controller.panelModel().status == draftHint(controller, input: .chinese),
+              "the hint names the translate key (\(controller.panelModel().status))")
         snapshot("2-draft-hint", in: snapshotDirectory)
         check(enter(controller, client) && client.inserted.last == "你好" && client.marked.isEmpty, "Enter inserts the Chinese draft")
 
@@ -607,8 +686,7 @@ enum SelfTest {
         print("— no AI while secure input is on")
         controller.secureInputActive = { true }
         type("nihao", controller, client)
-        _ = space(controller, client)
-        _ = space(controller, client)
+        translate(controller, client)
         if case let .failed(message) = controller.composer.phase {
             check(message.contains("安全输入"), "translation refused without a request: \(message)")
         } else {
@@ -618,6 +696,7 @@ enum SelfTest {
         check(client.inserted.last == "你好", "Enter still inserts the Chinese")
         // The rest exercises the normal state (the real flag may be on now, e.g. while the screen is locked).
         controller.secureInputActive = { false }
+        _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // the 中/英 notice, not in the README images
 
         print("— level two: translate + polish (live Bedrock)")
         type("wojintianyoudianbushufu", controller, client)
@@ -628,7 +707,7 @@ enum SelfTest {
         check(controller.composer.draft == sentence, "Space confirms the sentence")
         snapshot("2b-sentence-draft", in: snapshotDirectory)
         let started = Date()
-        check(space(controller, client), "second Space starts the translation")
+        check(translate(controller, client), "the translate key starts the translation")
         check(panel.isVisible && client.marked == sentence, "panel visible, Chinese stays marked")
         var streamingSnapshotTaken = false
         let finished = pump(timeout: 20) {
@@ -664,8 +743,8 @@ enum SelfTest {
 
         print("— cache hit + Space commits")
         type("wojintianyoudianbushufu", controller, client)
-        _ = space(controller, client)
-        _ = space(controller, client)
+        check(translate(controller, client) && controller.composer.draft == sentence,
+              "the translate key right on the pinyin converts it and sends it")
         _ = pump(timeout: 2) { controller.composer.phase == .choosing }
         check(controller.composer.phase == .choosing, "same sentence answered from cache")
         _ = space(controller, client)
@@ -674,13 +753,77 @@ enum SelfTest {
         print("— typing more in level two continues the sentence")
         type("nihao", controller, client)
         _ = space(controller, client)
-        _ = space(controller, client)  // translation starts
+        translate(controller, client)  // translation starts
         type("ma", controller, client)  // keep typing instead of choosing
         check(controller.composer.phase == .drafting && client.marked.hasPrefix("你好"), "back to the draft (\(client.marked))")
         _ = space(controller, client)
         check(controller.composer.draft == "你好吗", "sentence is now 你好吗 (\(controller.composer.draft))")
         _ = enter(controller, client)
         check(client.inserted.last == "你好吗", "Enter inserts it")
+
+        // The cached sentence again, so these need no requests.
+        print("— translate key setting: a tap of ⌥, ⌥Space, Space")
+        type("nihao", controller, client)
+        _ = space(controller, client)
+        _ = space(controller, client)
+        check(controller.composer.draft == "你好 " && !controller.composer.isLevelTwo,
+              "with 单按 ⌥, Space in a draft types a space ('\(controller.composer.draft)')")
+        check(!controller.composer.spaceTranslates, "and never sends it")
+        _ = escape(controller, client)
+        settings.translateKey = .optionSpace
+        controller.applySettings()
+        type("wojintianyoudianbushufu", controller, client)
+        _ = optionSpace(controller, client)
+        _ = pump(timeout: 2) { controller.composer.phase == .choosing }
+        check(controller.composer.phase == .choosing && controller.composer.draft == sentence,
+              "⌥空格: converts the pinyin and sends it")
+        check(optionSpace(controller, client) && client.inserted.last == choices[1].text,
+              "⌥空格 again inserts the highlighted line")
+        settings.translateKey = .space
+        controller.applySettings()
+        type("wojintianyoudianbushufu", controller, client)
+        _ = space(controller, client)
+        check(controller.composer.spaceTranslates && controller.panelModel().status == draftHint(controller, input: .chinese),
+              "空格: the hint says Space (\(controller.panelModel().status))")
+        _ = space(controller, client)
+        _ = pump(timeout: 2) { controller.composer.phase == .choosing }
+        check(controller.composer.phase == .choosing, "空格: the second Space sends it")
+        check(press(controller, client, "0", code: 0x1D) && client.inserted.last == sentence, "0 inserts the original")
+        settings.translateKey = .optionTap
+        controller.applySettings()
+        check(controller.composer.translateKey == .optionTap, "back to 单按 ⌥")
+
+        // The cached sentence once more, with the interface in English (an English system, or 界面语言 English).
+        print("— interface language: English")
+        settings.uiLanguage = .english
+        controller.applySettings()
+        type("wojintianyoudianbushufu", controller, client)
+        check(controller.panelModel().footer == "Space picks · Tap ⌥ to translate",
+              "English footer while typing: \(controller.panelModel().footer)")
+        _ = space(controller, client)
+        check(controller.panelModel().status == draftHint(controller, input: .chinese)
+              && controller.panelModel().footer == "⏎ insert as typed · ⌫ delete · Esc clear",
+              "English hint under the draft: \(controller.panelModel().status)")
+        tapOption(controller, client)
+        _ = pump(timeout: 2) { controller.composer.phase == .choosing }
+        let english = controller.panelModel()
+        let styleNames = english.rows.dropFirst().map { $0.comment.components(separatedBy: " · ")[0] }
+        check(english.footer == "Space / ⏎ insert · digits pick · 0 original · Esc back"
+              && english.rows.first?.comment == "original" && !styleNames.joined().containsHan,
+              "English results panel: \(english.footer) | \(english.rows.map(\.comment))")
+        snapshot("9-english-ui", in: snapshotDirectory)
+        _ = escape(controller, client)
+        _ = escape(controller, client)
+        tapShift(controller, client)
+        check(controller.panelModel().detail == "English", "English mode notice: \(controller.panelModel().detail ?? "none")")
+        tapShift(controller, client)
+        let englishMenu = controller.menu()?.items.map(\.title) ?? []
+        check(englishMenu.first == "Settings…" && englishMenu.contains { $0.hasPrefix("Model: ") },
+              "English input menu (\(englishMenu.prefix(3)))")
+        settings.uiLanguage = .chinese
+        controller.applySettings()
+        check(controller.composer.messages == .chinese && UIText.chinese, "back to Chinese")
+        _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // let the 中 notice expire
 
         testEnglishAndOutput(controller, client, snapshotDirectory: snapshotDirectory)
         testVoice(controller, client, snapshotDirectory: snapshotDirectory)
@@ -695,7 +838,7 @@ enum SelfTest {
         })
         type("ceshi", controller, client)
         _ = space(controller, client)
-        _ = space(controller, client)
+        translate(controller, client)
         _ = pump(timeout: 15) { if case .failed = controller.composer.phase { return true } else { return false } }
         if case let .failed(message) = controller.composer.phase {
             check(true, "error shown: \(message)")
