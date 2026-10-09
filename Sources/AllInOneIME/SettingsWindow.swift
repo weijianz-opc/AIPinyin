@@ -483,8 +483,8 @@ struct SettingsView: View {
     private var inputSummary: String {
         let chinese = UIText.action(input: .chinese, config: model.config)
         let english = UIText.action(input: .english, config: model.config)
-        return tr("@improve：中文\(chinese)，英文\(english)。单按 Shift 切换中英文。",
-                  "@improve: Chinese is \(chinese), English is \(english). Tap Shift to switch between Chinese and English.")
+        return tr("@improve：打中文 → \(chinese)；打英文 → \(english)。单按 Shift 切换中英文。",
+                  "@improve: Chinese → \(chinese); English → \(english). Tap Shift to switch between Chinese and English.")
     }
 
     /// How the chosen action key works, and what Space does with it.
