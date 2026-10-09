@@ -1,20 +1,35 @@
 // Builds the README images from the panels rendered by `AllInOneIME --selftest`:
-//   swift Scripts/make-readme-images.swift /tmp/allinoneime-selftest docs
-// docs/demo.png      pinyin → translation, side by side, each under a text line with the inline (marked) text
-// docs/english.png   English typed directly → English polish (with 黑话); Chinese as the output language
-// docs/voice.png     dictation (hold right ⌥) after a command
-// docs/commands.png  the @ command palette → @question's answer
-// docs/open.png      @open: Spotlight as you type, and a path listing a folder (only macOS's own apps)
-// docs/panel-dark.png, docs/settings.png   copies of the renders
+//   swift Scripts/make-readme-images.swift /tmp/allinoneime-selftest docs          Chinese interface and captions
+//   swift Scripts/make-readme-images.swift /tmp/allinoneime-selftest docs/en en    English (the `-en` renders)
+// demo.png      pinyin → translation, side by side, each under a text line with the inline (marked) text
+// english.png   English typed directly → English polish (with 黑话); Chinese as the output language
+// voice.png     dictation (hold right ⌥) after a command
+// commands.png  the @ command palette → @question's answer
+// open.png      @open: Spotlight as you type, and a path listing a folder (only macOS's own apps)
+// panel-dark.png, settings.png   copies of the renders
 import AppKit
 
 let args = CommandLine.arguments
 let source = URL(fileURLWithPath: args.count > 1 ? args[1] : "/tmp/allinoneime-selftest")
 let output = URL(fileURLWithPath: args.count > 2 ? args[2] : "docs")
+/// The interface the renders show and the captions' language: zh (the default) or en.
+let language = args.count > 3 ? args[3] : "zh"
+guard ["zh", "en"].contains(language) else {
+    FileHandle.standardError.write(Data("unknown language '\(language)': zh or en\n".utf8))
+    exit(2)
+}
 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 
+/// A caption in the images' language.
+func tr(_ chinese: String, _ english: String) -> String { language == "en" ? english : chinese }
+
+/// A render of the self-test; with the English interface it is `<name>-en.png`.
+func render(_ name: String) -> URL {
+    source.appendingPathComponent(name + (language == "en" ? "-en" : "") + ".png")
+}
+
 func load(_ name: String) -> NSBitmapImageRep {
-    let url = source.appendingPathComponent(name)
+    let url = render(name)
     guard let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else {
         fatalError("missing \(url.path); run `make selftest` first")
     }
@@ -90,36 +105,40 @@ func composite(_ steps: [Step], to name: String) throws {
 }
 
 try composite([
-    Step(caption: "① 开头打 @improve，再打拼音", marked: "@improve wo jin tian you dian bu shu fu",
-         panel: load("1b-sentence-pinyin.png")),
-    Step(caption: "② 按 ⏎：英文 + 中文改写", marked: "@improve 我今天有点不舒服",
-         panel: load("4-final-light.png")),
+    Step(caption: tr("① 开头打 @improve，再打拼音", "① Type @improve, then pinyin"),
+         marked: "@improve wo jin tian you dian bu shu fu", panel: load("1b-sentence-pinyin")),
+    Step(caption: tr("② 按 ⏎：英文 + 中文改写", "② Press ⏎: English + Chinese rewrites"),
+         marked: "@improve 我今天有点不舒服", panel: load("4-final-light")),
 ], to: "demo.png")
 
 try composite([
-    Step(caption: "@improve 加英文：英文润色（含黑话）", marked: "@improve this is a blocker bug your team need fix it asap",
-         panel: load("7-english-light.png")),
-    Step(caption: "输出设成中文：中文润色 + 改写", marked: "@improve 这个项目的进度太慢了",
-         panel: load("7b-chinese-output.png")),
+    Step(caption: tr("@improve 加英文：英文润色（含黑话）", "@improve with English: English polish (incl. Jargon)"),
+         marked: "@improve this is a blocker bug your team need fix it asap", panel: load("7-english-light")),
+    Step(caption: tr("输出设成中文：中文润色 + 改写", "Output set to Chinese: Chinese polish + rewrites"),
+         marked: "@improve 这个项目的进度太慢了", panel: load("7b-chinese-output")),
 ], to: "english.png")
 
 try composite([
-    Step(caption: "先打 @improve，再按住右 ⌥ 说话", marked: "@improve 我今天有", panel: load("8-voice.png")),
+    Step(caption: tr("先打 @improve，再按住右 ⌥ 说话", "Type @improve, then hold right ⌥ to talk"),
+         marked: "@improve 我今天有", panel: load("8-voice")),
 ], to: "voice.png")
 
 try composite([
-    Step(caption: "① 开头打 @：命令列表，打字母筛选", marked: "@", panel: load("10-palette.png")),
-    Step(caption: "② @question 加问题，按 ⏎：回答", marked: "@question 什么是量子计算", panel: load("11-question.png")),
+    Step(caption: tr("① 开头打 @：命令列表，打字母筛选", "① Type @ first: the command list; letters filter it"),
+         marked: "@", panel: load("10-palette")),
+    Step(caption: tr("② @question 加问题，按 ⏎：回答", "② @question and a question, press ⏎: the answer"),
+         marked: "@question 什么是量子计算", panel: load("11-question")),
 ], to: "commands.png")
 
 try composite([
-    Step(caption: "① @open 加名字：边打边找", marked: "@open calculator", panel: load("12-open.png")),
-    Step(caption: "② 以 / 开头是路径：列出文件夹，Tab 补全", marked: "@open /System/Applications/",
-         panel: load("12b-open-path.png")),
+    Step(caption: tr("① @open 加名字：边打边找", "① @open and a name: results as you type"),
+         marked: "@open calculator", panel: load("12-open")),
+    Step(caption: tr("② 以 / 开头是路径：列出文件夹，Tab 补全", "② A path (starts with /): lists the folder, Tab completes"),
+         marked: "@open /System/Applications/", panel: load("12b-open-path")),
 ], to: "open.png")
 
-for (from, to) in [("4-final-dark.png", "panel-dark.png"), ("6-settings.png", "settings.png")] {
+for (from, to) in [("4-final-dark", "panel-dark.png"), ("6-settings", "settings.png")] {
     try? FileManager.default.removeItem(at: output.appendingPathComponent(to))
-    try FileManager.default.copyItem(at: source.appendingPathComponent(from), to: output.appendingPathComponent(to))
+    try FileManager.default.copyItem(at: render(from), to: output.appendingPathComponent(to))
 }
 print("wrote \(output.path)/demo.png, english.png, voice.png, commands.png, open.png, panel-dark.png, settings.png")

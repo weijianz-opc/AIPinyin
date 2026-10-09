@@ -163,9 +163,11 @@ OUT ?= /tmp/allinoneime-selftest
 selftest: app
 	"$(APP)/Contents/MacOS/$(APP_NAME)" --selftest "$(OUT)"
 
-# README images, rendered by the self-test (needs a working Bedrock setup).
+# README images, rendered by the self-test (needs a working Bedrock setup): docs/ with the Chinese
+# interface and captions, docs/en/ with the English ones (the same states, rendered in English).
 screenshots: selftest
 	swift Scripts/make-readme-images.swift "$(OUT)" docs
+	swift Scripts/make-readme-images.swift "$(OUT)" docs/en en
 
 # Types into a real NSTextView in a separate app through the *installed* input method and the
 # system text input path (switches the input source for the test and restores it afterwards).

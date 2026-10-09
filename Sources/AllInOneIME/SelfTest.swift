@@ -269,7 +269,7 @@ enum SelfTest {
             window.close()
         }
         render("6-settings", chinese: true)  // README
-        render("6-settings-en", chinese: false)
+        render("6-settings-en", chinese: false)  // README (docs/en)
         UIText.choice = pickedBefore
         check(SettingsView.version?.isEmpty == false, "the window ends with the version (AllInOneIME \(SettingsView.version ?? "?"))")
 
@@ -335,7 +335,7 @@ enum SelfTest {
             let rewrites = choices.filter { $0.kind.isRewrite }
             check(!rewrites.isEmpty && rewrites.allSatisfy { !$0.text.containsHan }, "rewrites stay in English")
             check(rewrites.contains { $0.kind == .rewrite("黑话") }, "黑话 rewrite present")
-            snapshot("7-english-light", in: snapshotDirectory)
+            readmeSnapshot("7-english-light", controller, client, in: snapshotDirectory)
             // The user's own jargon list: the 黑话 row notes what the list's terms in it mean.
             let jargonFile = snapshotDirectory.appendingPathComponent("jargon.txt")
             try? Data("bandwidth：精力、时间\nminor issue：小问题（其实很严重）\n".utf8).write(to: jargonFile)
@@ -367,7 +367,7 @@ enum SelfTest {
             check(versions.count >= 2 && versions.allSatisfy { $0.text.containsHan && $0.text.wordingKey != typed.wordingKey },
                   "versions in Chinese, none just repeating the input (\(versions.count) shown)")
             check(controller.panelModel().rows.count == controller.composer.choices.count, "panel shows every row")
-            snapshot("7b-chinese-output", in: snapshotDirectory)
+            readmeSnapshot("7b-chinese-output", controller, client, in: snapshotDirectory)
             let highlighted = controller.composer.choices[controller.composer.highlighted].text
             _ = enter(controller, client)
             check(client.inserted.last == highlighted, "Enter inserts the highlighted line (\(highlighted))")
@@ -454,7 +454,7 @@ enum SelfTest {
             _ = pump(timeout: seconds + 0.6) {
                 if let snapshotName, !snapped, controller.composer.voice.text.count >= 4 {
                     snapped = true
-                    snapshot(snapshotName, in: snapshotDirectory)
+                    readmeSnapshot(snapshotName, controller, client, in: snapshotDirectory)
                 }
                 return false
             }
@@ -576,7 +576,7 @@ enum SelfTest {
         let commands = controller.panelModel().rows.map(\.text)
         check(client.marked == "@" && commands == ["@improve", "@question", "@claude", "@open"],
               "@ opens the command palette (\(commands))")
-        snapshot("10-palette", in: snapshotDirectory)  // README
+        readmeSnapshot("10-palette", controller, client, in: snapshotDirectory)
         type("q", controller, client)
         _ = enter(controller, client)
         check(client.marked == "@question ", "⏎ picks @question ('\(client.marked)')")
@@ -586,7 +586,7 @@ enum SelfTest {
             let answer = controller.composer.choices.last
             check(answer?.kind == .answer && answer?.text.containsHan == true && controller.composer.choices.first?.text.hasPrefix("什么") == true,
                   "a Chinese answer to the question: \(answer?.text.prefix(50) ?? "")")
-            snapshot("11-question", in: snapshotDirectory)  // README
+            readmeSnapshot("11-question", controller, client, in: snapshotDirectory)
             copy()
             check(copied == [answer?.text ?? ""] && controller.composer.phase == .choosing, "⌘C copies the answer and keeps it up")
             _ = enter(controller, client)
@@ -631,7 +631,7 @@ enum SelfTest {
         // README images are public: the panel shows only what ships with macOS, never the user's own files.
         let shipped = found.filter { $0.path.hasPrefix("/System/Applications/") }
         controller.perform(controller.composer.receiveLive(shipped, for: controller.composer.liveQuery ?? ""), client: client)
-        snapshot("12-open", in: snapshotDirectory)  // README
+        readmeSnapshot("12-open", controller, client, in: snapshotDirectory)
         _ = enter(controller, client)
         check(opened == ["/System/Applications/Calculator.app"] && client.marked.isEmpty
               && !controller.composer.engineState.isAsciiMode, "⏎ opens it, inserts nothing, and Chinese is back")
@@ -645,7 +645,7 @@ enum SelfTest {
         check(listed.first?.name == "Utilities" && listed.first?.isFolder == true
               && listed.dropFirst().allSatisfy { $0.path.hasSuffix(".app") },
               "a path lists the folder, folders first (\(listed.map(\.name)))")
-        snapshot("12b-open-path", in: snapshotDirectory)  // README; only macOS's own apps in there
+        readmeSnapshot("12b-open-path", controller, client, in: snapshotDirectory)  // only macOS's own apps in there
         typePath("Util")
         let folders = live("/System/Applications/Util")
         check(folders.first?.name == "Utilities" && folders.first?.isFolder == true, "typing narrows it (\(folders.map(\.name)))")
@@ -684,6 +684,33 @@ enum SelfTest {
             print("  snapshot \(url.path)")
         }
     }
+
+    /// A panel the README shows: snapshotted as it is (Chinese interface, docs/), then the same state
+    /// with the English interface as `<name>-en` (docs/en), so both show the same results and no
+    /// request is made twice.
+    static func readmeSnapshot(_ name: String, _ controller: AllInOneIMEInputController, _ client: FakeTextClient,
+                               in directory: URL, appearance: NSAppearance.Name = .aqua) {
+        snapshot(name, in: directory, appearance: appearance)
+        let language = settings.uiLanguage
+        settings.uiLanguage = .english
+        controller.applySettings()
+        var model = controller.panelModel()
+        // A notice still up keeps the words it was shown with; an English interface shows the English ones.
+        if let detail = model.detail, let english = englishNotices[detail] { model.detail = english }
+        let interface = [model.footer, model.detail ?? ""] + model.rows.map(\.comment)
+        check(!interface.joined().containsHan, "\(name)-en: English interface (\(model.footer) | \(model.detail ?? "-"))")
+        CandidatePanel.shared.show(model, anchor: client.caretRect)
+        snapshot(name + "-en", in: directory, appearance: appearance)
+        settings.uiLanguage = language
+        controller.applySettings()
+        CandidatePanel.shared.show(controller.panelModel(), anchor: client.caretRect)
+    }
+
+    /// The composer's notices (`Composer.Messages`): Chinese wording → English wording.
+    static let englishNotices: [String: String] = Dictionary(
+        zip(Mirror(reflecting: Composer.Messages.chinese).children.compactMap { $0.value as? String },
+            Mirror(reflecting: Composer.Messages.english).children.compactMap { $0.value as? String }),
+        uniquingKeysWith: { first, _ in first })
 
     static func run(snapshotDirectory: URL) -> Int32 {
         _ = NSApplication.shared
@@ -800,13 +827,13 @@ enum SelfTest {
         check(client.marked == "@improve ", "@i ⏎ picks @improve ('\(client.marked)')")
         type("wojintianyoudianbushufu", controller, client)
         check(controller.panelModel().footer == "空格 选词 · ⏎ 翻译成英文 / 改写", "the footer names the command (\(controller.panelModel().footer))")
-        snapshot("1b-sentence-pinyin", in: snapshotDirectory)  // README
+        readmeSnapshot("1b-sentence-pinyin", controller, client, in: snapshotDirectory)
         _ = enter(controller, client)  // converts the pinyin and runs @improve
         if finishConversion(controller, "@improve") {
             check(controller.composer.choices.filter { $0.kind == .version }.count == 3 && controller.composer.choices.first?.text == "我今天有点不舒服",
                   "3 English versions of 我今天有点不舒服")
-            snapshot("4-final-light", in: snapshotDirectory)  // README
-            snapshot("4-final-dark", in: snapshotDirectory, appearance: .darkAqua)
+            readmeSnapshot("4-final-light", controller, client, in: snapshotDirectory)
+            readmeSnapshot("4-final-dark", controller, client, in: snapshotDirectory, appearance: .darkAqua)
             let first = controller.composer.choices[controller.composer.highlighted].text
             _ = enter(controller, client)
             check(client.inserted.last == first, "⏎ inserts the first version")
