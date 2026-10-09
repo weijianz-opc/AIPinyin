@@ -145,6 +145,8 @@ public final class Composer {
         public var nothingFound: String
         public var copied: String
         public var openedTerminal: String
+        /// @claude while secure input is on: Claude Code isn't started.
+        public var secureInputTerminal: String
         /// ⌘V in a draft with more on the clipboard than `Composer.maxPasteLength`.
         public var pasteTooLong: String
         /// ⌘V in a draft with no text on the clipboard (or reading it isn't allowed).
@@ -155,6 +157,7 @@ public final class Composer {
             chineseMode: "中", englishMode: "英", sentenceModeOn: "整句模式：开", sentenceModeOff: "整句模式：关", noResult: "没有得到结果",
             typeAfterCommand: "在命令后面写上内容", nothingFound: "没有找到", copied: "已复制",
             openedTerminal: "已在终端打开 Claude Code",
+            secureInputTerminal: "系统安全输入已开启（密码框或锁屏），没有打开 Claude Code",
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
             nothingToPaste: "剪贴板里没有能用的文字")
         public static let english = Messages(
@@ -163,6 +166,7 @@ public final class Composer {
             sentenceModeOn: "Sentence mode: on", sentenceModeOff: "Sentence mode: off", noResult: "No result",
             typeAfterCommand: "Type something after the command", nothingFound: "Nothing found", copied: "Copied",
             openedTerminal: "Opened Claude Code in Terminal",
+            secureInputTerminal: "Secure input is on (a password field or the lock screen): Claude Code was not opened",
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
             nothingToPaste: "No text on the clipboard to use")
     }
@@ -187,6 +191,10 @@ public final class Composer {
     /// whatever the input method does (terminals): the text would be pasted twice. There the action
     /// key on a command with nothing after it takes the clipboard instead.
     public var pastesIntoDraft = true
+    /// Whether secure input is on anywhere (set by the input controller). Nothing is sent to a model
+    /// then: a terminal command doesn't start Claude Code, and its text stays in the draft. (The other
+    /// commands are refused by the controller, which sends their requests.)
+    public var secureInputActive: () -> Bool = { false }
     /// Confirmed text waiting for level two (AI mode only).
     public private(set) var draft = ""
     /// Last known state of the level-one engine.
@@ -1129,6 +1137,7 @@ public final class Composer {
         if input.isEmpty, parsed != nil, !isLevelTwo { return .consumed([requestClipboard(forEmptyCommand: true)]) }
         guard !input.isEmpty else { return parsed == nil ? .consumed() : .consumed([.notice(messages.typeAfterCommand)]) }
         if let command = parsed?.command, command.kind == .terminal {
+            guard !secureInputActive() else { return .consumed([.updateMarkedText, .notice(messages.secureInputTerminal)]) }
             // The session runs in its own window: nothing to wait for or insert here.
             return .consumed(finish(committing: "") + [.runInTerminal(prompt: input), .notice(messages.openedTerminal)])
         }

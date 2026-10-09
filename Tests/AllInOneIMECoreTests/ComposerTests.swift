@@ -1284,6 +1284,19 @@ struct ComposerTests {
         #expect(e.pasted(nil, id: 1) == [.notice("在命令后面写上内容")] && !e.isLevelTwo)
     }
 
+    @Test func claudeIsNotStartedWhileSecureInputIsOn() {
+        let (c, _) = palette("c")
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        c.secureInputActive = { true }
+        // Nothing goes to Claude Code; the text (pinyin converted) stays to be sent later or inserted.
+        let refused = tapOption(c, at: 5)
+        #expect(refused.contains(.notice("系统安全输入已开启（密码框或锁屏），没有打开 Claude Code")))
+        #expect(refused.contains(.updateMarkedText) && !refused.contains(.runInTerminal(prompt: "你好")))
+        #expect(c.markedText == "@claude 你好" && !c.isLevelTwo)
+        c.secureInputActive = { false }
+        #expect(tapOption(c, at: 7).contains(.runInTerminal(prompt: "你好")))
+    }
 
     @Test func answersAreInsertedLikeVersions() {
         let (c, _) = palette("q")

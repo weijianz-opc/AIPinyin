@@ -588,6 +588,20 @@ enum SelfTest {
         check(terminal.count == 1 && terminal.first?.hasPrefix("帮我写") == true && client.inserted == insertedBefore
               && client.marked.isEmpty && !controller.composer.isComposing,
               "@claude starts a Claude Code session with the text, inserts nothing (\(terminal))")
+        // While secure input is on it doesn't start: the text stays in the draft until it is off.
+        let secureInput = controller.secureInputActive
+        controller.secureInputActive = { true }
+        at()
+        type("cl", controller, client)
+        _ = space(controller, client)
+        type("nihao", controller, client)
+        _ = enter(controller, client)
+        check(terminal.count == 1 && client.marked == "@claude 你好",
+              "@claude doesn't start Claude Code while secure input is on (\(client.marked))")
+        controller.secureInputActive = secureInput
+        _ = enter(controller, client)
+        check(terminal.count == 2 && terminal.last == "你好" && client.marked.isEmpty,
+              "…and starts it once secure input is off (\(terminal))")
         check(TerminalLauncher.shellQuote("it's $HOME `x`") == "'it'\\''s $HOME `x`'", "the prompt is passed as one quoted word")
 
         at()

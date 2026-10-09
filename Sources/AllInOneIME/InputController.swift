@@ -58,7 +58,12 @@ enum LiveJargon {
 /// thread, so entry points hop into main-actor code with `MainActor.assumeIsolated`.
 @objc(AllInOneIMEInputController)
 final class AllInOneIMEInputController: IMKInputController {
-    let composer = Composer(sentenceMode: Settings.sentenceMode)
+    /// The input state machine. It asks `secureInputActive` before starting Claude Code.
+    lazy var composer: Composer = {
+        let composer = Composer(sentenceMode: Settings.sentenceMode)
+        composer.secureInputActive = { [weak self] in self?.secureInputActive() ?? false }
+        return composer
+    }()
     private var session: RimeSession?
     private var conversionTask: Task<Void, Never>?
     private var lastElapsed: TimeInterval?
