@@ -23,7 +23,7 @@ public struct Config: Codable, Equatable, Sendable {
     public var outputLanguage: Language
     /// Mode a new text field starts in: pinyin (Chinese) or English letters.
     public var defaultInput: Language
-    /// With AI on, English typed in English mode also collects into a draft that the translate key
+    /// With AI on, English typed in English mode also collects into a draft that the action key
     /// sends to the model (false: English letters go straight to the application).
     public var englishAI: Bool
     /// Hold the right Option key to dictate into the draft (on-device speech recognition).
@@ -31,7 +31,7 @@ public struct Config: Codable, Equatable, Sendable {
     /// The user's own jargon list for the 黑话 style (see `JargonLibrary`); nil = the default file.
     public var jargonFile: String?
     /// The key that sends a finished sentence to the model.
-    public var translateKey: TranslateKey
+    public var actionKey: ActionKey
     /// Language of the settings window; nil follows the system.
     public var uiLanguage: Language?
 
@@ -49,7 +49,7 @@ public struct Config: Codable, Equatable, Sendable {
         rewriteStyles: [String] = RewriteStyle.defaultNames,
         outputLanguage: Language = .english, defaultInput: Language = .chinese,
         englishAI: Bool = true, voiceInput: Bool = true, jargonFile: String? = nil,
-        translateKey: TranslateKey = .optionTap, uiLanguage: Language? = nil
+        actionKey: ActionKey = .enter, uiLanguage: Language? = nil
     ) {
         self.awsProfile = awsProfile
         self.region = region
@@ -63,7 +63,7 @@ public struct Config: Codable, Equatable, Sendable {
         self.englishAI = englishAI
         self.voiceInput = voiceInput
         self.jargonFile = jargonFile
-        self.translateKey = translateKey
+        self.actionKey = actionKey
         self.uiLanguage = uiLanguage
     }
 
@@ -80,7 +80,7 @@ public struct Config: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case awsProfile, region, modelId, maxTokens, temperature, timeoutSeconds, rewriteStyles
-        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, translateKey, uiLanguage
+        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage
     }
 
     public init(from decoder: Decoder) throws {
@@ -101,7 +101,7 @@ public struct Config: Codable, Equatable, Sendable {
         englishAI = try c.decodeIfPresent(Bool.self, forKey: .englishAI) ?? d.englishAI
         voiceInput = try c.decodeIfPresent(Bool.self, forKey: .voiceInput) ?? d.voiceInput
         jargonFile = try c.decodeIfPresent(String.self, forKey: .jargonFile)
-        translateKey = try c.decodeIfPresent(TranslateKey.self, forKey: .translateKey) ?? d.translateKey
+        actionKey = try c.decodeIfPresent(ActionKey.self, forKey: .actionKey) ?? d.actionKey
         uiLanguage = try c.decodeIfPresent(Language.self, forKey: .uiLanguage)
     }
 
@@ -119,7 +119,7 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(englishAI, forKey: .englishAI)
         try c.encode(voiceInput, forKey: .voiceInput)
         try c.encode(jargonFile, forKey: .jargonFile)  // null: the default file
-        try c.encode(translateKey, forKey: .translateKey)
+        try c.encode(actionKey, forKey: .actionKey)
         try c.encode(uiLanguage, forKey: .uiLanguage)  // null: follow the system
     }
 

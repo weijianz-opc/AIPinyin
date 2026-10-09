@@ -150,4 +150,32 @@ public enum Prompt {
             messages: messages,
             inferenceConfig: .init(maxTokens: config.maxTokens, temperature: config.temperature))
     }
+
+    /// Bump when the wording of `commandSystem` changes (it is part of the cache key).
+    public static let commandVersion = 2
+
+    /// The request for a `.generate` command (`@question`, `@claude`): the text goes to the model as
+    /// it was typed, and the answer is written to be inserted at the cursor.
+    public static func commandRequest(_ command: Command, input: String, config: Config) -> ConverseRequest {
+        ConverseRequest(
+            system: [.init(commandSystem(command))],
+            messages: [.init(role: "user", text: input)],
+            inferenceConfig: .init(maxTokens: config.maxTokens, temperature: config.temperature))
+    }
+
+    static func commandSystem(_ command: Command) -> String {
+        let insert = """
+            The user is typing in a text field on a Mac, and your reply is inserted at their cursor as is. \
+            Reply in the language of their message unless they ask for another. Write plain text in a \
+            single paragraph (line breaks are removed before inserting): no Markdown (no headings, bold, \
+            lists, tables or code fences), no preamble such as "Sure" or "Here is", and no closing remarks.
+            """
+        switch command {
+        case .question:
+            return insert + " Answer the user's question accurately and concisely: two or three sentences, "
+                + "unless the question asks for more. If you are not sure, say so briefly."
+        case .improve, .claude, .open:
+            return insert
+        }
+    }
 }

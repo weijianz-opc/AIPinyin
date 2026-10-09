@@ -27,7 +27,7 @@ struct SuggestedModel: Identifiable, Hashable {
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published var config: Config
-    @Published var aiEnabled: Bool
+    @Published var sentenceMode: Bool
     @Published private(set) var loadError: String?
     @Published private(set) var saveError: String?
     @Published private(set) var profiles: [String] = []
@@ -41,19 +41,19 @@ final class SettingsModel: ObservableObject {
     }
 
     let configURL: URL
-    private let saveAI: (Bool) -> Void
+    private let saveSentenceMode: (Bool) -> Void
     /// False for previews/screenshots: nothing is ever written.
     private let persists: Bool
     private var testTask: Task<Void, Never>?
 
     init(configURL: URL = Config.defaultURL,
-         aiEnabled: Bool = Settings.aiEnabled,
-         saveAI: @escaping (Bool) -> Void = { Settings.aiEnabled = $0 },
+         sentenceMode: Bool = Settings.sentenceMode,
+         saveSentenceMode: @escaping (Bool) -> Void = { Settings.sentenceMode = $0 },
          persists: Bool = true) {
         self.configURL = configURL
-        self.saveAI = saveAI
+        self.saveSentenceMode = saveSentenceMode
         self.persists = persists
-        self.aiEnabled = aiEnabled
+        self.sentenceMode = sentenceMode
         do {
             config = try Config.load(from: configURL)
         } catch {
@@ -77,9 +77,9 @@ final class SettingsModel: ObservableObject {
         }
     }
 
-    func setAI(_ on: Bool) {
-        aiEnabled = on
-        saveAI(on)
+    func setSentenceMode(_ on: Bool) {
+        sentenceMode = on
+        saveSentenceMode(on)
     }
 
     /// Switches the window's language at once (nil: follow the system) and saves the choice.
@@ -267,18 +267,19 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle(tr("开启 AI 翻译和改写（⇧空格）", "AI translation and rewrites (⇧Space)"),
-                       isOn: Binding(get: { model.aiEnabled }, set: { model.setAI($0) }))
-                Text(aiSummary).font(.caption).foregroundStyle(.secondary)
-                Picker(tr("出结果的键", "Translate key"), selection: $model.config.translateKey) {
-                    ForEach([TranslateKey.optionTap, .optionSpace, .space], id: \.self) { key in
-                        Text(UIText.name(key)).tag(key)
+                Text(commandsSummary).font(.caption).foregroundStyle(.secondary)
+                Picker(tr("执行键", "Action key"), selection: $model.config.actionKey) {
+                    ForEach([ActionKey.enter, .optionTap, .optionSpace, .space], id: \.self) { key in
+                        Text(UIText.pickerName(key)).tag(key)
                     }
                 }
                 .pickerStyle(.segmented)
                 .disabled(!model.canSave)
-                Text(Self.translateKeyNote(model.config.translateKey))
+                Text(Self.actionKeyNote(model.config.actionKey))
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle(tr("整句模式（⇧空格）", "Sentence mode (⇧Space)"),
+                       isOn: Binding(get: { model.sentenceMode }, set: { model.setSentenceMode($0) }))
+                Text(sentenceModeSummary).font(.caption).foregroundStyle(.secondary)
             }
 
             Section(tr("输入和输出", "Input and Output")) {
@@ -292,9 +293,10 @@ struct SettingsView: View {
                     Text(UIText.name(Language.chinese)).tag(Language.chinese)
                 }
                 .pickerStyle(.segmented)
-                Toggle(tr("英文模式也用 AI（打完\(UIText.howToPress(model.config.translateKey, english: true))）",
-                          "AI for English input too (\(UIText.howToPress(model.config.translateKey, english: true)) when done)"),
+                Toggle(tr("整句模式下英文也进草稿（打完\(UIText.howToPress(model.config.actionKey, english: true))）",
+                          "Sentence mode: English too (\(UIText.howToPress(model.config.actionKey, english: true)) when done)"),
                        isOn: $model.config.englishAI)
+                    .disabled(!model.sentenceMode)
                 Text(inputSummary).font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.canSave)
@@ -347,8 +349,8 @@ struct SettingsView: View {
                         }
                     }
                     if let error = model.voiceError { Text(error).foregroundStyle(.red) }
-                    Text(tr("中文模式说中文，英文模式说英文。语音在这台 Mac 上识别，不上传；识别出的文字和打字一样进草稿。",
-                            "Speak Chinese in Chinese mode and English in English mode. Speech is recognized on this Mac and never uploaded; the text goes into the draft like typing."))
+                    Text(tr("中文模式说中文，英文模式说英文。语音在这台 Mac 上识别，不上传；识别出的文字直接上屏，在 @ 命令里就接在命令后面。",
+                            "Speak Chinese in Chinese mode and English in English mode. Speech is recognized on this Mac and never uploaded; the text is typed in, or after the @ command you are writing."))
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(tr("需要 macOS 26 或更新版本。", "Needs macOS 26 or later.")).font(.caption).foregroundStyle(.secondary)
@@ -431,7 +433,7 @@ struct SettingsView: View {
         .onChange(of: model.config.outputLanguage) { model.save() }
         .onChange(of: model.config.englishAI) { model.save() }
         .onChange(of: model.config.voiceInput) { model.save() }
-        .onChange(of: model.config.translateKey) { model.save() }
+        .onChange(of: model.config.actionKey) { model.save() }
         .onAppear {
             model.refreshVoice()
             model.refreshJargon()
@@ -442,45 +444,49 @@ struct SettingsView: View {
         .onDisappear { model.save() }
     }
 
-    /// What the translate key gives, under the AI switch.
-    private var aiSummary: String {
-        let key = UIText.howToPress(model.config.translateKey)
-        let output = UIText.name(model.config.outputLanguage)
-        return tr("整句打完\(key)：1–3 是\(output)，后面是下方勾选的改写。关闭后就是普通拼音输入法。",
-                  "When the sentence is done, \(key): lines 1–3 in \(output), then the rewrites checked below. "
-                      + "Off: a plain pinyin input method.")
+    /// The commands, at the top: what this input method does beyond pinyin.
+    private var commandsSummary: String {
+        let key = UIText.howToPress(model.config.actionKey)
+        return tr("平时就是普通拼音输入法。开头打 @ 用命令：@improve 润色 / 翻译，@question 提问，@claude 开 Claude Code，"
+                      + "@open 找文件。写完\(key)执行。",
+                  "A regular pinyin input method. Type @ first for commands: @improve polishes / translates, @question asks, "
+                      + "@claude opens Claude Code, @open finds files. When done, \(key).")
     }
 
-    /// What the translate key does for Chinese and for English input with the current settings.
+    /// Sentence mode, under its switch.
+    private var sentenceModeSummary: String {
+        let key = UIText.howToPress(model.config.actionKey)
+        let output = UIText.name(model.config.outputLanguage)
+        return tr("开启后不加 @ 也进草稿：整句打完\(key)就润色 / 翻译，1–3 是\(output)，后面是下方勾选的改写。",
+                  "On: every sentence collects into a draft, and \(key) polishes / translates it without @improve: "
+                      + "lines 1–3 in \(output), then the rewrites checked below.")
+    }
+
+    /// What @improve (and sentence mode) does for Chinese and for English input.
     private var inputSummary: String {
-        let key = model.config.translateKey
         let chinese = UIText.action(input: .chinese, config: model.config)
         let english = UIText.action(input: .english, config: model.config)
-        guard UIText.chinese else {
-            let englishPart = model.config.englishAI
-                ? "English: \(UIText.howToPress(key, english: true)) to \(english)"
-                : "in English mode, letters go straight into the app"
-            return "Chinese: \(UIText.howToPress(key)) to \(chinese); \(englishPart). Tap Shift to switch between Chinese and English."
-        }
-        let englishPart = model.config.englishAI
-            ? "打英文\(key.howToPress(english: true))：\(english)"
-            : "英文模式下字母直接上屏"
-        return "打中文\(key.howToPress())：\(chinese)；\(englishPart)。单按 Shift 切换中英文。"
+        return tr("@improve：中文\(chinese)，英文\(english)。单按 Shift 切换中英文。",
+                  "@improve: Chinese is \(chinese), English is \(english). Tap Shift to switch between Chinese and English.")
     }
 
-    /// How the chosen translate key works, and what Space does with it.
-    static func translateKeyNote(_ key: TranslateKey) -> String {
+    /// How the chosen action key works, and what Space does with it.
+    static func actionKeyNote(_ key: ActionKey) -> String {
         switch key {
+        case .enter:
+            return tr("@ 命令写完按 ⏎ 执行，拼音没选完也能直接按。没有 @ 时 ⏎ 就是普通回车。",
+                      "Return runs an @ command, also on pinyin not yet picked. Without @, Return is a normal Return.")
         case .optionTap:
-            return tr("按一下 ⌥ 马上松开，左右都行；按住右 ⌥ 仍然是说话。空格照常选词、打空格。",
-                      "Press either ⌥ and let go right away; holding right ⌥ still dictates. Space picks words and types spaces as usual.")
+            return tr("按一下 ⌥ 马上松开，左右都行；按住右 ⌥ 仍然是说话。@ 命令按 ⏎ 也执行。",
+                      "Press either ⌥ and let go right away; holding right ⌥ still dictates. @ commands also run on Return.")
         case .optionSpace:
-            return tr("空格照常选词、打空格；拼音没选完也可以直接按 ⌥空格。⌥空格被 Alfred、Raycast 等占用时，改用「单按 ⌥」。",
-                      "Space picks words and types spaces as usual; ⌥Space also works before the pinyin is picked. "
-                          + "If Alfred, Raycast or another app uses ⌥Space, choose Tap ⌥.")
+            return tr("拼音没选完也可以直接按 ⌥空格。⌥空格被 Alfred、Raycast 等占用时，改用「单按 ⌥」。@ 命令按 ⏎ 也执行。",
+                      "⌥Space also works before the pinyin is picked. If Alfred, Raycast or another app uses ⌥Space, "
+                          + "choose Tap ⌥. @ commands also run on Return.")
         case .space:
-            return tr("空格先选词，整句没有要选的了再按一次空格出结果；英文模式下连按两次空格。",
-                      "Space picks words; once nothing is left to pick, Space again shows the results. In English mode, press Space twice.")
+            return tr("空格先选词，没有要选的了再按一次空格执行；英文模式下连按两次空格。@ 命令按 ⏎ 也执行。",
+                      "Space picks words; once nothing is left to pick, Space again runs it. In English mode, press Space twice. "
+                          + "@ commands also run on Return.")
         }
     }
 

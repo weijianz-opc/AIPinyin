@@ -23,19 +23,26 @@ enum UIText {
     }
 
     /// "单按 ⌥" / "Tap ⌥", …
-    static func name(_ key: TranslateKey) -> String {
+    static func name(_ key: ActionKey) -> String {
         guard !chinese else { return key.displayName }
         switch key {
+        case .enter: return "⏎"
         case .optionTap: return "Tap ⌥"
         case .optionSpace: return "⌥Space"
         case .space: return "Space"
         }
     }
 
+    /// The action key in the settings picker: "⏎ 回车" / "⏎ Return", otherwise as `name`.
+    static func pickerName(_ key: ActionKey) -> String {
+        key == .enter ? tr("⏎ 回车", "⏎ Return") : name(key)
+    }
+
     /// "单按 ⌥" / "tap ⌥", "按空格" / "press Space", …
-    static func howToPress(_ key: TranslateKey, english: Bool = false) -> String {
+    static func howToPress(_ key: ActionKey, english: Bool = false) -> String {
         guard !chinese else { return key.howToPress(english: english) }
         switch key {
+        case .enter: return "press Return"
         case .optionTap: return "tap ⌥"
         case .optionSpace: return "press ⌥Space"
         case .space: return english ? "press Space twice" : "press Space"
@@ -63,12 +70,37 @@ enum UIText {
         }
     }
 
-    /// What the translate key does to a sentence in `input`: "翻译成英文 / 改写", "translate to English / rewrite", …
+    /// What the action key does to a sentence in `input`: "翻译成英文 / 改写", "translate to English / rewrite", …
     static func action(input: Language, config: Config) -> String {
         guard !chinese else { return AllInOneIMEInputController.actionText(input: input, config: config) }
         let output = config.outputLanguage
         let action = input == output ? "polish the \(name(output))" : "translate to \(name(output))"
         return action + (RewriteStyle.resolve(config.rewriteStyles).isEmpty ? "" : " / rewrite")
+    }
+
+    /// What a command does, in the palette: "提问，答案可以直接上屏" / "Ask a question; insert the answer".
+    static func summary(_ command: Command) -> String {
+        switch command {
+        case .improve: return tr("润色 / 翻译，和不加命令一样", "Polish / translate, as without a command")
+        case .question: return tr("提问，答案可以直接上屏", "Ask a question; insert the answer")
+        case .claude: return tr("在终端里开 Claude Code，接着聊", "Start Claude Code in Terminal")
+        case .open: return tr("找文件、文件夹或 App 并打开", "Find a file, folder or app and open it")
+        }
+    }
+
+    /// What the action key does with a command draft, after "⏎ →".
+    static func action(_ command: Command, input: Language, config: Config) -> String {
+        switch command {
+        case .improve: return action(input: input, config: config)
+        case .question: return tr("提问", "ask")
+        case .claude: return tr("在终端打开 Claude Code", "open Claude Code in Terminal")
+        case .open: return tr("搜索并打开", "search and open")
+        }
+    }
+
+    /// The row comment of an answer: "回答" / "answer", "Claude".
+    static func answerLabel(_ command: Command?) -> String {
+        command == .claude ? "Claude" : tr("回答", "answer")
     }
 
     /// An error as the settings window shows it.

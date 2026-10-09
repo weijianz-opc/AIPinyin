@@ -131,16 +131,16 @@ struct ComposerTests {
         pairs.map { Rewrite(style: $0.0, line: CandidateLine($0.1, isComplete: complete)) }
     }
 
-    /// Most tests below use the original Space translate key; the "Translate key" section covers
+    /// Most tests below use the original Space action key; the "Action key" section covers
     /// ⌥Space (the default) and the Option tap.
     func composer(ai: Bool = true, englishAI: Bool = true, voice: Bool = true,
-                  key: TranslateKey = .space) -> (Composer, FakeEngine) {
+                  key: ActionKey = .space) -> (Composer, FakeEngine) {
         let engine = FakeEngine()
-        return (Composer(engine: engine, aiEnabled: ai, englishAI: englishAI, voiceEnabled: voice, translateKey: key), engine)
+        return (Composer(engine: engine, sentenceMode: ai, englishAI: englishAI, voiceEnabled: voice, actionKey: key), engine)
     }
 
     /// Composer in English mode.
-    func english(ai: Bool = true, englishAI: Bool = true, key: TranslateKey = .space) -> (Composer, FakeEngine) {
+    func english(ai: Bool = true, englishAI: Bool = true, key: ActionKey = .space) -> (Composer, FakeEngine) {
         let (c, e) = composer(ai: ai, englishAI: englishAI, key: key)
         c.setInputMode(.english)
         return (c, e)
@@ -437,18 +437,18 @@ struct ComposerTests {
     @Test func shiftSpaceTogglesAIAndFlushesTheDraft() {
         let (c, _) = translating()
         let r = c.handleKeyDown(shiftSpace)
-        #expect(r.effects == [.cancelConversion, .hidePanel, .commit("你好"), .aiModeChanged(false), .notice("AI 翻译：关")])
-        #expect(!c.aiEnabled)
+        #expect(r.effects == [.cancelConversion, .hidePanel, .commit("你好"), .sentenceModeChanged(false), .notice("整句模式：关")])
+        #expect(!c.sentenceMode)
         #expect(c.phase == .idle)
-        #expect(c.handleKeyDown(shiftSpace).effects == [.aiModeChanged(true), .notice("AI 翻译：开")])
+        #expect(c.handleKeyDown(shiftSpace).effects == [.sentenceModeChanged(true), .notice("整句模式：开")])
     }
 
     @Test func menuToggleFlushesTheDraftToo() {
         let (c, _) = composer()
         type("nihao", c)
         _ = c.handleKeyDown(spaceKey)
-        #expect(c.setAI(true).isEmpty)  // already on
-        #expect(c.setAI(false) == [.hidePanel, .commit("你好"), .aiModeChanged(false), .notice("AI 翻译：关")])
+        #expect(c.setSentenceMode(true).isEmpty)  // already on
+        #expect(c.setSentenceMode(false) == [.hidePanel, .commit("你好"), .sentenceModeChanged(false), .notice("整句模式：关")])
         #expect(c.draft.isEmpty && c.phase == .idle)
     }
 
@@ -539,7 +539,7 @@ struct ComposerTests {
     }
 
     @Test func notReadyEngineLetsKeysThroughWithOneNotice() {
-        let c = Composer(engine: nil, aiEnabled: true)
+        let c = Composer(engine: nil, sentenceMode: true)
         #expect(c.handleKeyDown(k("n")) == Composer.Response(effects: [.notice("词库准备中，稍候可用")], handled: false))
         #expect(c.handleKeyDown(k("i")) == .passThrough)
     }
@@ -558,11 +558,11 @@ struct ComposerTests {
         #expect(r.handled && r.effects == [.updateMarkedText, .showPanel])
         type("k", c)
         #expect(c.draft == "ok" && c.isLatinDraft && c.markedText == "ok")
-        #expect(!c.spaceTranslates)
+        #expect(!c.spaceActs)
         #expect(c.handleKeyDown(spaceKey).effects == [.updateMarkedText, .showPanel])
         type("go", c)
         _ = c.handleKeyDown(spaceKey)
-        #expect(c.draft == "ok go " && c.spaceTranslates)
+        #expect(c.draft == "ok go " && c.spaceActs)
         #expect(c.handleKeyDown(spaceKey).effects.first == .startConversion(input: "ok go", id: 1))
     }
 
@@ -770,7 +770,7 @@ struct ComposerTests {
         #expect(c.markedText == "ok this is")
         _ = optionUp(c)
         _ = c.voiceFinished("this is a blocker bug", id: 1)
-        #expect(c.draft == "ok this is a blocker bug" && c.isLatinDraft && c.spaceTranslates)
+        #expect(c.draft == "ok this is a blocker bug" && c.isLatinDraft && c.spaceActs)
         #expect(c.handleKeyDown(spaceKey).effects.first == .startConversion(input: "ok this is a blocker bug", id: 1))
         // Typing right after an English transcript gets a separating space.
         let (d, _) = english()
@@ -837,9 +837,12 @@ struct ComposerTests {
         let (c, _) = english()
         _ = c.handleKeyDown(k("I", mods: .shift))
         let r = c.handleKeyDown(shiftSpace)  // Shift still down from the capital
-        #expect(r.handled && c.aiEnabled && c.draft == "I ")
+        #expect(r.handled && c.sentenceMode && c.draft == "I ")
+        // Nothing pending: in English mode it is the app's space; in Chinese mode the sentence-mode switch.
         let (d, _) = english()
-        #expect(d.handleKeyDown(shiftSpace).effects.contains(.aiModeChanged(false)))  // nothing pending: the AI switch
+        #expect(d.handleKeyDown(shiftSpace) == .passThrough)
+        let (z, _) = composer()
+        #expect(z.handleKeyDown(shiftSpace).effects.contains(.sentenceModeChanged(false)))
     }
 
     @Test func versionsRepeatingTheOriginalAreHidden() {
@@ -856,7 +859,7 @@ struct ComposerTests {
         #expect(d.phase == .choosing && d.choices.count == 1)  // the model said it's fine as typed
     }
 
-    // MARK: - Translate key
+    // MARK: - Action key
 
     /// Left or right Option going down or up, as modifier changes report it (device bit included).
     func option(_ c: Composer, right: Bool = false, down: Bool, at time: Double) -> [Composer.Effect] {
@@ -874,9 +877,117 @@ struct ComposerTests {
         effects.contains { if case .startConversion = $0 { return true } else { return false } }
     }
 
-    @Test func optionTapIsTheDefault() {
-        #expect(Composer().translateKey == .optionTap)
-        #expect(Config.default.translateKey == .optionTap)
+    @Test func returnIsTheDefault() {
+        #expect(Composer().actionKey == .enter)
+        #expect(Config.default.actionKey == .enter)
+        #expect(!Composer().sentenceMode)  // a regular input method unless sentence mode is on
+    }
+
+    @Test func withoutAnAtCommandItIsARegularInputMethod() {
+        let (c, e) = composer(ai: false, key: .enter)
+        type("nihao", c)
+        #expect(commits(c.handleKeyDown(spaceKey)) == ["你好"] && c.draft.isEmpty && c.phase == .idle)
+        type("nihao", c)
+        let raw = c.handleKeyDown(enterKey)  // Return while composing: the letters as typed, no AI
+        #expect(commits(raw) == ["nihao"] && !raw.effects.contains { if case .startConversion = $0 { return true } else { return false } })
+        #expect(c.handleKeyDown(enterKey) == .passThrough)  // nothing pending: the app's Return
+        #expect(tapOption(c).isEmpty)
+        // English letters and ⇧Space go straight to the app.
+        e.ascii = true
+        c.refreshEngineState()
+        #expect(c.handleKeyDown(k("o")) == .passThrough && c.handleKeyDown(shiftSpace) == .passThrough)
+        // Dictation inserts what was said.
+        let (d, _) = composer(ai: false, key: .enter)
+        _ = startDictation(d)
+        _ = optionUp(d)
+        #expect(commits(d.voiceFinished("你好", id: 1)) == ["你好"] && d.phase == .idle)
+    }
+
+    @Test func atCommandsWorkInTheRegularInputMethod() {
+        let (c, _) = composer(ai: false, key: .enter)
+        _ = c.handleKeyDown(at)
+        type("q", c)
+        _ = c.handleKeyDown(enterKey)  // picks @question
+        type("nihao", c)
+        #expect(c.markedText == "@question nihao")
+        #expect(c.handleKeyDown(enterKey).effects.first == .startCommand(.question, input: "你好", id: 1))
+        _ = c.receive(ConversionResult(versions: [CandidateLine("你好是问候语。")]), isFinal: true, id: 1)
+        #expect(commits(c.handleKeyDown(enterKey)) == ["你好是问候语。"])
+        // @improve is the translation; dictation fills a command.
+        let (i, _) = composer(ai: false, key: .enter)
+        _ = i.handleKeyDown(at)
+        type("i", i)
+        _ = i.handleKeyDown(tab)
+        _ = startDictation(i)
+        _ = optionUp(i)
+        _ = i.voiceFinished("我今天有点不舒服", id: 1)
+        #expect(i.draft == "@improve 我今天有点不舒服")
+        #expect(i.handleKeyDown(enterKey).effects.first == .startConversion(input: "我今天有点不舒服", id: 1))
+        // Sentence mode off keeps an @ command being typed.
+        let (s, _) = composer(ai: true, key: .enter)
+        _ = s.handleKeyDown(at)
+        type("q", s)
+        _ = s.handleKeyDown(tab)
+        #expect(commits(s.setSentenceMode(false)).isEmpty && s.draft == "@question ")
+    }
+
+    let shiftReturn = KeyEvent(keyCode: VirtualKey.returnKey, characters: "\r", modifiers: .shift)
+
+    @Test func returnRunsTheAction() {
+        // On pinyin still being typed (converted first), and on a draft.
+        let (c, _) = composer(key: .enter)
+        type("nihao", c)
+        #expect(c.handleKeyDown(enterKey).effects.first == .startConversion(input: "你好", id: 1))
+        // In the results it inserts the highlighted line; after a failure it asks again.
+        _ = c.receive(final, isFinal: true, id: 1)
+        #expect(commits(c.handleKeyDown(enterKey)) == ["Hi there."])
+        let (d, _) = composer(key: .enter)
+        type("nihao", d)
+        _ = d.handleKeyDown(spaceKey)
+        _ = d.handleKeyDown(enterKey)
+        _ = d.fail("超时", id: 1)
+        #expect(d.handleKeyDown(enterKey).effects.first == .startConversion(input: "你好", id: 2))
+        #expect(commits(d.handleKeyDown(k("0"))) == ["你好"])  // still streaming: 0 is always ready
+        // An English draft is polished too.
+        let (e, _) = english(key: .enter)
+        type("ok", e)
+        #expect(e.handleKeyDown(enterKey).effects.first == .startConversion(input: "ok", id: 1))
+        // Nothing pending: Return is the app's.
+        let (idle, _) = composer(key: .enter)
+        #expect(idle.handleKeyDown(enterKey) == .passThrough)
+    }
+
+    @Test func shiftReturnInsertsAsTyped() {
+        let (c, _) = composer(key: .enter)
+        type("nihao", c)
+        _ = c.handleKeyDown(spaceKey)
+        #expect(commits(c.handleKeyDown(shiftReturn)) == ["你好"] && c.phase == .idle)
+        // An English draft goes in as typed and the app still gets the key.
+        let (e, _) = english(key: .enter)
+        type("ok", e)
+        let r = e.handleKeyDown(shiftReturn)
+        #expect(!r.handled && commits(r) == ["ok"])
+        // With another action key, plain Return keeps inserting as typed; @ commands run on Return anyway.
+        let (t, _) = composer(key: .optionTap)
+        type("nihao", t)
+        _ = t.handleKeyDown(spaceKey)
+        #expect(commits(t.handleKeyDown(enterKey)) == ["你好"])
+        let (q, _) = composer(key: .optionTap)
+        _ = q.handleKeyDown(at)
+        type("q", q)
+        _ = q.handleKeyDown(tab)
+        type("nihao", q)
+        #expect(q.handleKeyDown(enterKey).effects.first == .startCommand(.question, input: "你好", id: 1))
+    }
+
+    @Test func returnWhileDictatingSendsOnceRecognized() {
+        // Right ⌥ is still down, so the key arrives as ⌥Return.
+        let (c, _) = composer(key: .enter)
+        _ = startDictation(c)
+        _ = c.voiceText("你好", id: 1)
+        let optionReturn = KeyEvent(keyCode: VirtualKey.returnKey, characters: "\r", modifiers: .option)
+        #expect(c.handleKeyDown(optionReturn) == .consumed([.stopVoice(id: 1), .showPanel]) && c.actsAfterVoice)
+        #expect(c.voiceFinished("你好吗", id: 1).first == .startConversion(input: "你好吗", id: 1))
     }
 
     @Test func messagesFollowTheInterfaceLanguage() {
@@ -884,7 +995,9 @@ struct ComposerTests {
         c.messages = .english
         _ = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: .shift, timestamp: 1)
         #expect(c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [], timestamp: 1.1).last == .notice("English"))
-        #expect(c.handleKeyDown(shiftSpace).effects.last == .notice("AI: off"))
+        let (s, _) = composer()
+        s.messages = .english
+        #expect(s.handleKeyDown(shiftSpace).effects.last == .notice("Sentence mode: off"))
         let (d, _) = composer()
         d.messages = .english
         #expect(tapOption(d, right: true) == [.notice("Hold right ⌥ to talk")])
@@ -897,11 +1010,11 @@ struct ComposerTests {
         #expect(n.handleKeyDown(k("n")).effects == [.notice("Loading the dictionaries, one moment")])
     }
 
-    @Test func optionSpaceTranslatesAndSpaceStaysASpace() {
+    @Test func optionSpaceActsAndSpaceStaysASpace() {
         let (c, _) = composer(key: .optionSpace)
         type("nihao", c)
         _ = c.handleKeyDown(spaceKey)  // picks 你好
-        #expect(c.draft == "你好" && !c.spaceTranslates)
+        #expect(c.draft == "你好" && !c.spaceActs)
         let r = c.handleKeyDown(spaceKey)
         #expect(r.handled && commits(r).isEmpty && c.draft == "你好 " && c.phase == .drafting)  // just a space
         #expect(c.handleKeyDown(optionSpace).effects == [.startConversion(input: "你好", id: 1), .updateMarkedText, .showPanel])
@@ -963,11 +1076,11 @@ struct ComposerTests {
     }
 
     @Test func spaceTranslatesOnlyWithTheSpaceKey() {
-        for key in TranslateKey.allCases {
+        for key in ActionKey.allCases {
             let (c, _) = composer(key: key)
             type("nihao", c)
             _ = c.handleKeyDown(spaceKey)
-            #expect(c.spaceTranslates == (key == .space), "\(key)")
+            #expect(c.spaceActs == (key == .space), "\(key)")
         }
         // With the Space key, ⌥Space is an ordinary key (it types a no-break space).
         let (s, _) = composer(key: .space)
@@ -976,7 +1089,7 @@ struct ComposerTests {
         #expect(!startsConversion(s.handleKeyDown(optionSpace).effects) && s.draft == "你好\u{A0}")
     }
 
-    @Test func optionTapTranslates() {
+    @Test func optionTapActs() {
         let (c, _) = composer(key: .optionTap)
         type("nihao", c)  // pending pinyin is converted first
         #expect(tapOption(c).first == .startConversion(input: "你好", id: 1))
@@ -1018,15 +1131,15 @@ struct ComposerTests {
         let (d, _) = composer(key: .optionTap)
         #expect(tapOption(d).isEmpty)
         #expect(tapOption(d, right: true) == [.notice("按住右 ⌥ 说话")])
-        // With the other translate keys a tap does nothing.
-        for key in [TranslateKey.optionSpace, .space] {
+        // With the other action keys a tap does nothing.
+        for key in [ActionKey.optionSpace, .space] {
             let (e, _) = composer(key: key)
             type("nihao", e)
             #expect(tapOption(e).isEmpty && e.phase == .drafting, "\(key)")
         }
     }
 
-    @Test func translateKeyDuringDictationSendsOnceTheTranscriptIsFinal() {
+    @Test func actionKeyDuringDictationSendsOnceTheTranscriptIsFinal() {
         // ⌥Space while still holding right ⌥: the recording stops; the sentence goes with the final transcript.
         let (c, _) = composer(key: .optionSpace)
         type("wo", c)
@@ -1034,16 +1147,16 @@ struct ComposerTests {
         _ = startDictation(c)
         _ = c.voiceText("今天", id: 1)
         #expect(c.handleKeyDown(optionSpace) == .consumed([.stopVoice(id: 1), .showPanel]))
-        #expect(c.voice == .finishing(id: 1, text: "今天") && c.translatesAfterVoice)
+        #expect(c.voice == .finishing(id: 1, text: "今天") && c.actsAfterVoice)
         #expect(optionUp(c).isEmpty)  // releasing the key afterwards changes nothing
         #expect(c.voiceFinished("今天有点不舒服", id: 1).first == .startConversion(input: "我今天有点不舒服", id: 1))
-        #expect(c.phase == .translating(id: 1) && !c.translatesAfterVoice)
+        #expect(c.phase == .translating(id: 1) && !c.actsAfterVoice)
 
         // Released first, then an Option tap while the transcript is still being finished.
         let (d, _) = composer(key: .optionTap)
         _ = startDictation(d)
         _ = optionUp(d)
-        #expect(tapOption(d, at: 3) == [.showPanel] && d.translatesAfterVoice)
+        #expect(tapOption(d, at: 3) == [.showPanel] && d.actsAfterVoice)
         #expect(d.voiceFinished("你好", id: 1).first == .startConversion(input: "你好", id: 1))
 
         // Another key before the transcript arrives: nothing is sent, the key continues the sentence.
@@ -1052,19 +1165,226 @@ struct ComposerTests {
         _ = e.voiceText("你好", id: 1)
         _ = e.handleKeyDown(optionSpace)
         #expect(!startsConversion(e.handleKeyDown(k("m")).effects))
-        #expect(e.draft == "你好" && e.markedText == "你好m" && !e.translatesAfterVoice)
+        #expect(e.draft == "你好" && e.markedText == "你好m" && !e.actsAfterVoice)
 
         // Esc, a failure or nothing heard: nothing is sent.
         let (f, _) = composer(key: .optionSpace)
         _ = startDictation(f)
         _ = f.handleKeyDown(optionSpace)
         _ = f.handleKeyDown(escKey)
-        #expect(f.voice == .off && !f.translatesAfterVoice && f.phase == .idle)
+        #expect(f.voice == .off && !f.actsAfterVoice && f.phase == .idle)
         _ = startDictation(f)
         _ = f.handleKeyDown(optionSpace)
-        #expect(f.voiceFailed("没有麦克风权限", id: 2).last == .notice("没有麦克风权限") && !f.translatesAfterVoice)
+        #expect(f.voiceFailed("没有麦克风权限", id: 2).last == .notice("没有麦克风权限") && !f.actsAfterVoice)
         _ = startDictation(f)
         _ = f.handleKeyDown(optionSpace)
         #expect(f.voiceFinished(" ", id: 3).last == .notice("没听清，再说一次") && f.phase == .idle)
+    }
+
+    // MARK: - @ commands
+
+    let at = KeyEvent(keyCode: 0x13, characters: "@", charactersIgnoringModifiers: "@", modifiers: .shift)
+    let tab = KeyEvent(keyCode: VirtualKey.tab, characters: "\t")
+
+    /// A composer (单按 ⌥) with "@" typed.
+    func palette(_ query: String = "", english: Bool = false, englishAI: Bool = true) -> (Composer, FakeEngine) {
+        let (c, e) = composer(englishAI: englishAI, key: .optionTap)
+        if english { c.setInputMode(.english) }
+        _ = c.handleKeyDown(at)
+        type(query, c)
+        return (c, e)
+    }
+
+    @Test func atStartsTheCommandPalette() {
+        let (c, _) = composer(key: .optionTap)
+        #expect(c.handleKeyDown(at) == .consumed([.updateMarkedText, .showPanel]))
+        #expect(c.draft == "@" && c.markedText == "@" && c.paletteQuery == "" && c.wantsPanel)
+        #expect(c.paletteMatches == [.improve, .question, .claude, .open])
+        type("q", c)
+        #expect(c.paletteMatches == [.question] && c.markedText == "@q")
+        #expect(c.handleKeyDown(tab).effects == [.updateMarkedText, .showPanel])
+        #expect(c.draft == "@question " && c.paletteQuery == nil && c.draftCommand == .question)
+        // Space, a digit or the action key pick too; ↑↓ move the highlight.
+        let (s, _) = palette("cl")
+        _ = s.handleKeyDown(spaceKey)
+        #expect(s.draft == "@claude ")
+        let (d, _) = palette()
+        _ = d.handleKeyDown(k("4"))
+        #expect(d.draft == "@open ")
+        let (t, _) = palette("o")
+        _ = tapOption(t)
+        #expect(t.draft == "@open " && t.phase == .drafting)
+        let (a, _) = palette()
+        _ = a.handleKeyDown(downKey)
+        #expect(a.paletteHighlighted == 1)
+        _ = a.handleKeyDown(upKey)
+        _ = a.handleKeyDown(upKey)
+        #expect(a.paletteHighlighted == 3)
+        _ = a.handleKeyDown(tab)
+        #expect(a.draft == "@open ")
+    }
+
+    @Test func atMentionsStillReachTheApp() {
+        // A letter no command starts with: "@" goes in as typed, and the letter is pinyin as usual.
+        let (c, e) = palette()
+        let r = c.handleKeyDown(k("z"))
+        #expect(commits(r) == ["@"] && r.handled && e.input == "z" && c.draft.isEmpty)
+        // In English mode it starts the English draft; without English AI it goes to the app.
+        let (d, _) = palette("cl", english: true)
+        let r2 = d.handleKeyDown(k("x"))
+        #expect(commits(r2) == ["@cl"] && d.draft == "x")
+        let (o, _) = palette(english: true, englishAI: false)
+        let r3 = o.handleKeyDown(k("j"))
+        #expect(commits(r3) == ["@"] && !r3.handled)
+        // "@ " is just an at sign and a space; Return inserts "@…" as typed; Esc and ⌫ remove it.
+        let (s, _) = palette()
+        #expect(commits(s.handleKeyDown(spaceKey)) == ["@"])
+        let (n, _) = palette("que")
+        #expect(commits(n.handleKeyDown(enterKey)).isEmpty && n.draft == "@question ")  // Return picks, like Tab
+        let (lone, _) = palette()
+        #expect(commits(lone.handleKeyDown(enterKey)) == ["@"])
+        let (x, _) = palette("que")
+        #expect(x.handleKeyDown(escKey).effects == [.updateMarkedText, .hidePanel] && x.draft.isEmpty)
+        let (b, _) = palette("q")
+        _ = b.handleKeyDown(backspaceKey)
+        #expect(b.draft == "@")
+        #expect(b.handleKeyDown(backspaceKey).effects == [.updateMarkedText, .hidePanel] && b.phase == .idle)
+        // "@" inside a sentence, or with AI off, is just text.
+        let (m, _) = composer(key: .optionTap)
+        type("nihao", m)
+        _ = m.handleKeyDown(spaceKey)
+        _ = m.handleKeyDown(at)
+        #expect(m.draft == "你好@" && m.paletteQuery == nil)
+        // Outside sentence mode (a regular input method) "@" opens the commands just the same.
+        let (regular, _) = composer(ai: false, key: .optionTap)
+        #expect(regular.handleKeyDown(at) == .consumed([.updateMarkedText, .showPanel]) && regular.paletteQuery == "")
+    }
+
+    @Test func commandDraftsGoToTheirCommand() {
+        func send(_ name: String, _ pinyin: String) -> (Composer, [Composer.Effect]) {
+            let (c, _) = palette(name)
+            _ = c.handleKeyDown(tab)
+            type(pinyin, c)
+            return (c, tapOption(c, at: 5))
+        }
+        #expect(send("q", "nihao").1.first == .startCommand(.question, input: "你好", id: 1))
+        let (claude, terminal) = send("c", "nihao")
+        #expect(terminal.contains(.runInTerminal(prompt: "你好")) && commits(terminal).isEmpty)
+        #expect(claude.phase == .idle && claude.markedText.isEmpty && !claude.isLevelTwo)  // the session has its own window
+        let (open, search) = send("o", "nihao")
+        #expect(search.first == .search(query: "nihao", id: 1))  // @open takes letters as typed (file names, paths)
+        #expect(open.engineState.isAsciiMode)
+        #expect(send("i", "nihao").1.first == .startConversion(input: "你好", id: 1))  // @improve: the default
+        let (marked, _) = send("q", "nihao")
+        #expect(marked.markedText == "@question 你好" && marked.activeCommand == .question)
+        // Nothing after the command: a hint, no request.
+        let (e, _) = palette("q")
+        _ = e.handleKeyDown(tab)
+        #expect(tapOption(e).first == .notice("在命令后面写上内容") && !e.isLevelTwo)
+    }
+
+    @Test func answersAreInsertedLikeVersions() {
+        let (c, _) = palette("q")
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        _ = tapOption(c)
+        #expect(c.choices.map(\.kind) == [.original] && c.highlighted == 1)
+        _ = c.receive(ConversionResult(versions: [CandidateLine("你好的意思", isComplete: false)]), isFinal: false, id: 1)
+        #expect(c.handleKeyDown(enterKey) == .consumed())  // still streaming
+        _ = c.receive(ConversionResult(versions: [CandidateLine("“你好”是问候语。")]), isFinal: true, id: 1)
+        #expect(c.phase == .choosing && c.choices.map(\.kind) == [.original, .answer])
+        #expect(c.choices.first?.text == "你好")  // the question, without "@question"
+        #expect(commits(c.handleKeyDown(enterKey)) == ["“你好”是问候语。"])
+        // 0 inserts the question; without an answer the request failed.
+        let (d, _) = palette("q")
+        _ = d.handleKeyDown(tab)
+        type("nihao", d)
+        _ = tapOption(d)
+        _ = d.receive(.empty, isFinal: true, id: 1)
+        #expect(d.phase == .failed("没有得到结果"))
+        #expect(commits(d.handleKeyDown(enterKey)) == ["你好"])
+    }
+
+    @Test func openPicksAFileWithoutInsertingText() {
+        let calculator = SearchResult(name: "Calculator", path: "/System/Applications/Calculator.app")
+        let (c, _) = palette("o", english: true)
+        _ = c.handleKeyDown(tab)
+        type("calc", c)
+        #expect(tapOption(c).first == .search(query: "calc", id: 1))
+        #expect(c.receiveSearch([calculator, SearchResult(name: "calc.txt", path: "/tmp/calc.txt")], id: 1) == [.showPanel])
+        #expect(c.choices.map(\.label) == ["1", "2"] && c.highlighted == 0)
+        let r = c.handleKeyDown(spaceKey)
+        #expect(r.effects.last == .open(path: calculator.path) && commits(r).isEmpty)
+        #expect(c.phase == .idle && c.draft.isEmpty && c.markedText.isEmpty)
+        // A digit picks; nothing found is a failure; stale results are ignored.
+        let (d, _) = palette("o", english: true)
+        _ = d.handleKeyDown(tab)
+        type("calc", d)
+        _ = tapOption(d)
+        _ = d.handleKeyDown(escKey)
+        #expect(d.receiveSearch([calculator], id: 1).isEmpty && d.phase == .drafting)
+        _ = tapOption(d, at: 9)
+        _ = d.receiveSearch([calculator, SearchResult(name: "calc.txt", path: "/tmp/calc.txt")], id: 2)
+        #expect(d.handleKeyDown(k("2")).effects.last == .open(path: "/tmp/calc.txt"))
+        let (n, _) = palette("o", english: true)
+        _ = n.handleKeyDown(tab)
+        type("zzz", n)
+        _ = tapOption(n)
+        _ = n.receiveSearch([], id: 1)
+        #expect(n.phase == .failed("没有找到"))
+    }
+
+    @Test func holdingRightOptionInThePaletteDictatesTheCommand() {
+        let (c, _) = palette("q")
+        _ = startDictation(c)
+        #expect(c.draft == "@question ")
+        _ = optionUp(c)
+        _ = c.voiceFinished("什么是量子计算", id: 1)
+        #expect(c.draft == "@question 什么是量子计算")
+        #expect(tapOption(c, at: 5).first == .startCommand(.question, input: "什么是量子计算", id: 1))
+    }
+
+    @Test func openShowsResultsAsYouTypeAndCompletesPaths() {
+        let documents = SearchResult(name: "Documents", path: "/Users/me/Documents", isFolder: true)
+        let report = SearchResult(name: "report.pdf", path: "/Users/me/Documents/report.pdf")
+        let (c, _) = composer(key: .enter)
+        _ = c.handleKeyDown(at)
+        type("o", c)
+        _ = c.handleKeyDown(tab)
+        #expect(c.engineState.isAsciiMode && c.liveQuery == nil)  // letters for the path, nothing typed yet
+        type("~/Doc", c)
+        #expect(c.liveQuery == "~/Doc" && c.currentLiveResults.isEmpty)
+        #expect(c.receiveLive([documents], for: "~/Do").isEmpty)  // stale: the text has changed since
+        #expect(c.receiveLive([documents, report], for: "~/Doc") == [.showPanel])
+        _ = c.handleKeyDown(downKey)
+        #expect(c.liveHighlight == 1)
+        _ = c.handleKeyDown(upKey)
+        // Tab: the highlighted path replaces what was typed; a folder's ends in "/", which lists it.
+        #expect(c.handleKeyDown(tab).effects == [.updateMarkedText, .showPanel])
+        #expect(c.draft == "@open /Users/me/Documents/" && c.currentLiveResults.isEmpty)
+        _ = c.receiveLive([report], for: "/Users/me/Documents/")
+        // ⌘C copies the path and keeps everything; ⏎ (the action key) opens it.
+        let copy = c.handleKeyDown(KeyEvent(keyCode: 0x08, characters: "c", modifiers: .command))
+        #expect(copy.effects.first == .copy(report.path) && copy.handled && c.draft == "@open /Users/me/Documents/")
+        let open = c.handleKeyDown(enterKey)
+        #expect(open.effects.last == .open(path: report.path) && commits(open).isEmpty && c.phase == .idle)
+        #expect(!c.engineState.isAsciiMode)  // back to Chinese once @open is done
+        // Esc on the way also brings Chinese back.
+        let (d, _) = palette("o")
+        _ = d.handleKeyDown(tab)
+        _ = d.handleKeyDown(escKey)
+        #expect(!d.engineState.isAsciiMode && d.draft.isEmpty)
+    }
+
+    @Test func commandCopiesTheHighlightedResult() {
+        let (c, _) = translating()
+        _ = c.receive(final, isFinal: true, id: 1)
+        let copy = c.handleKeyDown(KeyEvent(keyCode: 0x08, characters: "c", modifiers: .command))
+        #expect(copy == .consumed([.copy("Hi there."), .notice("已复制")]) && c.phase == .choosing)
+        _ = c.handleKeyDown(downKey)
+        #expect(c.handleKeyDown(KeyEvent(keyCode: 0x08, characters: "c", modifiers: .command)).effects.first == .copy("Hello."))
+        // With nothing to copy, ⌘C is the app's.
+        let (d, _) = composer()
+        #expect(d.handleKeyDown(KeyEvent(keyCode: 0x08, characters: "c", modifiers: .command)) == .passThrough)
     }
 }

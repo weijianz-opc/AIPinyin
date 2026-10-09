@@ -30,14 +30,14 @@ func selectInputSource(_ id: String) -> Bool {
 }
 
 /// The input method's persisted "AI on" switch (nil = never set, which means on).
-func aiSetting() -> Bool? {
+func sentenceModeSetting() -> Bool? {
     CFPreferencesAppSynchronize(imeID as CFString)
-    return CFPreferencesCopyAppValue("aiEnabled" as CFString, imeID as CFString) as? Bool
+    return CFPreferencesCopyAppValue("sentenceMode" as CFString, imeID as CFString) as? Bool
 }
 
 /// Writes (or with nil removes) the input method's "AI on" switch.
-func setAISetting(_ value: Bool?) {
-    CFPreferencesSetAppValue("aiEnabled" as CFString, value.map { $0 as CFPropertyList }, imeID as CFString)
+func setSentenceModeSetting(_ value: Bool?) {
+    CFPreferencesSetAppValue("sentenceMode" as CFString, value.map { $0 as CFPropertyList }, imeID as CFString)
     CFPreferencesAppSynchronize(imeID as CFString)
 }
 
@@ -87,7 +87,7 @@ final class Harness: NSObject, NSApplicationDelegate {
     var textView: NSTextView!
     var failures = 0
     var originalSource: String?
-    var originalAI: Bool?
+    var originalSentenceMode: Bool?
     /// Window is key (normal desktop): dispatch through NSApp like real typing. Otherwise (e.g. the
     /// screen is locked) hand events to the text view, which forwards them to its input context.
     var dispatchThroughApp = true
@@ -221,17 +221,21 @@ final class Harness: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The input method's translate key (config `translateKey`): a tap of ⌥ unless set otherwise.
-    lazy var translateKey = configValue("translateKey") as? String ?? "optionTap"
+    /// The input method's action key (config `actionKey`): Return unless set otherwise.
+    lazy var actionKey = configValue("actionKey") as? String ?? "enter"
 
-    /// Presses the translate key: sends the sentence (converting pinyin still being typed).
-    func translate() {
-        switch translateKey {
+    /// Presses the action key: runs the action on the sentence (converting pinyin still being typed).
+    func act() {
+        switch actionKey {
+        case "optionTap": tapOption()
         case "optionSpace": space(.option)
         case "space": space()
-        default: tapOption()
+        default: enter()
         }
     }
+
+    /// The sentence as typed, without AI: ⇧Return when Return is the action key, else Return.
+    func asTyped() { key("\r", returnCode, actionKey == "enter" ? .shift : []) }
 
     /// Clears everything (used between steps so one failure doesn't cascade). Two Escapes take the
     /// input method from any state back to idle (level two → draft → nothing).
@@ -290,9 +294,9 @@ final class Harness: NSObject, NSApplicationDelegate {
             pump(0.3)
             check(currentInputSourceID() == originalSource, "input source restored to \(originalSource)")
         }
-        if aiSetting() != originalAI {
-            setAISetting(originalAI)
-            note("AI setting restored to \(originalAI.map { "\($0)" } ?? "default (on)")")
+        if sentenceModeSetting() != originalSentenceMode {
+            setSentenceModeSetting(originalSentenceMode)
+            note("sentence mode restored to \(originalSentenceMode.map { "\($0)" } ?? "default (off)")")
         }
         let png = window.contentView.flatMap { view -> Data? in
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
@@ -333,15 +337,15 @@ final class Harness: NSObject, NSApplicationDelegate {
             note("window is not key; delivering keys to the text view directly")
         }
         originalSource = currentInputSourceID()
-        originalAI = aiSetting()
+        originalSentenceMode = sentenceModeSetting()
         if let originalSource {
             try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
             try? originalSource.write(to: originalSourceFile, atomically: true, encoding: .utf8)
         }
-        note("input source before: \(originalSource ?? "?"); AI setting: \(originalAI.map { "\($0)" } ?? "default (on)")")
-        if originalAI == false {
-            setAISetting(true)  // the test expects AI on; restored in finish()
-            note("AI turned on for the test")
+        note("input source before: \(originalSource ?? "?"); sentence mode: \(originalSentenceMode.map { "\($0)" } ?? "default (off)")")
+        if originalSentenceMode != true {
+            setSentenceModeSetting(true)  // the test drives the sentence-mode flow; restored in finish()
+            note("sentence mode turned on for the test")
         }
         let secure = (CGSessionCopyCurrentDictionary() as? [String: Any])?["kCGSSessionSecureInputPID"]
         note("secure input: \(IsSecureEventInputEnabled() ? "ON (pid \(secure ?? "?")) — translations will be refused" : "off")")
@@ -394,8 +398,8 @@ final class Harness: NSObject, NSApplicationDelegate {
         space()
         check(waitUntil(3) { self.marked == "你好" }, "Space confirms 你好 as a draft (marked: \(marked))")
         check(committed.isEmpty, "draft not inserted yet (document: '\(committed)')")
-        enter()
-        check(waitUntil(3) { self.committed == "你好" && self.marked.isEmpty }, "Enter inserts 你好 (document: '\(committed)')")
+        asTyped()
+        check(waitUntil(3) { self.committed == "你好" && self.marked.isEmpty }, "as typed: 你好 is inserted (document: '\(committed)')")
 
         // 2. Keys the input method doesn't need still reach the app.
         print("— pass-through")
@@ -409,9 +413,9 @@ final class Harness: NSObject, NSApplicationDelegate {
         check(waitUntil(2) { self.marked.isEmpty && self.committed == "你好，\n" }, "Esc cancels pinyin")
         reset()
 
-        // 3. Level two: the translate key on the finished sentence translates; Space inserts the first
+        // 3. Level two: the action key on the finished sentence translates; Space inserts the first
         //    English line.
-        print("— level two: translate (live Bedrock, key: \(translateKey))")
+        print("— level two: translate (live Bedrock, key: \(actionKey))")
         textView.string = ""
         type("wojintianyoudianbushufu")
         _ = waitUntil(3) { !self.marked.isEmpty }
@@ -419,7 +423,7 @@ final class Harness: NSObject, NSApplicationDelegate {
         check(waitUntil(3) { Self.hasHan(self.marked) && !Self.hasLatinLetter(self.marked) },
               "sentence confirmed (marked: \(marked))")
         let started = Date()
-        translate()
+        act()
         let translated = waitUntil(20) {
             if self.committed.isEmpty { self.space() }  // ignored until the first English line is complete
             return !self.committed.isEmpty
@@ -435,8 +439,8 @@ final class Harness: NSObject, NSApplicationDelegate {
         textView.string = ""
         type("zhegexiangmudejindutaimanle")
         _ = waitUntil(3) { !self.marked.isEmpty }
-        if translateKey == "space" { confirmAll() }
-        translate()
+        if actionKey == "space" { confirmAll() }
+        act()
         check(waitUntil(3) { Self.hasHan(self.marked) && !Self.hasLatinLetter(self.marked) },
               "sentence converted and sent (\(marked))")
         let picked = waitUntil(20) {
@@ -451,12 +455,12 @@ final class Harness: NSObject, NSApplicationDelegate {
         textView.string = ""
         type("nihao")
         space()
-        translate()
+        act()
         key("0", keyCodes["0"]!)
         check(waitUntil(3) { self.committed == "你好" && self.marked.isEmpty }, "0 inserts the Chinese original")
         type("nihao")
         space()
-        translate()
+        act()
         escape()
         check(waitUntil(3) { self.marked == "你好" && self.committed == "你好" }, "Esc returns to the draft")
         type("ma")
@@ -464,25 +468,25 @@ final class Harness: NSObject, NSApplicationDelegate {
         check(waitUntil(3) { self.marked.hasPrefix("你好") && self.marked.count == 3 && Self.hasHan(String(self.marked.suffix(1))) },
               "typing continues the sentence (\(marked))")
         let continued = marked
-        enter()
+        asTyped()
         check(waitUntil(3) { self.committed == "你好" + continued && self.marked.isEmpty },
               "Enter inserts it (document: '\(committed)')")
         reset()
 
-        // 6. ⇧Space turns AI off: plain pinyin input. Then back on.
+        // 6. ⇧Space turns sentence mode off: plain pinyin input. Then back on.
         print("— AI off / on")
         textView.string = ""
         space(.shift)
-        check(waitUntil(2) { aiSetting() == false }, "⇧Space turns AI off (saved setting: \(aiSetting().map { "\($0)" } ?? "nil"))")
+        check(waitUntil(2) { sentenceModeSetting() == false }, "⇧Space turns sentence mode off (saved setting: \(sentenceModeSetting().map { "\($0)" } ?? "nil"))")
         type("nihao")
         space()
-        check(waitUntil(3) { self.committed == "你好" && self.marked.isEmpty }, "with AI off, Space inserts 你好 directly")
+        check(waitUntil(3) { self.committed == "你好" && self.marked.isEmpty }, "with sentence mode off, Space inserts 你好 directly")
         space(.shift)
-        check(waitUntil(2) { aiSetting() == true }, "⇧Space turns AI back on")
+        check(waitUntil(2) { sentenceModeSetting() == true }, "⇧Space turns sentence mode back on")
         reset()
 
         // 7. Shift alone switches to English and back. With English AI (config `englishAI`, default on)
-        //    English collects into a draft: Return inserts it and still reaches the app, the translate
+        //    English collects into a draft: ⇧Return inserts it and still reaches the app, the action
         //    key polishes it.
         print("— Shift: English / Chinese")
         textView.string = ""
@@ -490,9 +494,10 @@ final class Harness: NSObject, NSApplicationDelegate {
         type("abc")
         if englishAIConfigured() {
             check(waitUntil(2) { self.marked == "abc" && self.committed.isEmpty }, "after Shift, English goes into a draft ('\(marked)')")
-            enter()
-            check(waitUntil(2) { self.committed == "abc\n" && self.marked.isEmpty },
-                  "Return inserts it as typed and makes the new line too ('\(committed.debugDescription)')")
+            asTyped()
+            // The key reaches the app too: Return makes "\n", ⇧Return a line break (U+2028).
+            check(waitUntil(2) { self.committed.hasPrefix("abc") && self.committed.count == 4 && self.marked.isEmpty },
+                  "as typed, and the key still reaches the app ('\(committed.debugDescription)')")
             print("— English polish (live Bedrock)")
             textView.string = ""
             let words = ["this", "is", "a", "blocker", "bug", "your", "team", "need", "fix", "it", "asap"]
@@ -502,13 +507,13 @@ final class Harness: NSObject, NSApplicationDelegate {
             }
             check(waitUntil(2) { self.marked == words.joined(separator: " ") + " " }, "sentence drafted (\(marked))")
             let started = Date()
-            translate()
+            act()
             let polished = waitUntil(20) {
                 if self.committed.isEmpty { self.space() }  // ignored until the first version is complete
                 return !self.committed.isEmpty
             }
             check(polished && Self.looksEnglish(committed) && committed != words.joined(separator: " ") && marked.isEmpty,
-                  String(format: "the translate key polishes, Space inserts after %.1fs: '%@'", Date().timeIntervalSince(started), committed))
+                  String(format: "the action key polishes, Space inserts after %.1fs: '%@'", Date().timeIntervalSince(started), committed))
         } else {
             check(waitUntil(2) { self.committed == "abc" && self.marked.isEmpty }, "after Shift, letters are typed as English ('\(committed)')")
         }

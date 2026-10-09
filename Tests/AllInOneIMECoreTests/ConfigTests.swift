@@ -115,11 +115,12 @@ struct ConfigTests {
         #expect(Language.of("我check一下") == .chinese && Language.of("check it") == .english)
     }
 
-    @Test func translateKey() throws {
-        #expect(try decode("{}").translateKey == .optionTap)
-        #expect(try decode(#"{"translateKey": "optionSpace"}"#).translateKey == .optionSpace)
-        #expect(try decode(#"{"translateKey": "space"}"#).translateKey == .space)
-        #expect(throws: DecodingError.self) { try decode(#"{"translateKey": "fn"}"#) }
+    @Test func actionKey() throws {
+        #expect(try decode("{}").actionKey == .enter)
+        #expect(try decode(#"{"translateKey": "optionTap"}"#).actionKey == .enter)  // the old name isn't read
+        #expect(try decode(#"{"actionKey": "optionSpace"}"#).actionKey == .optionSpace)
+        #expect(try decode(#"{"actionKey": "space"}"#).actionKey == .space)
+        #expect(throws: DecodingError.self) { try decode(#"{"actionKey": "fn"}"#) }
     }
 
     @Test func uiLanguage() throws {
@@ -143,14 +144,14 @@ struct ConfigTests {
         c.defaultInput = .english
         c.englishAI = false
         c.voiceInput = false
-        c.translateKey = .optionSpace
+        c.actionKey = .optionSpace
         c.uiLanguage = .chinese
         try c.write(to: url)
         #expect(try Config.load(from: url) == c)
         let text = try String(contentsOf: url, encoding: .utf8)
         #expect(text.contains("\"口语\""))  // stays readable, not \u escapes
         #expect(text.contains("\"outputLanguage\" : \"zh\""))
-        #expect(text.contains("\"translateKey\" : \"optionSpace\""))
+        #expect(text.contains("\"actionKey\" : \"optionSpace\""))
 
         try Data("{not json".utf8).write(to: url)
         #expect(throws: ConfigError.self) { try Config.load(from: url) }

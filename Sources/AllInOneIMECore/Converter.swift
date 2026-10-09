@@ -113,6 +113,70 @@ public final class Converter: Sendable {
             firstTokenLatency: firstToken, fromCache: false))
     }
 
+    /// Runs a `.generate` command: the answer streams in as the single version of the result.
+    public func generate(_ command: Command, input: String) -> AsyncThrowingStream<ConversionUpdate, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await self.runCommand(command, input: input, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func runCommand(_ command: Command, input: String,
+                            continuation: AsyncThrowingStream<ConversionUpdate, Error>.Continuation) async throws {
+        let started = ContinuousClock.now
+        func elapsed() -> TimeInterval {
+            let d = ContinuousClock.now - started
+            return Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
+        }
+        let config = try loadConfig()
+        let key = "@\(command.rawValue)|\(config.modelId)|\(Prompt.commandVersion)|\(input)"
+        if let hit = cache.withLock({ $0.get(key) }) {
+            continuation.yield(ConversionUpdate(
+                result: hit, rawText: "", isFinal: true, elapsed: elapsed(), firstTokenLatency: nil, fromCache: true))
+            return
+        }
+        let resolved = try loadCredentials(config.awsProfile)
+        let stream = client.converseStream(
+            Prompt.commandRequest(command, input: input, config: config),
+            modelId: config.modelId, region: config.region ?? resolved.region ?? "us-east-1",
+            credentials: resolved.credentials, timeout: config.timeoutSeconds)
+        func answer(_ text: String, complete: Bool) -> ConversionResult {
+            ConversionResult(versions: [CandidateLine(Self.oneLine(text), isComplete: complete)])
+        }
+        var text = ""
+        var firstToken: TimeInterval?
+        var stopReason: String?
+        for try await event in stream {
+            if case let .messageStop(reason) = event { stopReason = reason }
+            guard case let .textDelta(delta) = event else { continue }
+            if firstToken == nil { firstToken = elapsed() }
+            text += delta
+            if text.utf8.count > Self.maxOutputBytes { stopReason = "max_tokens"; break }
+            continuation.yield(ConversionUpdate(
+                result: answer(text, complete: false), rawText: text, isFinal: false, elapsed: elapsed(),
+                firstTokenLatency: firstToken, fromCache: false))
+        }
+        try Task.checkCancellation()
+        // Cut off at the token limit, the text still reads as an answer: keep it, but don't cache it.
+        let final = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .empty : answer(text, complete: true)
+        if !final.isEmpty, stopReason != "max_tokens" { cache.withLock { $0.set(key, final) } }
+        continuation.yield(ConversionUpdate(
+            result: final, rawText: text, isFinal: true, elapsed: elapsed(), firstTokenLatency: firstToken, fromCache: false))
+    }
+
+    /// Model text as one line that is safe to insert anywhere, including a terminal: controls and
+    /// line breaks become spaces (see `CandidateParser.stripControls`), runs of spaces collapse.
+    static func oneLine(_ text: String) -> String {
+        CandidateParser.stripControls(text).split(whereSeparator: { $0 == " " }).joined(separator: " ")
+    }
+
     /// When the model hit the token limit, its last line was cut off mid-sentence: drop it rather
     /// than offer a truncated sentence as a finished candidate.
     static let maxOutputBytes = 32 * 1024

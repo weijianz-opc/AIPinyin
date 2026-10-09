@@ -18,9 +18,10 @@ struct MainThreadBox<T>: @unchecked Sendable {
 
 /// Settings stored in the input method's user defaults.
 enum Settings {
-    static var aiEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: "aiEnabled") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "aiEnabled") }
+    /// Sentence mode (`Composer.sentenceMode`), off unless turned on.
+    static var sentenceMode: Bool {
+        get { UserDefaults.standard.object(forKey: "sentenceMode") as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: "sentenceMode") }
     }
 }
 
@@ -57,7 +58,7 @@ enum LiveJargon {
 /// thread, so entry points hop into main-actor code with `MainActor.assumeIsolated`.
 @objc(AllInOneIMEInputController)
 final class AllInOneIMEInputController: IMKInputController {
-    let composer = Composer(aiEnabled: Settings.aiEnabled)
+    let composer = Composer(sentenceMode: Settings.sentenceMode)
     private var session: RimeSession?
     private var conversionTask: Task<Void, Never>?
     private var lastElapsed: TimeInterval?
@@ -69,7 +70,7 @@ final class AllInOneIMEInputController: IMKInputController {
     private var secureNoticeShown = false
     var converter: Converter = sharedConverter
     /// Persists the AI on/off switch (the self-test replaces this so it leaves the setting alone).
-    var saveAIMode: (Bool) -> Void = { Settings.aiEnabled = $0 }
+    var saveSentenceMode: (Bool) -> Void = { Settings.sentenceMode = $0 }
     /// Whether secure event input is on anywhere; no text is sent to the model then.
     /// (The self-test replaces this to exercise both states.)
     var secureInputActive: () -> Bool = { SecureInput.isOn }
@@ -78,6 +79,21 @@ final class AllInOneIMEInputController: IMKInputController {
     var clientOverride: IMKTextInput?
     /// The settings the controller follows (the self-test supplies its own).
     var loadSettings: () -> Config = { LiveConfig.current }
+    /// Sentence mode as saved (the self-test supplies its own).
+    var loadSentenceMode: () -> Bool = { Settings.sentenceMode }
+    /// `@open`: finds files and apps, and opens the one picked (the self-test opens nothing).
+    var searchFiles: (String) async -> [SearchResult] = { await FileSearch.run($0) }
+    var openItem: (String) -> Void = { NSWorkspace.shared.open(URL(fileURLWithPath: $0)) }
+    /// `@claude`: starts Claude Code in Terminal (the self-test starts nothing).
+    var runInTerminal: (String) throws -> Void = { try TerminalLauncher.claude($0) }
+    /// ⌘C on a result (the self-test leaves the clipboard alone).
+    var copyText: (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+    /// The `@open` text last searched as it was typed, and the search in flight for it.
+    private var liveSearchQuery: String?
+    private var liveSearchTask: Task<Void, Never>?
     /// The default input mode last applied to this session (re-applied when the setting changes).
     private var appliedDefaultInput: Language?
     /// The recording in progress (a `DictationSession`, which needs macOS 26).
@@ -167,16 +183,16 @@ final class AllInOneIMEInputController: IMKInputController {
         applySettings()
     }
 
-    /// Takes over the current settings: AI switch, English drafts, voice key, translate key, and the
+    /// Takes over the current settings: AI switch, English drafts, voice key, action key, and the
     /// default input mode (applied to new sessions, and again when the setting changes; a Shift toggle
     /// otherwise sticks).
     @MainActor
     func applySettings() {
         let config = loadSettings()
-        composer.aiEnabled = Settings.aiEnabled
+        composer.sentenceMode = loadSentenceMode()
         composer.englishAI = config.englishAI
         composer.voiceEnabled = config.voiceInput && VoiceInput.isSupported
-        composer.translateKey = config.translateKey
+        composer.actionKey = config.actionKey
         // The interface language (config `uiLanguage`, else the system's) for the panel, notices and menu.
         UIText.choice = config.uiLanguage
         composer.messages = UIText.chinese ? .chinese : .english
@@ -269,15 +285,33 @@ final class AllInOneIMEInputController: IMKInputController {
             case let .commit(text):
                 target?.insertText(text, replacementRange: Self.notFound)
             case let .startConversion(input, id):
-                if secureInputActive() {
-                    // A password field or prompt may be active somewhere: never send text off the Mac.
-                    log.info("conversion \(id) not sent: secure input \(SecureInput.ownerDescription(), privacy: .public)")
-                    perform(composer.fail(tr("系统安全输入已开启（密码框或锁屏），未发送给 AI",
-                                             "Secure input is on (a password field or the lock screen): nothing was sent to the AI"),
-                                          id: id), client: target)
-                } else {
-                    startConversion(input, id: id)
+                if refusedForSecureInput(id: id, client: target) { break }
+                startConversion(input, id: id)
+            case let .startCommand(command, input, id):
+                if refusedForSecureInput(id: id, client: target) { break }
+                startConversion(input, id: id, command: command)
+            case let .search(query, id):
+                conversionTask?.cancel()
+                conversionTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let results = await self.searchFiles(query)
+                    guard !Task.isCancelled else { return }
+                    log.notice("search \(id): \(results.count) results")
+                    self.perform(self.composer.receiveSearch(results, id: id), client: nil)
                 }
+            case let .open(path):
+                log.notice("opening an @open result")
+                openItem(path)
+            case let .runInTerminal(prompt):
+                do {
+                    try runInTerminal(prompt)
+                    log.notice("@claude: Terminal session started (\(prompt.count) chars)")
+                } catch {
+                    log.error("@claude: could not start Terminal: \(String(describing: error), privacy: .public)")
+                    showNotice(UIText.describe(error), client: target)
+                }
+            case let .copy(text):
+                copyText(text)
             case .cancelConversion:
                 conversionTask?.cancel()
                 conversionTask = nil
@@ -287,8 +321,8 @@ final class AllInOneIMEInputController: IMKInputController {
                 hidePanelIfOwned()
             case let .notice(text):
                 showNotice(text, client: target)
-            case let .aiModeChanged(on):
-                saveAIMode(on)
+            case let .sentenceModeChanged(on):
+                saveSentenceMode(on)
             case let .armVoice(delay):
                 voiceArmToken += 1
                 let token = voiceArmToken
@@ -303,6 +337,24 @@ final class AllInOneIMEInputController: IMKInputController {
             case let .cancelVoice(id):
                 cancelVoiceSession(id: id)
             }
+        }
+        scheduleLiveSearch()
+    }
+
+    /// `@open` as you type: a short pause after the text changes, then a search for it.
+    @MainActor
+    private func scheduleLiveSearch() {
+        let query = composer.liveQuery
+        guard query != liveSearchQuery else { return }
+        liveSearchQuery = query
+        liveSearchTask?.cancel()
+        guard let query else { return }
+        liveSearchTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let results = await self.searchFiles(query)
+            guard !Task.isCancelled else { return }
+            self.perform(self.composer.receiveLive(results, for: query), client: nil)
         }
     }
 
@@ -448,13 +500,26 @@ final class AllInOneIMEInputController: IMKInputController {
 
     // MARK: - Level two
 
+    /// While secure input is on anywhere (a password field or prompt may be active), nothing is sent
+    /// off the Mac: the request fails at once. True if refused.
     @MainActor
-    private func startConversion(_ input: String, id: Int) {
+    private func refusedForSecureInput(id: Int, client: IMKTextInput?) -> Bool {
+        guard secureInputActive() else { return false }
+        log.info("conversion \(id) not sent: secure input \(SecureInput.ownerDescription(), privacy: .public)")
+        perform(composer.fail(tr("系统安全输入已开启（密码框或锁屏），未发送给 AI",
+                                 "Secure input is on (a password field or the lock screen): nothing was sent to the AI"),
+                              id: id), client: client)
+        return true
+    }
+
+    /// Streams level two for `input`: the improve conversion, or a `.generate` command's answer.
+    @MainActor
+    private func startConversion(_ input: String, id: Int, command: Command? = nil) {
         conversionTask?.cancel()
         lastElapsed = nil
         lastFromCache = false
-        log.notice("conversion \(id) started (\(input.count) chars)")
-        let stream = converter.convert(input)
+        log.notice("conversion \(id) started (\(input.count) chars\(command.map { ", @\($0.rawValue)" } ?? "", privacy: .public))")
+        let stream = command.map { converter.generate($0, input: input) } ?? converter.convert(input)
         conversionTask = Task { @MainActor [weak self] in
             do {
                 for try await update in stream {
@@ -561,7 +626,7 @@ final class AllInOneIMEInputController: IMKInputController {
         }
     }
 
-    /// What the translate key does to a sentence in `input`: "翻译成英文", "英文润色" …, plus " / 改写"
+    /// What the action key does to a sentence in `input`: "翻译成英文", "英文润色" …, plus " / 改写"
     /// when rewrite styles are on.
     static func actionText(input: Language, config: Config) -> String {
         let output = config.outputLanguage
@@ -572,10 +637,17 @@ final class AllInOneIMEInputController: IMKInputController {
     /// The hint under a pending draft: "单按 ⌥ → 翻译成英文 / 改写", "Tap ⌥ → translate to English / rewrite" …
     @MainActor
     func draftHint(config: Config) -> String {
-        let key = composer.translateKey
+        let key = composer.actionKey
         let how = key != .space ? UIText.name(key)
-            : composer.spaceTranslates ? UIText.name(TranslateKey.space) : tr("连按两次空格", "Space twice")
-        return "\(how) → " + UIText.action(input: Language.of(composer.draft), config: config)
+            : composer.spaceActs ? UIText.name(ActionKey.space) : tr("连按两次空格", "Space twice")
+        let input = Language.of(composer.sentText)
+        return "\(how) → " + (composer.draftCommand.map { UIText.action($0, input: input, config: config) }
+            ?? UIText.action(input: input, config: config))
+    }
+
+    /// A long answer as the panel shows it (the whole text is inserted).
+    static func preview(_ text: String, limit: Int = 280) -> String {
+        text.count > limit ? String(text.prefix(limit)) + "…" : text
     }
 
     @MainActor
@@ -600,23 +672,41 @@ final class AllInOneIMEInputController: IMKInputController {
                     return CandidateView.Row(label: choice.label, text: choice.text,
                                              comment: note.map { "\(name) · \($0)" } ?? name,
                                              style: .translation, isComplete: choice.isComplete)
+                case .answer:
+                    return CandidateView.Row(label: choice.label, text: Self.preview(choice.text),
+                                             comment: UIText.answerLabel(composer.activeCommand),
+                                             style: .translation, isComplete: choice.isComplete)
+                case let .file(path):
+                    let folder = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
+                    return CandidateView.Row(label: choice.label, text: choice.text,
+                                             comment: path.hasSuffix(".app") ? tr("应用", "app") : folder, style: .candidate)
                 }
             }
             model.highlighted = composer.highlighted
+            let command = composer.activeCommand
             switch composer.phase {
             case .translating:
-                let polishing = Language.of(composer.draft) == config.outputLanguage
-                model.status = choices.count <= 1
-                    ? .loading(polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")) : .none
-                model.footer = tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
+                let polishing = Language.of(composer.sentText) == config.outputLanguage
+                let loading = command == .question ? tr("AI 回答中…", "Answering…")
+                    : command == .open ? tr("搜索中…", "Searching…")
+                    : polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")
+                model.status = choices.count <= 1 ? .loading(loading) : .none
+                model.footer = command == .open ? tr("搜索中… · Esc 返回", "Searching… · Esc back")
+                    : tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
             case .choosing:
-                model.footer = tr("空格 / ⏎ 上屏 · 数字选择 · 0 原文 · Esc 返回",
-                                  "Space / ⏎ insert · digits pick · 0 original · Esc back")
-                model.detail = lastFromCache ? tr("缓存", "cached") : lastElapsed.map { String(format: "%.1fs", $0) }
+                model.footer = command == .open
+                    ? tr("空格 / ⏎ 打开 · 数字选择 · ⌘C 复制路径 · Esc 返回", "Space / ⏎ open · digits pick · ⌘C copy path · Esc back")
+                    : tr("空格 / ⏎ 上屏 · 数字选择 · 0 原文 · ⌘C 复制 · Esc 返回",
+                         "Space / ⏎ insert · digits pick · 0 original · ⌘C copy · Esc back")
+                if command != .open {
+                    model.detail = lastFromCache ? tr("缓存", "cached") : lastElapsed.map { String(format: "%.1fs", $0) }
+                }
             case let .failed(message):
                 model.status = .error(message)
                 model.highlighted = nil  // Space retries; nothing is selected
-                model.footer = tr("空格 重试 · ⏎ 上屏原文 · Esc 返回", "Space retry · ⏎ insert original · Esc back")
+                model.footer = composer.actionKey == .enter
+                    ? tr("空格 / ⏎ 重试 · 0 原文 · Esc 返回", "Space / ⏎ retry · 0 original · Esc back")
+                    : tr("空格 重试 · ⏎ 上屏原文 · Esc 返回", "Space retry · ⏎ insert original · Esc back")
             case .idle, .drafting:
                 break
             }
@@ -624,13 +714,16 @@ final class AllInOneIMEInputController: IMKInputController {
             let heard = composer.voice.text
             if case .listening = composer.voice {
                 model.status = .hint("🎙 " + (heard.isEmpty ? tr("正在听…", "Listening…") : heard))
-                // Space while right ⌥ is still held is ⌥Space: stop and send right away.
-                model.footer = composer.aiEnabled && composer.translateKey == .optionSpace
-                    ? tr("松开右 ⌥ 结束 · 空格 直接出结果 · Esc 取消", "Release right ⌥ to stop · Space for results now · Esc cancel")
+                // The action key while right ⌥ is still held (⌥Return, or Space = ⌥Space): stop and run it.
+                let key = composer.actionKey
+                let runs = composer.sentenceMode || composer.draftCommand != nil
+                model.footer = runs && (key == .optionSpace || key == .enter)
+                    ? (key == .enter ? tr("松开右 ⌥ 结束 · ⏎ 直接执行 · Esc 取消", "Release right ⌥ to stop · ⏎ run now · Esc cancel")
+                                     : tr("松开右 ⌥ 结束 · 空格 直接执行 · Esc 取消", "Release right ⌥ to stop · Space run now · Esc cancel"))
                     : tr("松开右 ⌥ 结束 · Esc 取消", "Release right ⌥ to stop · Esc cancel")
             } else {
                 model.status = .hint("🎙 " + (heard.isEmpty ? tr("识别中…", "Recognizing…") : heard))
-                model.footer = composer.translatesAfterVoice
+                model.footer = composer.actsAfterVoice
                     ? tr("识别完就发送 · Esc 取消", "Sends once recognized · Esc cancel")
                     : tr("识别中… · Esc 取消", "Recognizing… · Esc cancel")
             }
@@ -641,18 +734,46 @@ final class AllInOneIMEInputController: IMKInputController {
                 CandidateView.Row(label: $0.label, text: $0.text, comment: $0.comment, style: .candidate)
             }
             model.highlighted = state.highlighted
-            let action = config.outputLanguage == .chinese ? tr("润色", "polish") : tr("翻译", "translate")
-            let key = composer.translateKey
-            model.footer = !composer.aiEnabled ? tr("空格 选词 · AI 翻译已关（⇧空格开启）", "Space picks · AI is off (⇧Space turns it on)")
-                : key == .space ? tr("空格 选词 · 整句打完再按空格\(action)", "Space picks · Space again when done to \(action)")
-                : tr("空格 选词 · \(UIText.name(key)) \(action)", "Space picks · \(UIText.name(key)) to \(action)")  // converts what is still being typed, too
+            let key = composer.actionKey
+            if let command = composer.draftCommand {
+                // Pinyin in an @ command: the action key converts it and runs the command.
+                let input: Language = composer.sentText.containsHan || !composer.engineState.isAsciiMode ? .chinese : .english
+                let action = UIText.action(command, input: input, config: config)
+                model.footer = tr("空格 选词 · \(UIText.name(key)) \(action)", "Space picks · \(UIText.name(key)) to \(action)")
+            } else if composer.sentenceMode {
+                let action = config.outputLanguage == .chinese ? tr("润色", "polish") : tr("翻译", "translate")
+                model.footer = key == .space ? tr("空格 选词 · 整句打完再按空格\(action)", "Space picks · Space again when done to \(action)")
+                    : tr("空格 选词 · \(UIText.name(key)) \(action)", "Space picks · \(UIText.name(key)) to \(action)")
+            } else {
+                model.footer = tr("空格 选词 · 开头打 @ 用命令", "Space picks · type @ first for commands")
+            }
             if state.pageNumber > 0 || !state.isLastPage {
                 model.detail = tr("第 \(state.pageNumber + 1) 页", "page \(state.pageNumber + 1)")
             }
+        } else if composer.paletteQuery != nil {
+            // "@…": the commands that start with what was typed.
+            model.rows = composer.paletteMatches.enumerated().map {
+                CandidateView.Row(label: String($0.offset + 1), text: "@" + $0.element.rawValue,
+                                  comment: UIText.summary($0.element), style: .candidate)
+            }
+            model.highlighted = composer.paletteHighlighted
+            model.footer = tr("⏎ / Tab / 空格 选择 · Esc 取消", "⏎ / Tab / Space choose · Esc cancel")
+        } else if !composer.currentLiveResults.isEmpty {
+            // "@open …" as you type: what matches now.
+            model.rows = composer.currentLiveResults.map { result in
+                let folder = ((result.path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
+                let comment = result.path.hasSuffix(".app") ? tr("应用", "app") : result.isFolder ? folder + "/" : folder
+                return CandidateView.Row(label: result.isFolder ? "›" : "", text: result.name, comment: comment, style: .candidate)
+            }
+            model.highlighted = composer.liveHighlight
+            model.footer = tr("⏎ 打开 · Tab 补全路径 · ↑↓ 选择 · ⌘C 复制路径 · Esc 取消",
+                              "⏎ open · Tab complete path · ↑↓ choose · ⌘C copy path · Esc cancel")
         } else if !composer.draft.isEmpty {
             model.status = .hint(draftHint(config: config))
-            model.footer = composer.isLatinDraft ? tr("⏎ 直接上屏 · ⌫ 删字", "⏎ insert as typed · ⌫ delete")
-                : tr("⏎ 上屏原文 · ⌫ 删字 · Esc 清除", "⏎ insert as typed · ⌫ delete · Esc clear")
+            let asTyped = composer.actionKey == .enter ? "⇧⏎" : "⏎"
+            model.footer = composer.draftCommand != nil ? tr("⌫ 删字 · Esc 清除", "⌫ delete · Esc clear")
+                : composer.isLatinDraft ? tr("\(asTyped) 直接上屏 · ⌫ 删字", "\(asTyped) insert as typed · ⌫ delete")
+                : tr("\(asTyped) 上屏原文 · ⌫ 删字 · Esc 清除", "\(asTyped) insert as typed · ⌫ delete · Esc clear")
         }
         if let notice { model.detail = notice }
         return model
@@ -669,10 +790,10 @@ final class AllInOneIMEInputController: IMKInputController {
         settings.target = self
         menu.addItem(settings)
         menu.addItem(.separator())
-        let ai = NSMenuItem(title: tr("AI 翻译 / 改写（⇧空格）", "AI Translation / Rewrites (⇧Space)"),
-                            action: #selector(toggleAI(_:)), keyEquivalent: "")
+        let ai = NSMenuItem(title: tr("整句模式（⇧空格）", "Sentence Mode (⇧Space)"),
+                            action: #selector(toggleSentenceMode(_:)), keyEquivalent: "")
         ai.target = self
-        ai.state = Settings.aiEnabled ? .on : .off
+        ai.state = Settings.sentenceMode ? .on : .off
         menu.addItem(ai)
         let model = config.map { tr("模型：", "Model: ") + $0.modelId } ?? tr("配置文件有误", "The config file has an error")
         let info = NSMenuItem(title: model, action: nil, keyEquivalent: "")
@@ -718,9 +839,9 @@ final class AllInOneIMEInputController: IMKInputController {
         return menu
     }
 
-    @objc func toggleAI(_ sender: Any?) {
+    @objc func toggleSentenceMode(_ sender: Any?) {
         MainActor.assumeIsolated {
-            perform(composer.setAI(!composer.aiEnabled), client: nil)
+            perform(composer.setSentenceMode(!composer.sentenceMode), client: nil)
         }
     }
 

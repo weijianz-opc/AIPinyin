@@ -106,7 +106,7 @@ struct RimeEngineTests {
     }
 
     @Test func composerDraftsChineseAndTranslatesOnSecondSpace() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true, translateKey: .space)
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: true, actionKey: .space)
         for ch in "wojintianyoudianbushufu" { _ = composer.handleKeyDown(key(ch)) }
         #expect(composer.markedText.hasSuffix("fu"))
         let confirm = composer.handleKeyDown(space)
@@ -128,10 +128,10 @@ struct RimeEngineTests {
 
     /// ⌥Space with real librime: it converts the pinyin still being typed and sends the sentence;
     /// Space picks words and, once nothing is left to convert, types a space.
-    @Test func optionSpaceTranslatesWithTheRealEngine() throws {
+    @Test func optionSpaceActsWithTheRealEngine() throws {
         let optionSpace = KeyEvent(keyCode: VirtualKey.space, characters: "\u{A0}", charactersIgnoringModifiers: " ",
                                    modifiers: .option)
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true, translateKey: .optionSpace)
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: true, actionKey: .optionSpace)
         for ch in "wojintianyoudianbushufu" { _ = composer.handleKeyDown(key(ch)) }
         let r = composer.handleKeyDown(optionSpace)
         #expect(r.handled && r.effects.first == .startConversion(input: "我今天有点不舒服", id: 1))
@@ -148,10 +148,42 @@ struct RimeEngineTests {
         composer.engine?.clearComposition()
     }
 
-    /// The default translate key with real librime: a tap of ⌥ converts the pinyin and sends it.
-    @Test func optionTapTranslatesWithTheRealEngine() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)
-        #expect(composer.translateKey == .optionTap)
+    /// The defaults with real librime: a regular input method, and ⏎ runs an @ command.
+    @Test func regularInputMethodWithAtCommandsWithTheRealEngine() throws {
+        let composer = Composer(engine: try RimeFixture.session())
+        #expect(!composer.sentenceMode && composer.actionKey == .enter)
+        for ch in "nihao" { _ = composer.handleKeyDown(key(ch)) }
+        #expect(composer.handleKeyDown(space).effects.contains(.commit("你好")) && composer.draft.isEmpty)
+        _ = composer.handleKeyDown(KeyEvent(keyCode: 0x13, characters: "@", modifiers: .shift))
+        _ = composer.handleKeyDown(key("q"))
+        _ = composer.handleKeyDown(enter)
+        #expect(composer.draft == "@question ")
+        for ch in "liangzijisuan" { _ = composer.handleKeyDown(key(ch)) }
+        #expect(composer.handleKeyDown(enter).effects.first == .startCommand(.question, input: "量子计算", id: 1))
+        composer.engine?.clearComposition()
+    }
+
+    /// Sentence mode with real librime: Return converts the pinyin still being typed and sends it;
+    /// ⇧Return keeps the letters as typed.
+    @Test func returnActsWithTheRealEngine() throws {
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: true)
+        #expect(composer.actionKey == .enter)
+        for ch in "wojintianyoudianbushufu" { _ = composer.handleKeyDown(key(ch)) }
+        let r = composer.handleKeyDown(enter)
+        #expect(r.handled && r.effects.first == .startConversion(input: "我今天有点不舒服", id: 1))
+        _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.escape, characters: "\u{1B}"))
+        let asTyped = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.returnKey, characters: "\r", modifiers: .shift))
+        #expect(asTyped.effects.contains(.commit("我今天有点不舒服")) && composer.phase == .idle)
+        for ch in "nihao" { _ = composer.handleKeyDown(key(ch)) }
+        _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.returnKey, characters: "\r", modifiers: .shift))
+        #expect(composer.draft == "nihao" || composer.draft.isEmpty)  // librime's Return: the letters as typed
+        composer.engine?.clearComposition()
+    }
+
+    /// An Option tap with real librime: it converts the pinyin and sends it.
+    @Test func optionTapActsWithTheRealEngine() throws {
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: true, actionKey: .optionTap)
+        #expect(composer.actionKey == .optionTap)
         for ch in "wojintianyoudianbushufu" { _ = composer.handleKeyDown(key(ch)) }
         _ = composer.handleFlagsChanged(keyCode: VirtualKey.leftOption, modifiers: [.option, .leftOption], timestamp: 1)
         let tap = composer.handleFlagsChanged(keyCode: VirtualKey.leftOption, modifiers: [], timestamp: 1.08)
@@ -162,7 +194,7 @@ struct RimeEngineTests {
     }
 
     @Test func composerWithAIOffCommitsDirectly() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: false)
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: false)
         for ch in "nihao" { _ = composer.handleKeyDown(key(ch)) }
         let r = composer.handleKeyDown(space)
         #expect(r.effects.contains(.commit("你好")))
@@ -170,10 +202,10 @@ struct RimeEngineTests {
     }
 
     /// English mode in real librime: letters, capitals and punctuation collect into an English draft,
-    /// a double Space sends it (`space` translate key), Return inserts it as typed and still reaches
+    /// a double Space sends it (`space` action key), Return inserts it as typed and still reaches
     /// the application.
     @Test func englishModeDraftsWithTheRealEngine() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true, translateKey: .space)
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: true, actionKey: .space)
         composer.setInputMode(.english)
         #expect(composer.engineState.isAsciiMode)
         for ch in "Hi" {
@@ -195,7 +227,7 @@ struct RimeEngineTests {
 
     /// rime-ice rejects keys carrying the Caps Lock mask; turning Caps Lock on mid-word must not freeze it.
     @Test func capsLockMidCompositionKeepsEditing() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: true)
         for ch in "nihao" { _ = composer.handleKeyDown(key(ch)) }
         _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.delete, characters: "\u{7F}", modifiers: .capsLock))
         #expect(composer.markedText.replacingOccurrences(of: " ", with: "") == "niha")
@@ -207,7 +239,7 @@ struct RimeEngineTests {
 
     /// A Shift tap after picking part of the input keeps the picked word (librime's commit_code).
     @Test func shiftTapKeepsPickedWords() throws {
-        let composer = Composer(engine: try RimeFixture.session(), aiEnabled: true)
+        let composer = Composer(engine: try RimeFixture.session(), sentenceMode: true)
         for ch in "nihaoma" { _ = composer.handleKeyDown(key(ch)) }
         var picked = false
         for _ in 0..<6 where !picked {
