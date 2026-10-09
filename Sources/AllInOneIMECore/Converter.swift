@@ -12,7 +12,7 @@ public struct ConversionUpdate: Equatable, Sendable {
     public var fromCache: Bool
 }
 
-/// Turns typed input into streamed `ConversionUpdate`s using Bedrock.
+/// Turns typed input into streamed `ConversionUpdate`s using the configured provider (`ChatClient`).
 /// Config and credentials are re-read for every conversion, so edits apply without a restart.
 public final class Converter: Sendable {
     public typealias ConfigLoader = @Sendable () throws -> Config
@@ -20,9 +20,10 @@ public final class Converter: Sendable {
     /// The user's jargon list for a config (only asked for when the jargon (黑话) style is on).
     public typealias JargonLoader = @Sendable (_ config: Config) -> [JargonEntry]
 
-    private let client: BedrockClient
+    private let client: ChatClient
     private let loadConfig: ConfigLoader
     private let loadCredentials: CredentialLoader
+    private let loadKey: ChatClient.KeyLoader
     private let loadJargon: JargonLoader
     private let cache = OSAllocatedUnfairLock(initialState: LRUCache(capacity: 64))
 
@@ -30,11 +31,13 @@ public final class Converter: Sendable {
         client: BedrockClient = BedrockClient(),
         loadConfig: @escaping ConfigLoader = { try Config.load() },
         loadCredentials: @escaping CredentialLoader = { try AWSSharedConfig.load(profile: $0) },
+        loadKey: @escaping ChatClient.KeyLoader = { APIKeys.load($0) },
         loadJargon: @escaping JargonLoader = { JargonLibrary.load(from: $0.jargonURL) }
     ) {
-        self.client = client
+        self.client = ChatClient(bedrock: client)
         self.loadConfig = loadConfig
         self.loadCredentials = loadCredentials
+        self.loadKey = loadKey
         self.loadJargon = loadJargon
     }
 
@@ -65,7 +68,7 @@ public final class Converter: Sendable {
         let styles = presets.map(\.tag).joined(separator: ",")
         let jargon = presets.contains { $0.tag == RewriteStyle.jargonTag } ? loadJargon(config) : []
         let jargonKey = jargon.isEmpty ? "" : "j\(JargonLibrary.fingerprint(jargon))|"
-        let key = "\(config.modelId)|\(Prompt.version)|\(output.rawValue)|\(styles)|\(jargonKey)\(input)"
+        let key = "\(config.activeModel)|\(Prompt.version)|\(output.rawValue)|\(styles)|\(jargonKey)\(input)"
         if let hit = cache.withLock({ $0.get(key) }) {
             continuation.yield(ConversionUpdate(
                 result: hit, rawText: "", isFinal: true, elapsed: elapsed(),
@@ -73,12 +76,8 @@ public final class Converter: Sendable {
             return
         }
 
-        let resolved = try loadCredentials(config.awsProfile)
-        let region = config.region ?? resolved.region ?? "us-east-1"
-        let stream = client.converseStream(
-            Prompt.request(for: input, config: config, jargon: jargon),
-            modelId: config.modelId, region: region,
-            credentials: resolved.credentials, timeout: config.timeoutSeconds)
+        let stream = client.stream(Prompt.request(for: input, config: config, jargon: jargon), config: config,
+                                   loadCredentials: loadCredentials, loadKey: loadKey)
 
         var text = ""
         var firstToken: TimeInterval?
@@ -137,17 +136,14 @@ public final class Converter: Sendable {
         }
         let config = try loadConfig()
         // A custom command's instruction is part of the key: editing it asks again.
-        let key = "@\(command.name)|\(command.custom?.prompt ?? "")|\(config.modelId)|\(Prompt.commandVersion)|\(input)"
+        let key = "@\(command.name)|\(command.custom?.prompt ?? "")|\(config.activeModel)|\(Prompt.commandVersion)|\(input)"
         if let hit = cache.withLock({ $0.get(key) }) {
             continuation.yield(ConversionUpdate(
                 result: hit, rawText: "", isFinal: true, elapsed: elapsed(), firstTokenLatency: nil, fromCache: true))
             return
         }
-        let resolved = try loadCredentials(config.awsProfile)
-        let stream = client.converseStream(
-            Prompt.commandRequest(command, input: input, config: config),
-            modelId: config.modelId, region: config.region ?? resolved.region ?? "us-east-1",
-            credentials: resolved.credentials, timeout: config.timeoutSeconds)
+        let stream = client.stream(Prompt.commandRequest(command, input: input, config: config), config: config,
+                                   loadCredentials: loadCredentials, loadKey: loadKey)
         func answer(_ text: String, complete: Bool) -> ConversionResult {
             ConversionResult(versions: [CandidateLine(Self.oneLine(text), isComplete: complete)])
         }

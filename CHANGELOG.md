@@ -6,6 +6,7 @@
 
 ### 新增
 
+- 除了 Amazon Bedrock，也能用 Claude API、Gemini API 和兼容 OpenAI 的服务（DeepSeek、Qwen、Ollama 等）：在设置的「AI 服务」里选，API key 存在钥匙串里。
 - 自己加 `@` 命令：在配置文件的 `customCommands` 里写，三种：`prompt`（发给 AI，用你的指令）、`run`（在后台运行程序，比如 `python3 -c`，输出可以上屏）、`terminal`（在终端里运行）。见 README 的「自己加命令」。
 - 在命令里（或整句模式的草稿里）按 ⌃V，把剪贴板里的文字接到已经打的字后面，哪个 App 里都能用，终端也行。⌘V 在终端（Ghostty 等）和备忘录里会被 App 自己拿去粘贴，在那里用 ⌃V。
 

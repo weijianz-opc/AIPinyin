@@ -49,6 +49,13 @@ enum UIText {
         }
     }
 
+    static func name(_ provider: Provider) -> String {
+        switch provider {
+        case .openai: return tr("兼容 OpenAI 的服务", "OpenAI-compatible API")
+        default: return provider.displayName
+        }
+    }
+
     static func name(_ language: Language) -> String {
         chinese ? language.displayName : language == .chinese ? "Chinese" : "English"
     }
@@ -135,13 +142,25 @@ enum UIText {
             case .tooMuchOutput: return tr("输出太多，已停止", "Stopped: too much output")
             }
         }
+        if let error = error as? ProviderError {
+            switch error {
+            case let .missingKey(p): return tr("\(name(p)) 还没有 API key：在设置里添上", "No API key for the \(name(p)): add one in the settings")
+            case let .missingModel(p): return tr("\(name(p)) 还没有设置模型", "No model set for the \(name(p))")
+            case let .invalidBaseURL(url): return tr("Base URL 无效：\(url)", "Invalid base URL: \(url)")
+            case let .http(p, status, type, message): return "\(name(p)) \(type ?? "HTTP \(status)")" + tr("：", ": ") + message
+            case let .stream(p, type, message): return "\(name(p)) \(type)" + tr("：", ": ") + message
+            case let .refused(p): return tr("\(name(p)) 拒绝了这个请求", "The \(name(p)) declined this request")
+            case let .invalidResponse(p, detail):
+                return tr("\(name(p)) 的响应无法解析：\(detail)", "Couldn't read the \(name(p)) response: \(detail)")
+            }
+        }
         guard !chinese else { return AllInOneIMEInputController.describe(error) }
         switch error {
         case let error as URLError:
             switch error.code {
             case .timedOut: return "The request timed out"
             case .notConnectedToInternet, .networkConnectionLost: return "No network connection"
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "Can't reach Bedrock"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "Can't reach the AI service"
             default: return error.localizedDescription
             }
         case let AWSConfigError.profileNotFound(profile):

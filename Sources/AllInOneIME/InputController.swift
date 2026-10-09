@@ -644,6 +644,10 @@ final class AllInOneIMEInputController: IMKInputController {
         case let BedrockError.stream(type, _): return "stream \(type)"
         case BedrockError.invalidResponse: return "invalid response"
         case BedrockError.invalidRegion: return "invalid region"
+        case let ProviderError.http(provider, status, type, _): return "\(provider.rawValue) http \(status) \(type ?? "-")"
+        case let ProviderError.stream(provider, type, _): return "\(provider.rawValue) stream \(type)"
+        case let ProviderError.missingKey(provider): return "\(provider.rawValue) no key"
+        case let ProviderError.refused(provider): return "\(provider.rawValue) refused"
         case let urlError as URLError: return "url \(urlError.code.rawValue)"
         default: return String(describing: type(of: error))
         }
@@ -654,7 +658,7 @@ final class AllInOneIMEInputController: IMKInputController {
             switch urlError.code {
             case .timedOut: return "请求超时"
             case .notConnectedToInternet, .networkConnectionLost: return "网络连接失败"
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "无法连接 Bedrock"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "无法连接 AI 服务"
             default: return urlError.localizedDescription
             }
         }
@@ -901,7 +905,7 @@ final class AllInOneIMEInputController: IMKInputController {
         ai.target = self
         ai.state = Settings.sentenceMode ? .on : .off
         menu.addItem(ai)
-        let model = config.map { tr("模型：", "Model: ") + $0.modelId } ?? tr("配置文件有误", "The config file has an error")
+        let model = config.map { tr("模型：", "Model: ") + ($0.settings(for: $0.provider).model ?? "") } ?? tr("配置文件有误", "The config file has an error")
         let info = NSMenuItem(title: model, action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)

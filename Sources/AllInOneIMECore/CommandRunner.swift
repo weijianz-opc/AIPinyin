@@ -204,18 +204,25 @@ public enum ShellEnvironment {
 
     public static let current: [String: String] = {
         var env = ProcessInfo.processInfo.environment
-        env["PATH"] = loginPath() ?? fallbackPath
+        env["PATH"] = login["PATH"] ?? fallbackPath
         return env
     }()
 
-    /// `$PATH` as the user's interactive login shell sets it up, or nil if it couldn't be read in 3 seconds.
-    static func loginPath() -> String? {
+    /// The variables the input method reads from the user's shell: PATH, and the providers' API keys
+    /// (`Provider.keyVariables`), for a key that is set there instead of in the keychain.
+    public static let login: [String: String] = loginValues(["PATH"] + Provider.allCases.flatMap(\.keyVariables))
+
+    /// `names` as the user's interactive login shell sets them up (unset ones are left out); empty if
+    /// the shell couldn't be read in 3 seconds.
+    static func loginValues(_ names: [String]) -> [String: String] {
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
-        let marker = "__AllInOneIME_PATH__"
+        let marker = "__AllInOneIME_\(UUID().uuidString)__"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
-        // Interactive too: pyenv, nvm and the like are usually set up in .zshrc.
-        process.arguments = ["-ilc", "printf '\(marker)%s\(marker)' \"$PATH\""]
+        // Interactive too: pyenv, nvm and the like are usually set up in .zshrc. Each value is printed
+        // between markers, so whatever the shell's startup files print is skipped.
+        let script = names.map { "printf '\(marker)\($0)=%s' \"${\($0)}\"" }.joined(separator: "; ") + "; printf '\(marker)'"
+        process.arguments = ["-ilc", script]
         process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
         let out = Pipe()
         process.standardOutput = out
@@ -223,14 +230,18 @@ public enum ShellEnvironment {
         process.standardInput = FileHandle.nullDevice
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
-        guard (try? process.run()) != nil else { return nil }
+        guard (try? process.run()) != nil else { return [:] }
         if exited.wait(timeout: .now() + 3) == .timedOut {
             process.terminate()
-            return nil
+            return [:]
         }
         let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let parts = text.components(separatedBy: marker)
-        guard parts.count >= 3, !parts[1].isEmpty else { return nil }
-        return parts[1]
+        var values: [String: String] = [:]
+        for part in text.components(separatedBy: marker).dropFirst() {
+            guard let eq = part.firstIndex(of: "="), names.contains(String(part[..<eq])) else { continue }
+            let value = String(part[part.index(after: eq)...])
+            if !value.isEmpty { values[String(part[..<eq])] = value }
+        }
+        return values
     }
 }

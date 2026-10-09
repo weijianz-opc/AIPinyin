@@ -10,6 +10,23 @@ struct SuggestedModel: Identifiable, Hashable {
     let title: String
     let note: String
 
+    /// The models offered for `provider` (any other ID can be typed in).
+    static func suggested(for provider: Provider) -> [SuggestedModel] {
+        switch provider {
+        case .bedrock: return all
+        case .anthropic:
+            return [
+                SuggestedModel(id: "claude-opus-5-5", title: "Claude Opus 5.5", note: tr("默认，最强", "Default, the most capable")),
+                SuggestedModel(id: "claude-sonnet-5-5", title: "Claude Sonnet 5.5", note: tr("更快、更便宜", "Faster, cheaper")),
+                SuggestedModel(id: "claude-haiku-5-5", title: "Claude Haiku 5.5", note: tr("最快、最便宜", "Fastest, cheapest")),
+            ]
+        case .gemini:
+            return [SuggestedModel(id: "gemini-3.8-flash", title: "Gemini 3.8 Flash", note: tr("默认", "Default"))]
+        case .openai:
+            return []  // a model of the service at the base URL: typed in
+        }
+    }
+
     static var all: [SuggestedModel] {
         [
             SuggestedModel(id: "us.anthropic.claude-haiku-4-5-20251001-v1:0", title: "Claude Haiku 4.5",
@@ -32,6 +49,9 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var saveError: String?
     @Published private(set) var profiles: [String] = []
     @Published private(set) var testStatus: TestStatus = .idle
+    /// Where the API key of each provider comes from (refreshed when one is saved).
+    @Published private(set) var keySources: [Provider: APIKeys.Source] = [:]
+    @Published private(set) var keyError: String?
 
     enum TestStatus: Equatable {
         case idle
@@ -102,6 +122,58 @@ final class SettingsModel: ObservableObject {
     func setStyle(_ style: RewriteStyle, on: Bool) {
         guard on != isStyleOn(style) else { return }
         config.rewriteStyles = AllInOneIMEInputController.toggled(style.name, in: config.rewriteStyles)
+        save()
+    }
+
+    // MARK: Provider
+
+    func refreshKeys() {
+        let providers = Provider.allCases.filter { $0 != .bedrock }
+        Task.detached {
+            // The first look asks the user's shell for its variables (ANTHROPIC_API_KEY, …): not on the main thread.
+            let sources = Dictionary(uniqueKeysWithValues: providers.map { ($0, APIKeys.source($0)) })
+            await MainActor.run { [weak self] in self?.keySources = sources }
+        }
+    }
+
+    /// Stores (or with an empty key removes) the provider's API key in the keychain.
+    func saveKey(_ key: String, for provider: Provider) {
+        guard persists else { return }
+        do {
+            try APIKeys.save(key, for: provider)
+            keyError = nil
+        } catch {
+            keyError = tr("无法保存到钥匙串：", "Couldn't save to the keychain: ") + UIText.describe(error)
+        }
+        refreshKeys()
+    }
+
+    func keyStatus(_ provider: Provider) -> String {
+        switch keySources[provider] {
+        case .keychain?: return tr("已保存在钥匙串里", "Saved in the keychain")
+        case let .environment(name)?: return tr("使用 shell 里的 \(name)", "Using \(name) from your shell")
+        case .none?: return tr("还没有 API key", "No API key yet")
+        case nil: return ""
+        }
+    }
+
+    /// The settings of an API-key provider as stored (unset fields use the defaults).
+    func providerSettings(_ provider: Provider) -> ProviderSettings {
+        switch provider {
+        case .anthropic: return config.anthropic
+        case .gemini: return config.gemini
+        case .openai: return config.openai
+        case .bedrock: return ProviderSettings()
+        }
+    }
+
+    func setProviderSettings(_ settings: ProviderSettings, for provider: Provider) {
+        switch provider {
+        case .anthropic: config.anthropic = settings
+        case .gemini: config.gemini = settings
+        case .openai: config.openai = settings
+        case .bedrock: return
+        }
         save()
     }
 
@@ -246,6 +318,9 @@ final class SettingsModel: ObservableObject {
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @State private var customModel = false
+    @State private var customProviderModel = false
+    /// The API key being typed (a saved key is never shown again: it stays in the keychain).
+    @State private var newKey = ""
 
     var body: some View {
         Form {
@@ -360,28 +435,17 @@ struct SettingsView: View {
                 }
             }
 
-            Section(tr("模型（Amazon Bedrock）", "Model (Amazon Bedrock)")) {
-                Picker(tr("模型", "Model"), selection: modelSelection) {
-                    ForEach(SuggestedModel.all) { m in
-                        Text(m.title + tr("　", "  ") + m.note).tag(m.id)
-                    }
-                    Text(tr("自定义…", "Custom…")).tag("custom")
-                }
-                if customModel || !SuggestedModel.all.contains(where: { $0.id == model.config.modelId }) {
-                    TextField(tr("模型 ID", "Model ID"), text: $model.config.modelId,
-                              prompt: Text(tr("例如 ", "e.g. ") + "us.anthropic.claude-haiku-4-5-20251001-v1:0"))
-                        .onSubmit { model.save() }
-                }
-                Picker("AWS Profile", selection: $model.config.awsProfile) {
-                    ForEach(model.profiles, id: \.self) { name in
-                        Text(name == model.config.awsProfile ? model.profileShownAs ?? name : name).tag(name)
+            Section(tr("AI 服务", "AI Provider")) {
+                Picker(tr("服务", "Provider"), selection: $model.config.provider) {
+                    ForEach(Provider.allCases, id: \.self) { provider in
+                        Text(UIText.name(provider)).tag(provider)
                     }
                 }
-                TextField(tr("区域", "Region"), text: regionBinding,
-                          prompt: Text(tr("留空用 profile 的区域（\(model.profileRegion)）",
-                                          "Empty: the profile's region (\(model.profileRegion))")))
-                    .onSubmit { model.save() }
-                Text(model.credentialStatus).font(.caption).foregroundStyle(.secondary)
+                if model.config.provider == .bedrock {
+                    bedrockSettings
+                } else {
+                    apiKeySettings(model.config.provider)
+                }
                 HStack {
                     Button(tr("测试连接", "Test Connection")) { model.runTest() }
                         .disabled(model.testStatus == .running)
@@ -399,8 +463,8 @@ struct SettingsView: View {
                 Stepper(value: $model.config.maxTokens, in: 200...4000, step: 100) {
                     Text(tr("最多输出 \(model.config.maxTokens) tokens", "Up to \(model.config.maxTokens) output tokens"))
                 }
-                Toggle(tr("发送 temperature（有的模型不支持，报错时关掉）",
-                          "Send temperature (some models don't support it; turn it off if requests fail)"),
+                Toggle(tr("Bedrock：发送 temperature（有的模型不支持，报错时关掉）",
+                          "Bedrock: send temperature (some models don't support it; turn it off if requests fail)"),
                        isOn: temperatureOn)
                 if let t = model.config.temperature {
                     Slider(value: Binding(get: { t }, set: { model.config.temperature = ($0 * 10).rounded() / 10 }),
@@ -438,6 +502,11 @@ struct SettingsView: View {
         .frame(minWidth: 520, idealWidth: 560, minHeight: 360, idealHeight: 760)
         // Text fields save on Return; everything else (pickers, steppers, toggles) saves on change.
         .onChange(of: model.config.awsProfile) { model.save() }
+        .onChange(of: model.config.provider) {
+            customProviderModel = false
+            newKey = ""
+            model.save()
+        }
         .onChange(of: model.config.maxTokens) { model.save() }
         .onChange(of: model.config.temperature) { model.save() }
         .onChange(of: model.config.timeoutSeconds) { model.save() }
@@ -447,6 +516,7 @@ struct SettingsView: View {
         .onChange(of: model.config.voiceInput) { model.save() }
         .onChange(of: model.config.actionKey) { model.save() }
         .onAppear {
+            model.refreshKeys()
             model.refreshVoice()
             model.refreshJargon()
         }
@@ -521,6 +591,119 @@ struct SettingsView: View {
             case nil: ProgressView().controlSize(.small)
             }
         }
+    }
+
+    /// Amazon Bedrock: the model, the AWS profile with its keys, and the region.
+    @ViewBuilder
+    private var bedrockSettings: some View {
+        Picker(tr("模型", "Model"), selection: modelSelection) {
+            ForEach(SuggestedModel.all) { m in
+                Text(m.title + tr("　", "  ") + m.note).tag(m.id)
+            }
+            Text(tr("自定义…", "Custom…")).tag("custom")
+        }
+        if customModel || !SuggestedModel.all.contains(where: { $0.id == model.config.modelId }) {
+            TextField(tr("模型 ID", "Model ID"), text: $model.config.modelId,
+                      prompt: Text(tr("例如 ", "e.g. ") + "us.anthropic.claude-haiku-4-5-20251001-v1:0"))
+                .onSubmit { model.save() }
+        }
+        Picker("AWS Profile", selection: $model.config.awsProfile) {
+            ForEach(model.profiles, id: \.self) { name in
+                Text(name == model.config.awsProfile ? model.profileShownAs ?? name : name).tag(name)
+            }
+        }
+        TextField(tr("区域", "Region"), text: regionBinding,
+                  prompt: Text(tr("留空用 profile 的区域（\(model.profileRegion)）",
+                                  "Empty: the profile's region (\(model.profileRegion))")))
+            .onSubmit { model.save() }
+        Text(model.credentialStatus).font(.caption).foregroundStyle(.secondary)
+    }
+
+    /// An API-key provider: the model, the key (kept in the keychain), the base URL and the effort.
+    @ViewBuilder
+    private func apiKeySettings(_ provider: Provider) -> some View {
+        let settings = model.config.settings(for: provider)
+        let suggested = SuggestedModel.suggested(for: provider)
+        if !suggested.isEmpty {
+            Picker(tr("模型", "Model"), selection: providerModelSelection(provider)) {
+                ForEach(suggested) { m in
+                    Text(m.title + tr("　", "  ") + m.note).tag(m.id)
+                }
+                Text(tr("自定义…", "Custom…")).tag("custom")
+            }
+        }
+        if suggested.isEmpty || customProviderModel || !suggested.contains(where: { $0.id == settings.model }) {
+            TextField(tr("模型 ID", "Model ID"), text: providerBinding(provider, \.model),
+                      prompt: Text(tr("例如 ", "e.g. ") + Self.modelExample(provider)))
+                .onSubmit { model.save() }
+        }
+        HStack {
+            SecureField("API key", text: $newKey, prompt: Text(tr("粘贴新的 API key", "Paste a new API key")))
+                .onSubmit { saveKey(provider) }
+            Button(tr("保存", "Save")) { saveKey(provider) }.disabled(newKey.isEmpty)
+            if model.keySources[provider] == .keychain {
+                Button(tr("删除", "Remove")) { model.saveKey("", for: provider) }
+            }
+        }
+        Text(model.keyStatus(provider)).font(.caption).foregroundStyle(.secondary)
+        if let error = model.keyError { Text(error).foregroundStyle(.red) }
+        TextField(tr("Base URL", "Base URL"), text: providerBinding(provider, \.baseURL),
+                  prompt: Text(ProviderSettings.defaults(for: provider).baseURL ?? ""))
+            .onSubmit { model.save() }
+        if provider == .openai {
+            Text(tr("任何兼容 OpenAI 的服务都可以：比如 DeepSeek 填 https://api.deepseek.com/v1，本机 Ollama 填 http://localhost:11434/v1。",
+                    "Any OpenAI-compatible service works: e.g. https://api.deepseek.com/v1 for DeepSeek, http://localhost:11434/v1 for Ollama on this Mac."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Picker(tr("思考", "Thinking"), selection: providerBinding(provider, \.effort, empty: "")) {
+            Text(tr("少（low，最快）", "Little (low, fastest)")).tag("low")
+            Text("medium").tag("medium")
+            Text("high").tag("high")
+            Text(tr("不设置（模型不支持时选）", "Not set (for models without it)")).tag("")
+        }
+    }
+
+    private func saveKey(_ provider: Provider) {
+        model.saveKey(newKey, for: provider)
+        newKey = ""
+    }
+
+    static func modelExample(_ provider: Provider) -> String {
+        switch provider {
+        case .anthropic: return "claude-haiku-5-5"
+        case .gemini: return "gemini-3.8-flash"
+        case .openai: return "deepseek-chat"
+        case .bedrock: return "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        }
+    }
+
+    /// A text field for one string setting of a provider; an empty one falls back to the default.
+    private func providerBinding(_ provider: Provider, _ key: WritableKeyPath<ProviderSettings, String?>,
+                                 empty: String? = nil) -> Binding<String> {
+        Binding(
+            get: { model.providerSettings(provider)[keyPath: key] ?? model.config.settings(for: provider)[keyPath: key] ?? "" },
+            set: { value in
+                var settings = model.providerSettings(provider)
+                let trimmed = value.trimmingCharacters(in: .whitespaces)
+                settings[keyPath: key] = trimmed.isEmpty ? empty : trimmed
+                model.setProviderSettings(settings, for: provider)
+            })
+    }
+
+    private func providerModelSelection(_ provider: Provider) -> Binding<String> {
+        let suggested = SuggestedModel.suggested(for: provider)
+        return Binding(
+            get: {
+                let current = model.config.settings(for: provider).model ?? ""
+                return customProviderModel || !suggested.contains(where: { $0.id == current }) ? "custom" : current
+            },
+            set: { choice in
+                customProviderModel = choice == "custom"
+                guard choice != "custom" else { return }
+                var settings = model.providerSettings(provider)
+                settings.model = choice
+                model.setProviderSettings(settings, for: provider)
+            })
     }
 
     private var modelSelection: Binding<String> {

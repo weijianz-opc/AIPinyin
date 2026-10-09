@@ -6,6 +6,7 @@
 
 ### Added
 
+- Besides Amazon Bedrock: the Claude API, the Gemini API and OpenAI-compatible services (DeepSeek, Qwen, Ollama, …), chosen under "AI Provider" in the settings; API keys are kept in the keychain.
 - Your own `@` commands, in the config's `customCommands`, of three types: `prompt` (goes to the AI with your instruction), `run` (runs a program in the background, e.g. `python3 -c`; its output can be inserted) and `terminal` (runs in Terminal). See "Your own commands" in the README.
 - ⌃V in a command (or in a sentence-mode draft) appends the clipboard text after what you've typed, in any app, terminals included. In terminals (Ghostty etc.) and Notes, the app takes ⌘V and pastes it itself; use ⌃V there.
 

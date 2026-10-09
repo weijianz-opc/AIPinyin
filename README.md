@@ -184,9 +184,11 @@ Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再
 
 卸载：`make uninstall`。
 
-## 配置 AI（Amazon Bedrock）
+## 配置 AI
 
-翻译和改写用你自己 AWS 账号里的 Bedrock，费用记在你的账号上。
+翻译和改写用你自己的 AI 服务，费用记在你的账号上：默认是 AWS 账号里的 Amazon Bedrock，也可以用 Claude API、Gemini 或兼容 OpenAI 的服务（见下面的「其他 AI 服务」）。
+
+### Amazon Bedrock
 
 1. 在 AWS 控制台开通 Bedrock，确认能用所选的模型。默认是 Claude Haiku 4.5，第一次用 Anthropic 模型要填一次用途说明。
 2. 创建一个有 `bedrock:InvokeModelWithResponseStream` 权限的 access key，写进 `~/.aws/credentials` 里的一个 profile。
@@ -196,6 +198,21 @@ Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再
    （系统的首选语言里中文排在英文前面时显示中文，否则显示英文）。设置窗口、候选框里的提示和输入法菜单都跟着它。
 
 <img src="docs/settings.png" width="420" alt="设置窗口">
+
+### 其他 AI 服务：Claude API、Gemini、兼容 OpenAI 的服务
+
+不用 AWS 也可以：在设置的「AI 服务」里选一个，粘贴 API key 点「保存」，再点「测试连接」。
+
+| 服务 | 默认模型 | API key |
+|---|---|---|
+| Claude API | `claude-opus-5-5`（也可选 Sonnet 5.5、Haiku 5.5，更快更便宜） | [Claude Console](https://platform.claude.com) |
+| Gemini API | `gemini-3.8-flash` | Google AI Studio |
+| 兼容 OpenAI 的服务 | 自己填，比如 DeepSeek 的 `deepseek-chat` | 那个服务的 key；Base URL 填它的地址，比如 `https://api.deepseek.com/v1`，本机 Ollama 填 `http://localhost:11434/v1` |
+
+- API key 存在系统钥匙串里，不写进配置文件。钥匙串里没有时，也会用 shell 里设的 `ANTHROPIC_API_KEY`、`GEMINI_API_KEY`（或 `GOOGLE_API_KEY`）、`OPENAI_API_KEY`。
+- 「思考」默认是 low：输入法每句话都在等，思考越少越快。模型不支持这个参数时选「不设置」。
+- Claude Opus 5.5、Sonnet 5.5 默认带上 Claude API 的拒答兜底（`fallbacks: "default"`）：安全分类器拒绝时，服务端自动换一个模型重试。
+- 配置文件里对应 `provider`（`"bedrock"`、`"anthropic"`、`"gemini"`、`"openai"`），以及 `anthropic`、`gemini`、`openai` 各自的 `model`、`baseURL`、`effort`、`temperature`（不填就用默认值）。
 
 所有设置都存在 `~/.config/allinoneime/config.json`，改完后，下一次翻译就会用上新设置，不用重启。新加的几项：
 
@@ -212,7 +229,7 @@ Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再
 
 ## 隐私
 
-- 打拼音完全在本地。只有 `@improve`、`@question`（或整句模式下的句子）按执行键时，那一句话才会发到你自己的 Bedrock。勾上「黑话」并设了黑话库时，词表也会一起发过去。
+- 打拼音完全在本地。只有 `@improve`、`@question`（或整句模式下的句子）按执行键时，那一句话才会发到你选的 AI 服务（你自己的 Bedrock，或你填了 key 的服务）。勾上「黑话」并设了黑话库时，词表也会一起发过去。
 - 语音只在按住右 ⌥ 时录音，在本机识别；只有在上面这些命令里，识别出的文字才会在你按执行键时发出去。
 - 只有在命令（或整句模式的草稿）里按 ⌃V 或 ⌘V，或者命令后面没写内容就按执行键时，输入法才读一次剪贴板里的文字；密码管理器标成隐藏的内容不读。读到的文字先显示在草稿里，同样要你再按执行键才发出去。新版 macOS 会问是否允许 AllInOneIME 读取剪贴板，选「允许」；不想每次都问，可以在 系统设置 → 隐私与安全性 里把 AllInOneIME 的粘贴权限设成总是允许。
 - 在密码框里（安全输入）不组字，也不能录音。只要系统处于安全输入状态（密码框、终端的安全键盘输入等），就不会发任何内容给 AI。
