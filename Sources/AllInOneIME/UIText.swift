@@ -80,31 +80,61 @@ enum UIText {
 
     /// What a command does, in the palette: "提问，答案可以直接上屏" / "Ask a question; insert the answer".
     static func summary(_ command: Command) -> String {
+        if let custom = command.custom { return custom.summary ?? customKind(custom) }
         switch command {
         case .improve: return tr("润色 / 翻译，和不加命令一样", "Polish / translate, as without a command")
         case .question: return tr("提问，答案可以直接上屏", "Ask a question; insert the answer")
         case .claude: return tr("在终端里开 Claude Code，接着聊", "Start Claude Code in Terminal")
         case .open: return tr("找文件、文件夹或 App 并打开", "Find a file, folder or app and open it")
+        default: return ""
+        }
+    }
+
+    /// A custom command without a summary of its own, by what it does.
+    static func customKind(_ custom: CustomCommand) -> String {
+        switch custom.type {
+        case .prompt: return tr("自定义 AI 指令", "Your own AI instruction")
+        case .run: return tr("运行 ", "Run ") + (custom.argv?.first.map { ($0 as NSString).lastPathComponent } ?? "")
+        case .terminal: return tr("在终端运行 ", "Run in Terminal: ") + (custom.argv?.first.map { ($0 as NSString).lastPathComponent } ?? "")
         }
     }
 
     /// What the action key does with a command draft, after "⏎ →".
     static func action(_ command: Command, input: Language, config: Config) -> String {
+        switch command.custom?.type {
+        case .prompt?: return tr("AI 生成", "generate")
+        case .run?: return tr("运行", "run")
+        case .terminal?: return tr("在终端运行", "run in Terminal")
+        case nil: break
+        }
         switch command {
         case .improve: return action(input: input, config: config)
         case .question: return tr("提问", "ask")
         case .claude: return tr("在终端打开 Claude Code", "open Claude Code in Terminal")
         case .open: return tr("搜索并打开", "search and open")
+        default: return ""
         }
     }
 
     /// The row comment of an answer: "回答" / "answer", "Claude".
     static func answerLabel(_ command: Command?) -> String {
-        command == .claude ? "Claude" : tr("回答", "answer")
+        if command?.kind == .run { return tr("输出", "output") }
+        return command == .claude ? "Claude" : tr("回答", "answer")
     }
 
     /// An error as the settings window shows it.
     static func describe(_ error: Error) -> String {
+        if let error = error as? CommandRunner.RunError {
+            switch error {
+            case let .notFound(program): return tr("找不到程序 \(program)", "Program not found: \(program)")
+            case let .failed(status, message):
+                return message.isEmpty ? tr("程序出错（退出码 \(status)）", "The program failed (exit status \(status))") : message
+            case let .timedOut(seconds):
+                let n = Int(seconds.rounded())
+                return tr("运行超过 \(n) 秒，已停止", "Stopped after \(n) seconds")
+            case .tooMuchOutput: return tr("输出太多，已停止", "Stopped: too much output")
+            }
+        }
         guard !chinese else { return AllInOneIMEInputController.describe(error) }
         switch error {
         case let error as URLError:

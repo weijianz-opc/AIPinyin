@@ -136,7 +136,8 @@ public final class Converter: Sendable {
             return Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
         }
         let config = try loadConfig()
-        let key = "@\(command.rawValue)|\(config.modelId)|\(Prompt.commandVersion)|\(input)"
+        // A custom command's instruction is part of the key: editing it asks again.
+        let key = "@\(command.name)|\(command.custom?.prompt ?? "")|\(config.modelId)|\(Prompt.commandVersion)|\(input)"
         if let hit = cache.withLock({ $0.get(key) }) {
             continuation.yield(ConversionUpdate(
                 result: hit, rawText: "", isFinal: true, elapsed: elapsed(), firstTokenLatency: nil, fromCache: true))

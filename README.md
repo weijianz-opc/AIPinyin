@@ -52,6 +52,34 @@
 `@question` 和 `@improve` 只在按执行键时发到你自己的 Bedrock；`@open` 只在本机搜索；`@claude` 用的是你本机装的
 Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前它会照常先问你。
 
+### 自己加命令
+
+在配置文件（`~/.config/allinoneime/config.json`）里加 `customCommands`，就能有自己的 `@` 命令，排在内置命令后面。
+命令名只能用英文字母，不能和内置命令重名；改完保存，下一句就生效。
+
+```json
+"customCommands": [
+  { "name": "python", "type": "run", "argv": ["python3", "-c", "{input}"], "summary": "运行 Python" },
+  { "name": "calc", "type": "run", "argv": ["bc", "-l"], "stdin": "{input}\n" },
+  { "name": "sh", "type": "terminal", "argv": ["zsh", "-c", "{input}"] },
+  { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." }
+]
+```
+
+| `type` | 做什么 |
+|---|---|
+| `prompt` | 发给 AI，`prompt` 是给它的指令；回答出现在候选里，可以上屏或 ⌘C 复制 |
+| `run` | 在后台运行 `argv`，打印的内容出现在候选里（多行照原样上屏）；出错时显示错误的最后一行 |
+| `terminal` | 在新的终端窗口里运行 `argv`，不上屏 |
+
+- `{input}` 换成命令后面写的内容，而且永远只占它所在的那一个参数，不经过 shell。要用 shell 就像上面的 `sh` 那样明确写 `zsh -c`。
+- `stdin`：给程序标准输入的内容，`{input}` 同样会被替换。
+- `run` 和 `terminal` 默认用英文字母输入（像 `@open`，用完回到中文），全角标点会转成半角：`print（“牛逼”）` → `print("牛逼")`。不想这样就设 `"ascii": false`。
+- 程序在主目录里运行，用你的登录 shell 的 PATH（Homebrew、pyenv、nvm 装的都找得到）；`run` 默认 10 秒超时（`timeoutSeconds`），输出太多也会被停止，Esc 随时停止。
+- `summary` 是命令列表里的说明，可以不写。
+
+`run` 和 `terminal` 会在你的 Mac 上执行代码：只放你自己写的、信得过的命令；它们同样只在按执行键时运行，安全输入时不运行。
+
 ### 执行键
 
 默认是 ⏎，可以在设置的「执行键」里换（config 里的 `actionKey`）：⏎、单按 ⌥（左右都行，按一下马上松开；

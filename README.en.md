@@ -56,6 +56,35 @@ people in chat apps still works.
 Mac; `@claude` uses the Claude Code installed on your Mac (the `claude` command) and its own account, and it asks you
 first, as usual, before changing files or running commands.
 
+### Your own commands
+
+Add `customCommands` to the config file (`~/.config/allinoneime/config.json`) for `@` commands of your own; they
+come after the built-in ones. Names are English letters only and can't be a built-in command's; saved changes apply
+from the next sentence.
+
+```json
+"customCommands": [
+  { "name": "python", "type": "run", "argv": ["python3", "-c", "{input}"], "summary": "Run Python" },
+  { "name": "calc", "type": "run", "argv": ["bc", "-l"], "stdin": "{input}\n" },
+  { "name": "sh", "type": "terminal", "argv": ["zsh", "-c", "{input}"] },
+  { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." }
+]
+```
+
+| `type` | What it does |
+|---|---|
+| `prompt` | Goes to the AI with `prompt` as its instruction; the answer appears in the candidates, to insert or copy (⌘C) |
+| `run` | Runs `argv` in the background; what it prints appears in the candidates (several lines are inserted as printed). On an error, its last line is shown |
+| `terminal` | Runs `argv` in a new Terminal window; nothing is inserted |
+
+- `{input}` becomes what you wrote after the command, and it always stays within the one argument it's in: no shell is involved. For a shell, say so, like `sh` above (`zsh -c`).
+- `stdin`: what goes to the program's standard input, with `{input}` replaced too.
+- `run` and `terminal` type English letters by default (like `@open`; Chinese comes back after), and full-width punctuation becomes ASCII: `print（“牛逼”）` → `print("牛逼")`. Set `"ascii": false` to keep text as typed.
+- Programs run in your home folder with your login shell's PATH (so Homebrew, pyenv and nvm installs are found). `run` stops a program after 10 seconds (`timeoutSeconds`) or when it prints too much; Esc stops it at any time.
+- `summary` is the description in the command list (optional).
+
+`run` and `terminal` run code on your Mac: only add commands you wrote and trust. They, too, run only when you press the action key, and never during secure input.
+
 ### Action key
 
 ⏎ by default; change it under "Action key" in the settings (`actionKey` in the config): ⏎, Tap ⌥ (either side: press

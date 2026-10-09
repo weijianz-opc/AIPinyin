@@ -1284,6 +1284,49 @@ struct ComposerTests {
         #expect(e.pasted(nil, id: 1) == [.notice("在命令后面写上内容")] && !e.isLevelTwo)
     }
 
+    @Test func customCommandsGoToTheirCommand() {
+        let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
+        let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
+        let sh = CustomCommand(name: "sh", type: .terminal, argv: ["zsh", "-c", "{input}"])
+        let catalog = Command.catalog([python, reply, sh])
+        func start(_ name: String) -> Composer {
+            let (c, _) = composer(englishAI: true, key: .optionTap)
+            c.commands = catalog
+            _ = c.handleKeyDown(at)
+            type(name, c)
+            _ = c.handleKeyDown(tab)
+            return c
+        }
+        // The palette offers them after the built-in ones.
+        let (p, _) = composer(key: .optionTap)
+        p.commands = catalog
+        _ = p.handleKeyDown(at)
+        #expect(p.paletteMatches.map(\.name) == ["improve", "question", "claude", "open", "python", "reply", "sh"])
+        // @python: code is typed as letters, the program runs, and Chinese comes back after.
+        let py = start("py")
+        #expect(py.draft == "@python " && py.engineState.isAsciiMode)
+        type("print(1)", py)
+        let run = tapOption(py, at: 5)
+        #expect(run.first == .startRun(catalog[4], input: "print(1)", id: 1) && py.activeCommand?.kind == .run)
+        #expect(py.receive(ConversionResult(versions: [CandidateLine("1")]), isFinal: true, id: 1) == [.showPanel])
+        #expect(py.choices.map(\.kind) == [.original, .answer] && py.highlighted == 1)
+        #expect(commits(py.handleKeyDown(spaceKey)) == ["1"] && !py.engineState.isAsciiMode)
+        // A prompt command goes to the model like @question, typed in pinyin.
+        let r = start("r")
+        #expect(!r.engineState.isAsciiMode)
+        type("nihao", r)
+        #expect(tapOption(r, at: 5).first == .startCommand(catalog[5], input: "你好", id: 1))
+        // A terminal command starts its window with the text as one argument; nothing is inserted.
+        let t = start("s")
+        type("ls", t)
+        let terminal = tapOption(t, at: 5)
+        #expect(terminal.contains(.launchInTerminal(argv: ["zsh", "-c", "ls"])) && commits(terminal).isEmpty && !t.isLevelTwo)
+        let refused = start("s")
+        type("ls", refused)
+        refused.secureInputActive = { true }
+        #expect(!tapOption(refused, at: 5).contains { if case .launchInTerminal = $0 { return true } else { return false } })
+    }
+
     @Test func claudeIsNotStartedWhileSecureInputIsOn() {
         let (c, _) = palette("c")
         _ = c.handleKeyDown(tab)

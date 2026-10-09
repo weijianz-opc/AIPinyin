@@ -34,6 +34,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var actionKey: ActionKey
     /// Language of the settings window; nil follows the system.
     public var uiLanguage: Language?
+    /// The user's own @ commands, after the built-in ones (see `CustomCommand`).
+    public var customCommands: [CustomCommand]
 
     /// `jargonFile` with "~" expanded, or `JargonLibrary.defaultURL`.
     public var jargonURL: URL {
@@ -49,7 +51,7 @@ public struct Config: Codable, Equatable, Sendable {
         rewriteStyles: [String] = RewriteStyle.defaultNames,
         outputLanguage: Language = .english, defaultInput: Language = .chinese,
         englishAI: Bool = true, voiceInput: Bool = true, jargonFile: String? = nil,
-        actionKey: ActionKey = .enter, uiLanguage: Language? = nil
+        actionKey: ActionKey = .enter, uiLanguage: Language? = nil, customCommands: [CustomCommand] = []
     ) {
         self.awsProfile = awsProfile
         self.region = region
@@ -65,6 +67,7 @@ public struct Config: Codable, Equatable, Sendable {
         self.jargonFile = jargonFile
         self.actionKey = actionKey
         self.uiLanguage = uiLanguage
+        self.customCommands = customCommands
     }
 
     public static let `default` = Config(
@@ -80,7 +83,7 @@ public struct Config: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case awsProfile, region, modelId, maxTokens, temperature, timeoutSeconds, rewriteStyles
-        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage
+        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage, customCommands
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +106,7 @@ public struct Config: Codable, Equatable, Sendable {
         jargonFile = try c.decodeIfPresent(String.self, forKey: .jargonFile)
         actionKey = try c.decodeIfPresent(ActionKey.self, forKey: .actionKey) ?? d.actionKey
         uiLanguage = try c.decodeIfPresent(Language.self, forKey: .uiLanguage)
+        customCommands = try c.decodeIfPresent([CustomCommand].self, forKey: .customCommands) ?? d.customCommands
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -121,6 +125,7 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(jargonFile, forKey: .jargonFile)  // null: the default file
         try c.encode(actionKey, forKey: .actionKey)
         try c.encode(uiLanguage, forKey: .uiLanguage)  // null: follow the system
+        try c.encode(customCommands, forKey: .customCommands)
     }
 
     public static var defaultURL: URL {
