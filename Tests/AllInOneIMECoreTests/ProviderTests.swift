@@ -56,7 +56,11 @@ struct ProviderTests {
     }
 
     @Test func openAICompatibleRequest() throws {
-        #expect(try json(request(.openai))["model"] as? String == "gpt-6-luna")  // the default
+        #expect(try json(request(.openai))["model"] as? String == "gpt-6-luna")  // the default, at OpenAI
+        // Another service has no default model: a clear error rather than OpenAI's model sent there.
+        #expect(throws: ProviderError.missingModel(.openai)) {
+            try request(.openai, ProviderSettings(baseURL: "https://api.moonshot.cn/v1"))
+        }
         #expect(throws: ProviderError.missingModel(.openai)) {
             try HTTPProviders.makeRequest(body, provider: .openai, settings: ProviderSettings(model: "", baseURL: "https://x.test"),
                                           key: "k", maxTokens: 10, timeout: 5)

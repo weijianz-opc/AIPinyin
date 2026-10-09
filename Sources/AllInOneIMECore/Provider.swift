@@ -74,7 +74,10 @@ public struct ProviderSettings: Codable, Equatable, Sendable {
             guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return fallback }
             return value
         }
-        return ProviderSettings(model: pick(model, d.model), baseURL: pick(baseURL, d.baseURL),
+        let base = pick(baseURL, d.baseURL)
+        // OpenAI's default model is OpenAI's: another service at its own base URL has no default.
+        let defaultModel = provider == .openai && base != d.baseURL ? nil : d.model
+        return ProviderSettings(model: pick(model, defaultModel), baseURL: base,
                                 effort: effort ?? d.effort, temperature: temperature ?? d.temperature)
     }
 

@@ -655,8 +655,14 @@ struct SettingsView: View {
                   prompt: Text(ProviderSettings.defaults(for: provider).baseURL ?? ""))
             .onSubmit { model.save() }
         if provider == .openai {
-            Text(tr("任何兼容 OpenAI 的服务都可以：比如 DeepSeek 填 https://api.deepseek.com/v1，本机 Ollama 填 http://localhost:11434/v1。",
-                    "Any OpenAI-compatible service works: e.g. https://api.deepseek.com/v1 for DeepSeek, http://localhost:11434/v1 for Ollama on this Mac."))
+            Menu(tr("常用服务…", "Common Services…")) {
+                ForEach(CompatibleService.all) { service in
+                    Button(service.name) { useService(service) }
+                }
+            }
+            .fixedSize()
+            Text(tr("选一个服务会填好它的 Base URL，再在「自定义…」里填它的模型。也可以填任何其他兼容 OpenAI 的地址。",
+                    "Picking a service fills in its base URL; then enter its model under Custom…. Any other OpenAI-compatible address works too."))
                 .font(.caption).foregroundStyle(.secondary)
         }
         Picker(tr("思考", "Thinking"), selection: providerBinding(provider, \.effort, empty: "")) {
@@ -665,6 +671,16 @@ struct SettingsView: View {
             Text("high").tag("high")
             Text(tr("不设置（模型不支持时选）", "Not set (for models without it)")).tag("")
         }
+    }
+
+    /// A common OpenAI-compatible service: its base URL, and its model to type in (the model of
+    /// another service wouldn't exist there).
+    private func useService(_ service: CompatibleService) {
+        var settings = model.providerSettings(.openai)
+        settings.baseURL = service.baseURL
+        settings.model = service.model
+        model.setProviderSettings(settings, for: .openai)
+        customProviderModel = true
     }
 
     private func saveKey(_ provider: Provider) {
@@ -772,5 +788,30 @@ final class SettingsWindow {
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
+    }
+}
+
+/// OpenAI-compatible services offered under "Common Services…": their base URLs (a model to start
+/// with only where its ID is long-standing; otherwise the model is typed in).
+struct CompatibleService: Identifiable {
+    let name: String
+    let baseURL: String
+    let model: String?
+    var id: String { baseURL }
+
+    static var all: [CompatibleService] {
+        [
+            CompatibleService(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-6-luna"),
+            CompatibleService(name: "DeepSeek", baseURL: "https://api.deepseek.com/v1", model: "deepseek-chat"),
+            CompatibleService(name: tr("通义千问（阿里云百炼）", "Qwen (Alibaba Cloud Model Studio)"),
+                              baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: nil),
+            CompatibleService(name: tr("通义千问（海外）", "Qwen (international)"),
+                              baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: nil),
+            CompatibleService(name: tr("Kimi（月之暗面）", "Kimi (Moonshot)"), baseURL: "https://api.moonshot.cn/v1", model: nil),
+            CompatibleService(name: tr("智谱 GLM", "Zhipu GLM"), baseURL: "https://open.bigmodel.cn/api/paas/v4", model: nil),
+            CompatibleService(name: tr("硅基流动", "SiliconFlow"), baseURL: "https://api.siliconflow.cn/v1", model: nil),
+            CompatibleService(name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", model: nil),
+            CompatibleService(name: tr("本机 Ollama", "Ollama on this Mac"), baseURL: "http://localhost:11434/v1", model: nil),
+        ]
     }
 }
