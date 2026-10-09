@@ -23,7 +23,11 @@ struct SuggestedModel: Identifiable, Hashable {
         case .gemini:
             return [SuggestedModel(id: "gemini-3.8-flash", title: "Gemini 3.8 Flash", note: tr("默认", "Default"))]
         case .openai:
-            return []  // a model of the service at the base URL: typed in
+            // OpenAI's own; for another service (DeepSeek, Qwen, Ollama, …), "Custom…" and its base URL.
+            return [
+                SuggestedModel(id: "gpt-6-luna", title: "GPT-6 Luna", note: tr("默认：最快、最省", "Default: fastest, cheapest")),
+                SuggestedModel(id: "gpt-5.4-mini", title: "GPT-5.4 mini", note: tr("上一代 mini", "The previous mini")),
+            ]
         }
     }
 

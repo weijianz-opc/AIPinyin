@@ -56,7 +56,11 @@ struct ProviderTests {
     }
 
     @Test func openAICompatibleRequest() throws {
-        #expect(throws: ProviderError.missingModel(.openai)) { try request(.openai) }
+        #expect(try json(request(.openai))["model"] as? String == "gpt-6-luna")  // the default
+        #expect(throws: ProviderError.missingModel(.openai)) {
+            try HTTPProviders.makeRequest(body, provider: .openai, settings: ProviderSettings(model: "", baseURL: "https://x.test"),
+                                          key: "k", maxTokens: 10, timeout: 5)
+        }
         let deepseek = try request(.openai, ProviderSettings(model: "deepseek-chat", baseURL: "https://api.deepseek.com/v1/",
                                                              temperature: 0.5))
         #expect(deepseek.url?.absoluteString == "https://api.deepseek.com/v1/chat/completions")

@@ -62,7 +62,8 @@ public struct ProviderSettings: Codable, Equatable, Sendable {
             return ProviderSettings(model: "gemini-3.8-flash", baseURL: "https://generativelanguage.googleapis.com",
                                     effort: "low")
         case .openai:
-            return ProviderSettings(model: "", baseURL: "https://api.openai.com/v1", effort: "")
+            // OpenAI's most efficient model; another service's model is typed in with its base URL.
+            return ProviderSettings(model: "gpt-6-luna", baseURL: "https://api.openai.com/v1", effort: "")
         }
     }
 

@@ -207,7 +207,7 @@ Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再
 |---|---|---|
 | Claude API | `claude-haiku-5-5`（最快最便宜；也可选 Sonnet 5.5、Opus 5.5，更用心但更慢更贵） | [Claude Console](https://platform.claude.com) |
 | Gemini API | `gemini-3.8-flash` | Google AI Studio |
-| 兼容 OpenAI 的服务 | 自己填，比如 DeepSeek 的 `deepseek-chat` | 那个服务的 key；Base URL 填它的地址，比如 `https://api.deepseek.com/v1`，本机 Ollama 填 `http://localhost:11434/v1` |
+| 兼容 OpenAI 的服务 | OpenAI 的 `gpt-6-luna`（也可选 `gpt-5.4-mini`）；别的服务选「自定义…」填它的模型，比如 DeepSeek 的 `deepseek-chat` | 那个服务的 key；Base URL 填它的地址，比如 `https://api.deepseek.com/v1`，本机 Ollama 填 `http://localhost:11434/v1` |
 
 - API key 存在系统钥匙串里，不写进配置文件。钥匙串里没有时，也会用 shell 里设的 `ANTHROPIC_API_KEY`、`GEMINI_API_KEY`（或 `GOOGLE_API_KEY`）、`OPENAI_API_KEY`。
 - 「思考」默认是 low：输入法每句话都在等，思考越少越快。模型不支持这个参数时选「不设置」。
