@@ -5,33 +5,33 @@ import PackageDescription
 let rimeLib = Context.packageDirectory + "/ThirdParty/librime/dist/lib"
 
 let package = Package(
-    name: "AIPinyin",
+    name: "AllInOneIME",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "AIPinyin", targets: ["AIPinyin"]),
-        .executable(name: "aipinyin-cli", targets: ["aipinyin-cli"]),
+        .executable(name: "AllInOneIME", targets: ["AllInOneIME"]),
+        .executable(name: "allinoneime-cli", targets: ["allinoneime-cli"]),
     ],
     targets: [
         // Pure logic: AWS auth, Bedrock streaming client, prompt/parser, two-level composer, key maps.
-        .target(name: "AIPinyinCore"),
+        .target(name: "AllInOneIMECore"),
 
         // librime's C API; header and dylib come from ThirdParty/librime.
         .systemLibrary(name: "CRime", path: "Sources/CRime"),
 
         // Swift wrapper around librime: level one (local pinyin).
         .target(
-            name: "AIPinyinRime",
-            dependencies: ["CRime", "AIPinyinCore"],
+            name: "AllInOneIMERime",
+            dependencies: ["CRime", "AllInOneIMECore"],
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.unsafeFlags(["-L\(rimeLib)"])]
         ),
 
-        // The input method process (bundled into AIPinyin.app by the Makefile).
+        // The input method process (bundled into AllInOneIME.app by the Makefile).
         // AppKit/InputMethodKit glue is written in Swift 5 mode: IMK predates Swift concurrency
         // annotations and every callback arrives on the main thread anyway.
         .executableTarget(
-            name: "AIPinyin",
-            dependencies: ["AIPinyinCore", "AIPinyinRime"],
+            name: "AllInOneIME",
+            dependencies: ["AllInOneIMECore", "AllInOneIMERime"],
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -46,19 +46,19 @@ let package = Package(
         ),
 
         // Developer tool: run level two (translate/polish) from the terminal.
-        .executableTarget(name: "aipinyin-cli", dependencies: ["AIPinyinCore"]),
+        .executableTarget(name: "allinoneime-cli", dependencies: ["AllInOneIMECore"]),
 
-        // 「AI 拼音设置」: a launcher in ~/Applications that opens the input method's settings window.
-        .executableTarget(name: "AIPinyinSettings", swiftSettings: [.swiftLanguageMode(.v5)]),
+        // 「AllInOneIME 设置」: a launcher in ~/Applications that opens the input method's settings window.
+        .executableTarget(name: "AllInOneIMESettings", swiftSettings: [.swiftLanguageMode(.v5)]),
 
         .testTarget(
-            name: "AIPinyinCoreTests",
-            dependencies: ["AIPinyinCore"],
+            name: "AllInOneIMECoreTests",
+            dependencies: ["AllInOneIMECore"],
             resources: [.copy("Fixtures")]
         ),
         .testTarget(
-            name: "AIPinyinRimeTests",
-            dependencies: ["AIPinyinRime"],
+            name: "AllInOneIMERimeTests",
+            dependencies: ["AllInOneIMERime"],
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.unsafeFlags(["-L\(rimeLib)", "-Xlinker", "-rpath", "-Xlinker", rimeLib])]
         ),

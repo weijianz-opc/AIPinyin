@@ -27,12 +27,12 @@ public enum JargonLibrary {
 
     /// Where the list is read from unless `Config.jargonFile` names another file.
     public static var defaultURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/aipinyin/jargon.txt")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/allinoneime/jargon.txt")
     }
 
     /// Written when the user creates a list from the settings window: comments only, no entries.
     public static let template = """
-        # AI 拼音 黑话库：每行一个词，后面可以加解释，用「：」「=」或 Tab 隔开。# 开头的行会被忽略。
+        # AllInOneIME 黑话库：每行一个词，后面可以加解释，用「：」「=」或 Tab 隔开。# 开头的行会被忽略。
         # 打开「黑话」改写风格后，模型会优先用这里的词；候选里会注明用到的词是什么意思。
         # 例：
         # bandwidth：精力、时间

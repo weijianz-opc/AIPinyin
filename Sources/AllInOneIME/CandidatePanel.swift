@@ -133,7 +133,7 @@ final class CandidateView: NSView {
         }
     }
 
-    static let background = NSColor(name: "AIPinyinPanelBackground") { appearance in
+    static let background = NSColor(name: "AllInOneIMEPanelBackground") { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? NSColor(white: 0.16, alpha: 0.98) : NSColor(white: 0.995, alpha: 0.98)
     }

@@ -1,5 +1,5 @@
-import AIPinyinCore
-import AIPinyinRime
+import AllInOneIMECore
+import AllInOneIMERime
 import AppKit
 import AVFoundation
 import Carbon
@@ -62,7 +62,7 @@ final class FakeTextClient: NSObject, IMKTextInput {
     func bundleIdentifier() -> String! { Bundle.main.bundleIdentifier ?? "com.aipinyin.selftest" }
     func windowLevel() -> CGWindowLevel { CGWindowLevelForKey(.normalWindow) }
     func supportsProperty(_ property: TSMDocumentPropertyTag) -> Bool { false }
-    func uniqueClientIdentifierString() -> String! { "aipinyin-selftest" }
+    func uniqueClientIdentifierString() -> String! { "allinoneime-selftest" }
     func string(from range: NSRange, actualRange: NSRangePointer!) -> String! { nil }
     func firstRect(forCharacterRange aRange: NSRange, actualRange: NSRangePointer!) -> NSRect { caretRect }
 }
@@ -99,35 +99,35 @@ enum SelfTest {
 
     @discardableResult
     static func press(
-        _ controller: AIPinyinInputController, _ client: FakeTextClient,
+        _ controller: AllInOneIMEInputController, _ client: FakeTextClient,
         _ characters: String, code: UInt16, flags: NSEvent.ModifierFlags = []
     ) -> Bool {
         controller.handle(event(characters, code: code, flags: flags), client: client)
     }
 
-    static func type(_ text: String, _ controller: AIPinyinInputController, _ client: FakeTextClient) {
+    static func type(_ text: String, _ controller: AllInOneIMEInputController, _ client: FakeTextClient) {
         for ch in text { press(controller, client, String(ch), code: keyCodes[ch] ?? 0) }
     }
 
-    static func space(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
+    static func space(_ c: AllInOneIMEInputController, _ client: FakeTextClient) -> Bool {
         press(c, client, " ", code: VirtualKey.space)
     }
 
     /// ⌥Space as a US layout delivers it (it types a no-break space).
-    static func optionSpace(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
+    static func optionSpace(_ c: AllInOneIMEInputController, _ client: FakeTextClient) -> Bool {
         press(c, client, "\u{A0}", code: VirtualKey.space, flags: .option)
     }
 
     /// Left Option pressed and released on its own, as the system reports it (with the device bit).
-    static func tapOption(_ c: AIPinyinInputController, _ client: FakeTextClient) {
-        let down = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | AIPinyinInputController.leftOptionBit)
+    static func tapOption(_ c: AllInOneIMEInputController, _ client: FakeTextClient) {
+        let down = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | AllInOneIMEInputController.leftOptionBit)
         _ = c.handle(event("", code: VirtualKey.leftOption, flags: down, type: .flagsChanged), client: client)
         _ = c.handle(event("", code: VirtualKey.leftOption, flags: [], type: .flagsChanged), client: client)
     }
 
     /// Presses the translate key the controller is set to.
     @discardableResult
-    static func translate(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
+    static func translate(_ c: AllInOneIMEInputController, _ client: FakeTextClient) -> Bool {
         switch c.composer.translateKey {
         case .optionSpace: return optionSpace(c, client)
         case .optionTap: tapOption(c, client); return true  // modifier changes always reach the app too
@@ -136,22 +136,22 @@ enum SelfTest {
     }
 
     /// The hint shown under a draft in `input`, for the current translate key and interface language.
-    static func draftHint(_ c: AIPinyinInputController, input: Language) -> CandidateView.Status {
+    static func draftHint(_ c: AllInOneIMEInputController, input: Language) -> CandidateView.Status {
         let key = c.composer.translateKey
         let how = key != .space ? UIText.name(key) : c.composer.spaceTranslates ? UIText.name(TranslateKey.space) : tr("连按两次空格", "Space twice")
         return .hint("\(how) → " + UIText.action(input: input, config: settings))
     }
 
-    static func enter(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
+    static func enter(_ c: AllInOneIMEInputController, _ client: FakeTextClient) -> Bool {
         press(c, client, "\r", code: VirtualKey.returnKey)
     }
 
-    static func escape(_ c: AIPinyinInputController, _ client: FakeTextClient) -> Bool {
+    static func escape(_ c: AllInOneIMEInputController, _ client: FakeTextClient) -> Bool {
         press(c, client, "\u{1B}", code: VirtualKey.escape)
     }
 
     /// Shift pressed and released on its own.
-    static func tapShift(_ c: AIPinyinInputController, _ client: FakeTextClient) {
+    static func tapShift(_ c: AllInOneIMEInputController, _ client: FakeTextClient) {
         _ = c.handle(event("", code: VirtualKey.leftShift, flags: .shift, type: .flagsChanged), client: client)
         _ = c.handle(event("", code: VirtualKey.leftShift, flags: [], type: .flagsChanged), client: client)
     }
@@ -277,7 +277,7 @@ enum SelfTest {
     }
 
     /// Waits for a live conversion to finish; returns false (and records a failure) if it failed.
-    static func finishConversion(_ controller: AIPinyinInputController, _ what: String) -> Bool {
+    static func finishConversion(_ controller: AllInOneIMEInputController, _ what: String) -> Bool {
         let started = Date()
         _ = pump(timeout: 20) { if case .translating = controller.composer.phase { return false } else { return true } }
         if case let .failed(message) = controller.composer.phase {
@@ -291,7 +291,7 @@ enum SelfTest {
 
     /// English typed in English mode → English polish (and English rewrites, incl. 黑话); Chinese
     /// output; the default input mode.
-    static func testEnglishAndOutput(_ controller: AIPinyinInputController, _ client: FakeTextClient,
+    static func testEnglishAndOutput(_ controller: AllInOneIMEInputController, _ client: FakeTextClient,
                                      snapshotDirectory: URL) {
         print("— English input → English polish + 黑话 (live Bedrock)")
         settings.rewriteStyles = ["润色", "简洁", "黑话"]
@@ -369,7 +369,7 @@ enum SelfTest {
 
     /// Hold the right Option key: audio (synthesized speech played from a file instead of the
     /// microphone) is recognized on the Mac and continues the draft.
-    static func testVoice(_ controller: AIPinyinInputController, _ client: FakeTextClient,
+    static func testVoice(_ controller: AllInOneIMEInputController, _ client: FakeTextClient,
                           snapshotDirectory: URL) {
         print("— voice input (on-device recognition of synthesized speech)")
         guard #available(macOS 26.0, *), VoiceInput.isSupported else {
@@ -415,7 +415,7 @@ enum SelfTest {
             holding = down
             // As the system reports it: the Option flag plus the right-Option device bit.
             let flags = down ? NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue
-                                                     | AIPinyinInputController.rightOptionBit) : []
+                                                     | AllInOneIMEInputController.rightOptionBit) : []
             _ = controller.handle(event("", code: VirtualKey.rightOption, flags: flags, type: .flagsChanged), client: client)
         }
         /// Holds the key for the length of the file, then releases it and waits for the transcript.
@@ -540,11 +540,11 @@ enum SelfTest {
     static func run(snapshotDirectory: URL) -> Int32 {
         _ = NSApplication.shared
         // Voice tests play audio files; the microphone and its permission prompt are never used.
-        AIPinyinInputController.microphoneAllowed = false
+        AllInOneIMEInputController.microphoneAllowed = false
         try? FileManager.default.createDirectory(at: snapshotDirectory, withIntermediateDirectories: true)
 
         let className = Bundle.main.object(forInfoDictionaryKey: "InputMethodServerControllerClass") as? String ?? ""
-        check(NSClassFromString(className) == AIPinyinInputController.self,
+        check(NSClassFromString(className) == AllInOneIMEInputController.self,
               "Info.plist controller class '\(className)' resolves")
 
         // Level one: the bundled dictionaries with a throw-away user directory.
@@ -573,12 +573,12 @@ enum SelfTest {
             name: "com.aipinyin.inputmethod.AIPinyin_SelfTest_Connection",
             bundleIdentifier: Bundle.main.bundleIdentifier)
         else {
-            print("✗ IMKServer could not be created (run from inside AIPinyin.app)")
+            print("✗ IMKServer could not be created (run from inside AllInOneIME.app)")
             return 1
         }
         let client = FakeTextClient()
-        guard let controller = AIPinyinInputController(server: server, delegate: nil, client: nil) else {
-            print("✗ could not create AIPinyinInputController")
+        guard let controller = AllInOneIMEInputController(server: server, delegate: nil, client: nil) else {
+            print("✗ could not create AllInOneIMEInputController")
             return 1
         }
         controller.clientOverride = client
@@ -833,7 +833,7 @@ enum SelfTest {
         print("— error display")
         controller.converter = Converter(loadConfig: {
             var config = try Config.load()
-            config.modelId = "aipinyin.invalid-model-for-selftest"
+            config.modelId = "allinoneime.invalid-model-for-selftest"
             return config
         })
         type("ceshi", controller, client)
@@ -859,22 +859,22 @@ enum SelfTest {
         let menuTitles = menu?.items.map(\.title) ?? []
         check(menuTitles.contains { $0.hasPrefix("模型：") } && menuTitles.contains { $0.hasPrefix("AI 翻译") },
               "menu shows the AI switch and the model")
-        let styleItems = menu?.items.filter { $0.action == #selector(AIPinyinInputController.toggleStyle(_:)) } ?? []
+        let styleItems = menu?.items.filter { $0.action == #selector(AllInOneIMEInputController.toggleStyle(_:)) } ?? []
         let configured = Set(RewriteStyle.resolve((try? Config.load())?.rewriteStyles ?? []).map(\.name))
         check(styleItems.compactMap { $0.representedObject as? String } == RewriteStyle.catalog.map(\.name)
               && styleItems.allSatisfy { ($0.state == .on) == configured.contains($0.representedObject as? String ?? "") },
               "menu lists the presets, checked per config (\(styleItems.map { "\($0.state == .on ? "✓" : "·")\($0.representedObject ?? "")" }.joined(separator: " ")))")
         // The toggle logic and IMK's info-dictionary form of the sender (no config is written here).
-        check(AIPinyinInputController.toggled("口语", in: ["正式", "润色"]) == ["润色", "正式", "口语"]
-              && AIPinyinInputController.toggled("润色", in: ["正式", "润色"]) == ["正式"],
+        check(AllInOneIMEInputController.toggled("口语", in: ["正式", "润色"]) == ["润色", "正式", "口语"]
+              && AllInOneIMEInputController.toggled("润色", in: ["正式", "润色"]) == ["正式"],
               "style toggle adds in catalog order and removes in place")
         if let item = styleItems.first {
             let info: NSDictionary = [kIMKCommandMenuItemName as Any: item]
-            check(AIPinyinInputController.menuItem(from: info) === item, "menu action finds its item in IMK's info dictionary")
+            check(AllInOneIMEInputController.menuItem(from: info) === item, "menu action finds its item in IMK's info dictionary")
         }
-        check(menu?.items.first?.action == #selector(AIPinyinInputController.showPreferences(_:)),
+        check(menu?.items.first?.action == #selector(AllInOneIMEInputController.showPreferences(_:)),
               "menu starts with 设置… (IMK showPreferences:)")
-        let outputItems = menu?.items.filter { $0.action == #selector(AIPinyinInputController.setOutputLanguage(_:)) } ?? []
+        let outputItems = menu?.items.filter { $0.action == #selector(AllInOneIMEInputController.setOutputLanguage(_:)) } ?? []
         let configuredOutput = ((try? Config.load()) ?? .default).outputLanguage
         check(outputItems.count == 2 && outputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String }
               == [configuredOutput.rawValue], "menu offers the output language, checked per config")

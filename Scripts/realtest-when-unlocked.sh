@@ -5,7 +5,7 @@
 # it). The job removes itself when done. Cancel with: make realtest-cancel
 LABEL=com.aipinyin.realtest-watch
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-LOGS="$HOME/Library/Logs/AIPinyin"
+LOGS="$HOME/Library/Logs/AllInOneIME"
 OUT="$LOGS/realtest"
 HARNESS="$REPO/build/RealTest.app/Contents/MacOS/RealTest"
 MAX_WAIT=${MAX_WAIT:-259200}  # give up after 3 days
@@ -35,7 +35,7 @@ while :; do
         sleep 10
     done
     echo "[$(date)] unlocked; the real-app test starts in 20s"
-    osascript -e 'display notification "测试窗口会占用前台约 1 分钟，期间请勿打字" with title "AIPinyin 将在 20 秒后自动测试"' || true
+    osascript -e 'display notification "测试窗口会占用前台约 1 分钟，期间请勿打字" with title "AllInOneIME 将在 20 秒后自动测试"' || true
     sleep 20
     if locked; then echo "[$(date)] locked again before the test started"; continue; fi
 
@@ -51,9 +51,9 @@ while :; do
     log show --start "$start" --style compact --info --predicate 'subsystem == "com.aipinyin.inputmethod.AIPinyin"' 2>/dev/null \
         | cut -c1-200 | tail -60
     if [ "$rc" -eq 0 ]; then
-        osascript -e 'display notification "真实 App 打字测试全部通过" with title "AIPinyin 测试通过"' || true
+        osascript -e 'display notification "真实 App 打字测试全部通过" with title "AllInOneIME 测试通过"' || true
     else
-        osascript -e 'display notification "详情见 ~/Library/Logs/AIPinyin/realtest/output.txt" with title "AIPinyin 测试未通过"' || true
+        osascript -e 'display notification "详情见 ~/Library/Logs/AllInOneIME/realtest/output.txt" with title "AllInOneIME 测试未通过"' || true
     fi
     finish "make realtest-run exit $rc"
 done

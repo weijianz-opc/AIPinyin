@@ -1,4 +1,6 @@
-# AI 拼音（AIPinyin）
+<img src="Resources/AppIcon.png" width="96" alt="AllInOneIME 图标" align="right">
+
+# AllInOneIME
 
 一个 macOS 输入法。平时就是普通拼音输入法，在本地运行，基于 Rime + 雾凇拼音。整句打完单按一下 ⌥（可以换成 ⌥空格 或空格），
 会用 Amazon Bedrock 上的大模型给出三种地道的英文说法，再加几种改写，选一个上屏。也可以直接打英文
@@ -76,7 +78,7 @@ two-way door：可以随时撤回的决定
 抓手：着力点
 ```
 
-在设置的「改写风格 → 黑话库」里点「新建」，会在 `~/.config/aipinyin/jargon.txt` 建一个空词表并打开；
+在设置的「改写风格 → 黑话库」里点「新建」，会在 `~/.config/allinoneime/jargon.txt` 建一个空词表并打开；
 已经有词表文件的话，点「选择文件…」直接用它（config 里的 `jargonFile`）。改完马上生效。
 最多读前 150 个词。勾上「黑话」时，词表会随请求一起发给 Bedrock。
 
@@ -91,7 +93,7 @@ two-way door：可以随时撤回的决定
 
 第一次使用时：
 
-- macOS 会问是否允许 AIPinyin 使用麦克风。也可以先在设置里点「允许使用麦克风」。
+- macOS 会问是否允许 AllInOneIME 使用麦克风。也可以先在设置里点「允许使用麦克风」。
 - 如果这台 Mac 还没有这种语言的语音模型，会自动下载一次。在设置里也可以手动下载。
 
 按住约 0.2 秒后才开始录音，所以轻点右 ⌥ 不会打开麦克风：有句子时轻点就是出结果，没有时只提示怎么说话。按住时如果按了别的键（比如 ⌥ 组合键、⌥←），就当作快捷键，也不会录音。录音中按其他键会取消录音。
@@ -102,17 +104,21 @@ two-way door：可以随时撤回的决定
 目前只在 macOS 27 + Xcode 27、Apple Silicon 上测试过。
 
 ```sh
-git clone https://github.com/weijianz-opc/AIPinyin.git
-cd AIPinyin
+git clone https://github.com/weijianz-opc/AllInOneIME.git
+cd AllInOneIME
 make install
 ```
 
 `make install` 会下载 librime 和雾凇拼音词库并校验，编译后安装到 `~/Library/Input Methods`，
-并在 `~/Applications` 放一个「AI 拼音设置」。
+并在 `~/Applications` 放一个「AllInOneIME 设置」（英文系统里叫 AllInOneIME Settings）。
 
 装好后手动添加一次输入法（macOS 不允许程序自动启用第三方输入法）：
-系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AIPinyin。
+系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME。
 之后用 Ctrl+空格 或 🌐 键切换。
+
+以前装过 AI 拼音（AIPinyin）的话，直接 `make install` 就行：它会删掉旧的 AIPinyin.app 和「AI 拼音设置」，
+输入法列表里那一项会换成新名字，不用重新添加。设置、黑话库和学到的词第一次启动时搬到新目录
+（`~/.config/allinoneime` 等），旧目录留一个指向新目录的链接。
 
 卸载：`make uninstall`。
 
@@ -123,13 +129,13 @@ make install
 1. 在 AWS 控制台开通 Bedrock，确认能用所选的模型。默认是 Claude Haiku 4.5，第一次用 Anthropic 模型要填一次用途说明。
 2. 创建一个有 `bedrock:InvokeModelWithResponseStream` 权限的 access key，写进 `~/.aws/credentials` 里的一个 profile。
    目前只支持这种固定密钥，不支持 SSO 和 assume-role。
-3. 打开「AI 拼音设置」，在聚焦搜索或「应用程序」里都能找到，也可以从菜单栏的输入法图标 → 设置… 打开。
+3. 打开「AllInOneIME 设置」，在聚焦搜索或「应用程序」里都能找到，也可以从菜单栏的输入法图标 → 设置… 打开。
    选好 profile、区域和模型，点「测试连接」。设置窗口最上面的「界面语言」可以选中文或 English；默认跟随系统
    （系统的首选语言里中文排在英文前面时显示中文，否则显示英文）。设置窗口、候选框里的提示和输入法菜单都跟着它。
 
 <img src="docs/settings.png" width="420" alt="设置窗口">
 
-所有设置都存在 `~/.config/aipinyin/config.json`，改完后，下一次翻译就会用上新设置，不用重启。新加的几项：
+所有设置都存在 `~/.config/allinoneime/config.json`，改完后，下一次翻译就会用上新设置，不用重启。新加的几项：
 
 | 键 | 作用 | 默认 |
 |---|---|---|
@@ -140,7 +146,7 @@ make install
 | `translateKey` | 出结果的键：`"optionTap"`（单按 ⌥）、`"optionSpace"`（⌥空格）、`"space"`（空格） | `"optionTap"` |
 | `uiLanguage` | 界面语言（设置窗口、候选框提示、菜单）：`"zh"`、`"en"` | `null`（跟随系统） |
 | `rewriteStyles` | 改写风格，例如 `["润色", "简洁", "黑话"]` | `["润色", "简洁", "正式"]` |
-| `jargonFile` | 你自己的黑话词表文件 | `null`（即 `~/.config/aipinyin/jargon.txt`） |
+| `jargonFile` | 你自己的黑话词表文件 | `null`（即 `~/.config/allinoneime/jargon.txt`） |
 
 ## 隐私
 
@@ -156,15 +162,18 @@ make test         # 单元测试，加上用真实 Rime 引擎跑的测试
 make selftest     # 用模拟文本框驱动输入法：真实 Bedrock 调用，加上用合成语音测试本机识别
 make realtest     # 在真实 App 的文本框里打字测试（需要屏幕已解锁，会占用前台约 1 分钟）
 make screenshots  # 重新生成 docs/ 里的截图
-make cli && .build/release/aipinyin-cli --styles 简洁,黑话 "我今天有点不舒服"   # 在终端里试翻译和改写
+make cli && .build/release/allinoneime-cli --styles 简洁,黑话 "我今天有点不舒服"   # 在终端里试翻译和改写
+make icon         # 从 Resources/AppIcon.png 重新生成 App 图标和菜单栏图标
 ```
 
 代码结构：
 
-- `Sources/AIPinyinCore`：Bedrock 客户端、SigV4、提示词、两级输入状态机（含英文草稿和语音手势），不依赖 AppKit
-- `Sources/AIPinyinRime`：librime 封装
-- `Sources/AIPinyin`：InputMethodKit 输入法、候选框、设置窗口、语音识别
-- `Sources/AIPinyinSettings`：「AI 拼音设置」启动器
+- `Sources/AllInOneIMECore`：Bedrock 客户端、SigV4、提示词、两级输入状态机（含英文草稿和语音手势），不依赖 AppKit
+- `Sources/AllInOneIMERime`：librime 封装
+- `Sources/AllInOneIME`：InputMethodKit 输入法、候选框、设置窗口、语音识别
+- `Sources/AllInOneIMESettings`：「AllInOneIME 设置」启动器
+
+Bundle ID 仍是 `com.aipinyin.inputmethod.AIPinyin`：macOS 按它记住已添加的输入法和麦克风权限，改了就要重新添加和授权。
 
 ## 许可证
 

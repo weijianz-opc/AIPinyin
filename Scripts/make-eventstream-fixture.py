@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds Tests/AIPinyinCoreTests/Fixtures/all-header-types.bin.
+"""Builds Tests/AllInOneIMECoreTests/Fixtures/all-header-types.bin.
 
 Two AWS event-stream messages encoded independently of the Swift code (struct + zlib.crc32):
   1. an event using every header value type, with a contentBlockDelta payload
@@ -71,7 +71,7 @@ assert decoded[1].headers[":exception-type"] == "ThrottlingException"
 for m in decoded:
     print({k: v for k, v in m.headers.items()}, m.payload)
 
-out = sys.argv[1] if len(sys.argv) > 1 else "Tests/AIPinyinCoreTests/Fixtures/all-header-types.bin"
+out = sys.argv[1] if len(sys.argv) > 1 else "Tests/AllInOneIMECoreTests/Fixtures/all-header-types.bin"
 with open(out, "wb") as f:
     f.write(data)
 print(f"wrote {out} ({len(data)} bytes; event={len(event)}, exception={len(exception)})")

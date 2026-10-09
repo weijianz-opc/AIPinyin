@@ -1,6 +1,6 @@
 import Foundation
 
-/// User-editable settings stored as JSON at `~/.config/aipinyin/config.json`.
+/// User-editable settings stored as JSON at `~/.config/allinoneime/config.json`.
 /// Every key is optional in the file; missing keys fall back to `Config.default`.
 public struct Config: Codable, Equatable, Sendable {
     /// Profile name in ~/.aws/credentials (static access keys).
@@ -125,7 +125,7 @@ public struct Config: Codable, Equatable, Sendable {
 
     public static var defaultURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/aipinyin/config.json")
+            .appendingPathComponent(".config/allinoneime/config.json")
     }
 
     /// Loads the config file. A missing file yields `Config.default`; a malformed file throws.

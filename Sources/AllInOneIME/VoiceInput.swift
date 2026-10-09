@@ -1,4 +1,4 @@
-import AIPinyinCore
+import AllInOneIMECore
 import AVFoundation
 import Foundation
 import Speech

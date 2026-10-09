@@ -1,7 +1,7 @@
 # Third-party components
 
 `make deps` downloads these (pinned versions, checked against SHA-256) and `make app` bundles them
-into `AIPinyin.app`. They are not stored in this repository.
+into `AllInOneIME.app`. They are not stored in this repository.
 
 | Component | Version | License | Source |
 |---|---|---|---|

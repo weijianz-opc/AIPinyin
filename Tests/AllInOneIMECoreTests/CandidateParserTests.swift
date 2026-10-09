@@ -1,5 +1,5 @@
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 struct CandidateParserTests {
     let full = """

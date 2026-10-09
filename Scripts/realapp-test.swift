@@ -1,10 +1,10 @@
 // End-to-end check through the real macOS text input system.
 //
-// A separate app with a real NSTextView types through the *installed* AIPinyin input method
+// A separate app with a real NSTextView types through the *installed* AllInOneIME input method
 // (launched by macOS from ~/Library/Input Methods, real Rime engine, live Bedrock call).
 // Keys are CGEvent-backed events dispatched to this app's own window, so they take the same
 // NSTextInputContext → IMK path as real typing, need no Accessibility permission, and never reach
-// other apps. The input source is switched to AIPinyin for the test and restored afterwards;
+// other apps. The input source is switched to AllInOneIME for the test and restored afterwards;
 // the AI on/off setting is restored too.
 //
 // Run with: make realtest
@@ -46,9 +46,9 @@ func screenIsLocked() -> Bool {
     return (value as? Bool) == true || (value as? Int) == 1
 }
 
-/// Where results go (first non-option argument), default /tmp/aipinyin-realtest.
+/// Where results go (first non-option argument), default /tmp/allinoneime-realtest.
 let outputDirectory = URL(fileURLWithPath:
-    CommandLine.arguments.dropFirst().first { !$0.hasPrefix("-") } ?? "/tmp/aipinyin-realtest")
+    CommandLine.arguments.dropFirst().first { !$0.hasPrefix("-") } ?? "/tmp/allinoneime-realtest")
 let originalSourceFile = outputDirectory.appendingPathComponent("original-source.txt")
 
 func imeIsRunning() -> Bool {
@@ -254,7 +254,7 @@ final class Harness: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 240, y: 420, width: 760, height: 240),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "AIPinyin real-app test"
+        window.title = "AllInOneIME real-app test"
         let scroll = NSScrollView(frame: window.contentView!.bounds)
         scroll.autoresizingMask = [.width, .height]
         textView = NSTextView(frame: scroll.bounds)
@@ -355,7 +355,7 @@ final class Harness: NSObject, NSApplicationDelegate {
         pump(0.5)
         if context.selectedKeyboardInputSource != imeID { selectInputSource(imeID); pump(0.5) }
         check(context.selectedKeyboardInputSource == imeID,
-              "AIPinyin selected (context: \(context.selectedKeyboardInputSource ?? "nil"), system: \(currentInputSourceID() ?? "nil"))")
+              "AllInOneIME selected (context: \(context.selectedKeyboardInputSource ?? "nil"), system: \(currentInputSourceID() ?? "nil"))")
 
         // Warm-up: the first keys start the input method process (and wait for its dictionaries).
         var reachable = false
@@ -528,7 +528,7 @@ final class Harness: NSObject, NSApplicationDelegate {
 
     /// A value from the input method's config file (nil if unset or the file is missing).
     func configValue(_ key: String) -> Any? {
-        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/aipinyin/config.json")
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/allinoneime/config.json")
         guard let data = try? Data(contentsOf: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return json[key]

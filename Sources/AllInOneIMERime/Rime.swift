@@ -1,4 +1,4 @@
-import AIPinyinCore
+import AllInOneIMECore
 import CRime
 import Foundation
 
@@ -44,11 +44,11 @@ public final class RimeService {
         traits.data_size = Int32(MemoryLayout<RimeTraits>.size - MemoryLayout<Int32>.size)
         traits.shared_data_dir = c(sharedDataDir.path)
         traits.user_data_dir = c(userDataDir.path)
-        traits.distribution_name = c("AIPinyin")
-        traits.distribution_code_name = c("AIPinyin")
+        traits.distribution_name = c("AllInOneIME")
+        traits.distribution_code_name = c("AllInOneIME")
         traits.distribution_version = c(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
-        traits.app_name = c("rime.aipinyin")
+        traits.app_name = c("rime.allinoneime")
         traits.min_log_level = 1  // warnings and errors only
         traits.log_dir = c(logDir?.path ?? "")
         api.pointee.setup(&traits)

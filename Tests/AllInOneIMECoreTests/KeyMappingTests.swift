@@ -1,5 +1,5 @@
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 struct KeyMappingTests {
     func map(_ code: UInt16, _ chars: String, _ ignoring: String? = nil, _ mods: KeyModifiers = []) -> (Int32, Int32)? {

@@ -1,7 +1,7 @@
 import Foundation
 import os
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 /// Serves canned responses keyed by host, so tests using different regions can run in parallel.
 final class StubURLProtocol: URLProtocol, @unchecked Sendable {

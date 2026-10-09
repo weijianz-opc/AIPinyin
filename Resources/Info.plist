@@ -9,15 +9,19 @@
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>
 	<key>CFBundleExecutable</key>
-	<string>AIPinyin</string>
+	<string>AllInOneIME</string>
+	<!-- Bundle and input source IDs keep the original name: macOS keys the enabled input source,
+	     the microphone permission and the settings by them. -->
 	<key>CFBundleIdentifier</key>
 	<string>com.aipinyin.inputmethod.AIPinyin</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>AIPinyin</string>
+	<string>AllInOneIME</string>
 	<key>CFBundleDisplayName</key>
-	<string>AI 拼音</string>
+	<string>AllInOneIME</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -39,7 +43,7 @@
 	<key>InputMethodConnectionName</key>
 	<string>com.aipinyin.inputmethod.AIPinyin_Connection</string>
 	<key>InputMethodServerControllerClass</key>
-	<string>AIPinyinInputController</string>
+	<string>AllInOneIMEInputController</string>
 	<key>TISInputSourceID</key>
 	<string>com.aipinyin.inputmethod.AIPinyin</string>
 	<key>TISIntendedLanguage</key>

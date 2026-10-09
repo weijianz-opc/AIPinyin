@@ -1,7 +1,14 @@
-// Generates Resources/AppIcon.icns: a blue rounded square with "AI 拼". Run:
-//   swift Scripts/make-app-icon.swift Resources/AppIcon.icns
+// Builds Resources/AppIcon.icns (the input method and 「AllInOneIME 设置」 app icon) from the
+// 1024 px master Resources/AppIcon.png. Run:
+//   swift Scripts/make-app-icon.swift Resources/AppIcon.png Resources/AppIcon.icns
 import AppKit
 
+let args = CommandLine.arguments
+let source = URL(fileURLWithPath: args.count > 1 ? args[1] : "Resources/AppIcon.png")
+let out = args.count > 2 ? args[2] : "Resources/AppIcon.icns"
+guard let master = NSImage(contentsOf: source) else { fatalError("can't read \(source.path)") }
+
+/// The master scaled to `pixels` × `pixels`, as PNG.
 func render(_ pixels: Int) -> Data {
     let rep = NSBitmapImageRep(
         bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8, samplesPerPixel: 4,
@@ -9,30 +16,12 @@ func render(_ pixels: Int) -> Data {
     rep.size = NSSize(width: pixels, height: pixels)
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    let s = CGFloat(pixels)
-    // macOS icon grid: the shape fills about 80% of the canvas.
-    let inset = s * 0.1
-    let rect = NSRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
-    let shape = NSBezierPath(roundedRect: rect, xRadius: rect.width * 0.225, yRadius: rect.width * 0.225)
-    NSGradient(starting: NSColor(calibratedRed: 0.27, green: 0.55, blue: 1.0, alpha: 1),
-               ending: NSColor(calibratedRed: 0.12, green: 0.33, blue: 0.86, alpha: 1))!.draw(in: shape, angle: -90)
-    let style = NSMutableParagraphStyle()
-    style.alignment = .center
-    let top = NSAttributedString(string: "AI", attributes: [
-        .font: NSFont.systemFont(ofSize: rect.height * 0.36, weight: .heavy),
-        .foregroundColor: NSColor.white, .paragraphStyle: style,
-    ])
-    let bottom = NSAttributedString(string: "拼", attributes: [
-        .font: NSFont.systemFont(ofSize: rect.height * 0.27, weight: .semibold),
-        .foregroundColor: NSColor.white.withAlphaComponent(0.9), .paragraphStyle: style,
-    ])
-    top.draw(in: NSRect(x: rect.minX, y: rect.midY - rect.height * 0.02, width: rect.width, height: rect.height * 0.45))
-    bottom.draw(in: NSRect(x: rect.minX, y: rect.minY + rect.height * 0.1, width: rect.width, height: rect.height * 0.36))
+    NSGraphicsContext.current?.imageInterpolation = .high
+    master.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
 }
 
-let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Resources/AppIcon.icns"
 let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("AppIcon.iconset")
 try? FileManager.default.removeItem(at: iconset)
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)

@@ -1,18 +1,18 @@
-import AIPinyinCore
-import AIPinyinCore
-import AIPinyinRime
+import AllInOneIMECore
+import AllInOneIMECore
+import AllInOneIMERime
 import AppKit
 import Carbon
 import InputMethodKit
 
 let usage = """
-    AIPinyin input method. Launched by macOS without arguments; developer commands:
+    AllInOneIME input method. Launched by macOS without arguments; developer commands:
       --register        register this bundle with Text Input Sources and enable it
       --disable         disable (remove from the Input menu)
       --status          show registration, process and configuration status
       --settings        run as the input method and open the settings window
       --selftest [DIR]  drive the input controller (real Rime engine, live Bedrock call) with a
-                        fake text field; writes panel snapshots to DIR (default /tmp/aipinyin-selftest)
+                        fake text field; writes panel snapshots to DIR (default /tmp/allinoneime-selftest)
     """
 
 func printError(_ message: String) {
@@ -26,14 +26,14 @@ enum RimeDirectories {
     }
     static var user: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/AIPinyin/Rime")
+            .appendingPathComponent("Library/Application Support/AllInOneIME/Rime")
     }
     static var logs: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/AIPinyin")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/AllInOneIME")
     }
 }
 
-/// Opens the settings window when the input method is "opened" again (the 「AI 拼音设置」 app does
+/// Opens the settings window when the input method is "opened" again (the 「AllInOneIME 设置」 app does
 /// that). The text input system never sends reopen events, so typing is unaffected.
 final class IMEAppDelegate: NSObject, NSApplicationDelegate {
     static let shared = IMEAppDelegate()
@@ -50,8 +50,8 @@ func runServer(showSettings: Bool = false) -> Never {
     guard let name = Bundle.main.object(forInfoDictionaryKey: "InputMethodConnectionName") as? String,
           let server = IMKServer(name: name, bundleIdentifier: Bundle.main.bundleIdentifier)
     else {
-        log.fault("could not start IMKServer (is the binary inside AIPinyin.app?)")
-        printError("could not start IMKServer; run from inside AIPinyin.app")
+        log.fault("could not start IMKServer (is the binary inside AllInOneIME.app?)")
+        printError("could not start IMKServer; run from inside AllInOneIME.app")
         exit(1)
     }
     log.info("IMKServer started: \(name, privacy: .public)")
@@ -118,7 +118,7 @@ func prepareDictionaries() {
 func register() -> Int32 {
     let url = Bundle.main.bundleURL
     guard url.pathExtension == "app" else {
-        printError("run --register from inside AIPinyin.app")
+        printError("run --register from inside AllInOneIME.app")
         return 1
     }
     let status = InputSourceRegistrar.register(bundleURL: url)
@@ -146,8 +146,8 @@ func register() -> Int32 {
         print("""
 
             macOS 需要你手动添加一次（“键盘”设置应该已经打开）：
-              系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AIPinyin → 添加
-            之后用 Ctrl+Space 或 🌐 键切换到 AIPinyin。
+              系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME → 添加
+            之后用 Ctrl+Space 或 🌐 键切换到 AllInOneIME。
             """)
     }
     return 0
@@ -209,6 +209,25 @@ func printStatus() -> Int32 {
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
+
+// Data from the AIPinyin days moves to the AllInOneIME folders before anything reads it.
+for (path, outcome) in LegacyData.migrate() where outcome != .nothingToMove {
+    switch outcome {
+    case .moved: log.notice("moved legacy data to \(path, privacy: .public)")
+    case .keptBoth: log.notice("legacy data left in place: \(path, privacy: .public) exists")
+    case let .failed(error): log.error("could not move legacy data to \(path, privacy: .public): \(error, privacy: .public)")
+    case .nothingToMove: break
+    }
+    if arguments.first?.hasPrefix("--") == true {
+        switch outcome {
+        case .moved: print("data:        moved from the AIPinyin folder to \(path)")
+        case .keptBoth: print("data:        \(path) exists; the old AIPinyin folder was left as it is")
+        case let .failed(error): printError("data:        could not move the AIPinyin folder to \(path): \(error)")
+        case .nothingToMove: break
+        }
+    }
+}
+
 switch arguments.first {
 case "--register":
     exit(register())
@@ -217,10 +236,10 @@ case "--disable":
 case "--status":
     exit(printStatus())
 case "--selftest":
-    let directory = URL(fileURLWithPath: arguments.count > 1 ? arguments[1] : "/tmp/aipinyin-selftest")
+    let directory = URL(fileURLWithPath: arguments.count > 1 ? arguments[1] : "/tmp/allinoneime-selftest")
     exit(MainActor.assumeIsolated { SelfTest.run(snapshotDirectory: directory) })
 case "--settings":
-    // Started by the 「AI 拼音设置」 app: serve as the input method and show the settings window.
+    // Started by the 「AllInOneIME 设置」 app: serve as the input method and show the settings window.
     runServer(showSettings: true)
 case "-h", "--help":
     print(usage)

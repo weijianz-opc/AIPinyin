@@ -1,4 +1,4 @@
-import AIPinyinCore
+import AllInOneIMECore
 import Foundation
 
 /// Interface language (settings window, candidate panel, notices, input menu): the one picked in the
@@ -65,7 +65,7 @@ enum UIText {
 
     /// What the translate key does to a sentence in `input`: "翻译成英文 / 改写", "translate to English / rewrite", …
     static func action(input: Language, config: Config) -> String {
-        guard !chinese else { return AIPinyinInputController.actionText(input: input, config: config) }
+        guard !chinese else { return AllInOneIMEInputController.actionText(input: input, config: config) }
         let output = config.outputLanguage
         let action = input == output ? "polish the \(name(output))" : "translate to \(name(output))"
         return action + (RewriteStyle.resolve(config.rewriteStyles).isEmpty ? "" : " / rewrite")
@@ -73,7 +73,7 @@ enum UIText {
 
     /// An error as the settings window shows it.
     static func describe(_ error: Error) -> String {
-        guard !chinese else { return AIPinyinInputController.describe(error) }
+        guard !chinese else { return AllInOneIMEInputController.describe(error) }
         switch error {
         case let error as URLError:
             switch error.code {

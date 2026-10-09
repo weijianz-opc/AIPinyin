@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 /// Vectors come from the AWS SigV4 documentation and from botocore's SigV4Auth
 /// (generated with fixed example credentials and timestamps).

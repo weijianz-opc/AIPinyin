@@ -1,14 +1,14 @@
-import AIPinyinCore
+import AllInOneIMECore
 import Foundation
 import Testing
-@testable import AIPinyinRime
+@testable import AllInOneIMERime
 
 /// Uses the real librime and the rime-ice data prepared by `make deps` (ThirdParty/rime-data).
 enum RimeFixture {
     static let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let sharedData = root.appendingPathComponent("ThirdParty/rime-data")
-    static let userData = FileManager.default.temporaryDirectory.appendingPathComponent("aipinyin-rime-tests")
+    static let userData = FileManager.default.temporaryDirectory.appendingPathComponent("allinoneime-rime-tests")
 
     /// Starts librime once per test process; returns the deployment time.
     static let startup: Result<TimeInterval, Error> = {

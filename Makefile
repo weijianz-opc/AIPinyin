@@ -1,4 +1,4 @@
-APP_NAME      := AIPinyin
+APP_NAME      := AllInOneIME
 CONFIG        ?= release
 BUILD_DIR     := build
 APP           := $(BUILD_DIR)/$(APP_NAME).app
@@ -53,12 +53,12 @@ $(RIME_BUILT): $(RIME_LIB) Resources/rime/default.custom.yaml
 build: deps
 	swift build -c $(CONFIG) --product $(APP_NAME)
 
-app: build Resources/icon.tiff
+app: build Resources/icon.tiff Resources/AppIcon.icns
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources" "$(APP)/Contents/Frameworks" "$(APP)/Contents/SharedSupport"
 	cp "$$(swift build -c $(CONFIG) --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp Resources/Info.plist "$(APP)/Contents/Info.plist"
-	cp Resources/icon.tiff "$(APP)/Contents/Resources/icon.tiff"
+	cp Resources/icon.tiff Resources/AppIcon.icns "$(APP)/Contents/Resources/"
 	printf 'APPL????' > "$(APP)/Contents/PkgInfo"
 	cp $(RIME_LIB) "$(APP)/Contents/Frameworks/"
 	cp -R $(RIME_DIST)/lib/rime-plugins "$(APP)/Contents/Frameworks/"
@@ -69,7 +69,7 @@ app: build Resources/icon.tiff
 	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
 		codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(APP)"/Contents/Frameworks/rime-plugins/*.dylib \
 			"$(APP)/Contents/Frameworks/librime.1.dylib" && \
-		codesign --force --options runtime --entitlements Resources/AIPinyin.entitlements \
+		codesign --force --options runtime --entitlements Resources/AllInOneIME.entitlements \
 			--sign "$(SIGN_IDENTITY)" "$(APP)"; \
 	else \
 		echo "warning: no '$(SIGN_IDENTITY)' signing identity; ad-hoc signing without hardened runtime"; \
@@ -79,28 +79,42 @@ app: build Resources/icon.tiff
 	codesign --verify --strict --deep "$(APP)"
 	@echo "Built $(APP)"
 
-Resources/icon.tiff: Scripts/make-icon.swift
-	swift Scripts/make-icon.swift $@
+# Both icons come from the 1024 px artwork Resources/AppIcon.png: the app icon (input method and
+# settings launcher) and the menu-bar template icon.
+Resources/icon.tiff: Scripts/make-icon.swift Resources/AppIcon.png
+	swift Scripts/make-icon.swift Resources/AppIcon.png $@
+
+Resources/AppIcon.icns: Scripts/make-app-icon.swift Resources/AppIcon.png
+	swift Scripts/make-app-icon.swift Resources/AppIcon.png $@
 
 icon:
-	swift Scripts/make-icon.swift Resources/icon.tiff
+	swift Scripts/make-icon.swift Resources/AppIcon.png Resources/icon.tiff
+	swift Scripts/make-app-icon.swift Resources/AppIcon.png Resources/AppIcon.icns
 
-# 「AI 拼音设置」: launcher app for ~/Applications (Spotlight / Launchpad / Finder) that opens the
-# input method's settings window. macOS shows no options for third-party input methods in System Settings.
-SETTINGS_NAME := AI 拼音设置
+# 「AllInOneIME 设置」 (AllInOneIME Settings): launcher app for ~/Applications (Spotlight / Launchpad /
+# Finder) that opens the input method's settings window. macOS shows no options for third-party input
+# methods in System Settings. Finder shows its name in the system language (Settings-*.lproj).
+SETTINGS_NAME := AllInOneIME Settings
 SETTINGS_APP  := $(BUILD_DIR)/$(SETTINGS_NAME).app
 USER_APPS     := $(HOME)/Applications
 
-Resources/AppIcon.icns: Scripts/make-app-icon.swift
-	swift Scripts/make-app-icon.swift $@
+# Installed under the old name (AIPinyin) by earlier versions; removed on install and uninstall.
+LEGACY_APP_NAME      := AIPinyin
+LEGACY_INSTALLED_APP := $(INSTALL_DIR)/$(LEGACY_APP_NAME).app
+LEGACY_SETTINGS_APP  := $(USER_APPS)/AI 拼音设置.app
+LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 settings-app: Resources/AppIcon.icns
-	swift build -c $(CONFIG) --product AIPinyinSettings
+	swift build -c $(CONFIG) --product AllInOneIMESettings
 	rm -rf "$(SETTINGS_APP)"
 	mkdir -p "$(SETTINGS_APP)/Contents/MacOS" "$(SETTINGS_APP)/Contents/Resources"
-	cp "$$(swift build -c $(CONFIG) --show-bin-path)/AIPinyinSettings" "$(SETTINGS_APP)/Contents/MacOS/AIPinyinSettings"
+	cp "$$(swift build -c $(CONFIG) --show-bin-path)/AllInOneIMESettings" "$(SETTINGS_APP)/Contents/MacOS/AllInOneIMESettings"
 	cp Resources/Settings-Info.plist "$(SETTINGS_APP)/Contents/Info.plist"
 	cp Resources/AppIcon.icns "$(SETTINGS_APP)/Contents/Resources/AppIcon.icns"
+	for lang in en zh-Hans; do \
+		mkdir -p "$(SETTINGS_APP)/Contents/Resources/$$lang.lproj" && \
+		cp "Resources/Settings-$$lang.lproj/InfoPlist.strings" "$(SETTINGS_APP)/Contents/Resources/$$lang.lproj/"; \
+	done
 	printf 'APPL????' > "$(SETTINGS_APP)/Contents/PkgInfo"
 	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
 		codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(SETTINGS_APP)"; \
@@ -114,27 +128,33 @@ test: deps
 
 # Stops the running IME (macOS relaunches it on next use), replaces the bundle, registers it.
 # The bundle is moved, not copied: macOS launches input methods by bundle ID, and with a second
-# copy left in build/ it may start that one instead of the installed one.
+# copy left in build/ it may start that one instead of the installed one. A copy installed under
+# the old name (same bundle ID) is removed for the same reason; the new one takes over its data.
 install: app settings-app
 	@pkill -x $(APP_NAME) || true
+	@pkill -x $(LEGACY_APP_NAME) || true
 	mkdir -p "$(INSTALL_DIR)"
-	rm -rf "$(INSTALLED_APP)"
+	-"$(LSREGISTER)" -u "$(LEGACY_INSTALLED_APP)" "$(LEGACY_SETTINGS_APP)" 2>/dev/null
+	rm -rf "$(INSTALLED_APP)" "$(LEGACY_INSTALLED_APP)"
 	mv "$(APP)" "$(INSTALL_DIR)/"
 	mkdir -p "$(USER_APPS)"
-	rm -rf "$(USER_APPS)/$(SETTINGS_NAME).app"
+	rm -rf "$(USER_APPS)/$(SETTINGS_NAME).app" "$(LEGACY_SETTINGS_APP)"
 	mv "$(SETTINGS_APP)" "$(USER_APPS)/"
+	"$(LSREGISTER)" -f "$(INSTALLED_APP)" "$(USER_APPS)/$(SETTINGS_NAME).app"
 	"$(INSTALLED_APP)/Contents/MacOS/$(APP_NAME)" --register
+	@pkill -x $(LEGACY_APP_NAME) || true
 
 uninstall:
 	-"$(INSTALLED_APP)/Contents/MacOS/$(APP_NAME)" --disable
 	@pkill -x $(APP_NAME) || true
-	rm -rf "$(INSTALLED_APP)" "$(USER_APPS)/$(SETTINGS_NAME).app"
+	@pkill -x $(LEGACY_APP_NAME) || true
+	rm -rf "$(INSTALLED_APP)" "$(USER_APPS)/$(SETTINGS_NAME).app" "$(LEGACY_INSTALLED_APP)" "$(LEGACY_SETTINGS_APP)"
 
 status:
 	"$(INSTALLED_APP)/Contents/MacOS/$(APP_NAME)" --status
 
 # Drives the input controller (real Rime engine, live Bedrock call) with a fake text field.
-OUT ?= /tmp/aipinyin-selftest
+OUT ?= /tmp/allinoneime-selftest
 selftest: app
 	"$(APP)/Contents/MacOS/$(APP_NAME)" --selftest "$(OUT)"
 
@@ -147,7 +167,7 @@ screenshots: selftest
 # Needs an unlocked screen; the harness window comes to the front for about a minute.
 REALTEST     := $(BUILD_DIR)/RealTest.app
 REALTEST_BIN := $(REALTEST)/Contents/MacOS/RealTest
-TEST_LOGS    := $(HOME)/Library/Logs/AIPinyin
+TEST_LOGS    := $(HOME)/Library/Logs/AllInOneIME
 REALTEST_OUT ?= $(TEST_LOGS)/realtest
 realtest: realtest-build realtest-run
 
@@ -168,7 +188,7 @@ realtest-run:
 	@grep -q '^REALTEST PASSED' "$(REALTEST_OUT)/output.txt"
 
 # Runs the real-app test automatically once the screen is unlocked (temporary launchd job, not
-# persisted across logins; it removes itself when done). Log: ~/Library/Logs/AIPinyin/realtest-watch.log
+# persisted across logins; it removes itself when done). Log: ~/Library/Logs/AllInOneIME/realtest-watch.log
 WATCH_LABEL := com.aipinyin.realtest-watch
 WATCH_PLIST := $(TEST_LOGS)/realtest-watch.plist
 realtest-when-unlocked: realtest-build
@@ -190,8 +210,8 @@ realtest-cancel:
 	rm -f "$(WATCH_PLIST)"
 
 cli:
-	swift build -c $(CONFIG) --product aipinyin-cli
-	@echo "Run: $$(swift build -c $(CONFIG) --show-bin-path)/aipinyin-cli <sentence>"
+	swift build -c $(CONFIG) --product allinoneime-cli
+	@echo "Run: $$(swift build -c $(CONFIG) --show-bin-path)/allinoneime-cli <sentence>"
 
 clean:
 	rm -rf .build "$(BUILD_DIR)"

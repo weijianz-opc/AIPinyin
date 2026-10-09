@@ -1,0 +1,3 @@
+/* 设置启动器在访达、聚焦搜索和启动台里的名字。 */
+"CFBundleName" = "AllInOneIME 设置";
+"CFBundleDisplayName" = "AllInOneIME 设置";

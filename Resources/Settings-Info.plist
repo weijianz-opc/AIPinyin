@@ -3,17 +3,20 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>zh_CN</string>
+	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>AIPinyinSettings</string>
+	<string>AllInOneIMESettings</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.aipinyin.settings</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- Matches the bundle's file name, so Finder shows the localized name (Settings-*.lproj). -->
 	<key>CFBundleName</key>
-	<string>AI 拼音设置</string>
+	<string>AllInOneIME Settings</string>
 	<key>CFBundleDisplayName</key>
-	<string>AI 拼音设置</string>
+	<string>AllInOneIME Settings</string>
+	<key>LSHasLocalizedDisplayName</key>
+	<true/>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

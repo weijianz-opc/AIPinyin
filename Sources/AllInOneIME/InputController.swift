@@ -1,5 +1,5 @@
-import AIPinyinCore
-import AIPinyinRime
+import AllInOneIMECore
+import AllInOneIMERime
 import AppKit
 import Carbon
 import InputMethodKit
@@ -55,8 +55,8 @@ enum LiveJargon {
 
 /// IMK creates one controller per client text session. All IMK callbacks arrive on the main
 /// thread, so entry points hop into main-actor code with `MainActor.assumeIsolated`.
-@objc(AIPinyinInputController)
-final class AIPinyinInputController: IMKInputController {
+@objc(AllInOneIMEInputController)
+final class AllInOneIMEInputController: IMKInputController {
     let composer = Composer(aiEnabled: Settings.aiEnabled)
     private var session: RimeSession?
     private var conversionTask: Task<Void, Never>?
@@ -330,8 +330,8 @@ final class AIPinyinInputController: IMKInputController {
                 Task { _ = await VoiceInput.requestMicrophoneAccess() }
                 return
             case .denied:
-                perform(composer.voiceFailed(tr("没有麦克风权限：系统设置 → 隐私与安全性 → 麦克风 → 打开 AIPinyin",
-                                                "No microphone access: System Settings → Privacy & Security → Microphone → turn on AIPinyin"),
+                perform(composer.voiceFailed(tr("没有麦克风权限：系统设置 → 隐私与安全性 → 麦克风 → 打开 AllInOneIME",
+                                                "No microphone access: System Settings → Privacy & Security → Microphone → turn on AllInOneIME"),
                                              id: id),
                         client: nil)
                 return

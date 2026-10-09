@@ -1,5 +1,5 @@
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 /// Minimal stand-in for Rime: whole-input candidates from a tiny dictionary.
 final class FakeEngine: PinyinEngine {

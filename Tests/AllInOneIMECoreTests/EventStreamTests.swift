@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 func fixture(_ name: String) throws -> [UInt8] {
     let url = try #require(Bundle.module.url(forResource: name, withExtension: "bin", subdirectory: "Fixtures"))
@@ -61,7 +61,7 @@ struct EventStreamTests {
         }
     }
 
-    /// A real ConverseStream response captured from Bedrock with `aipinyin-cli --dump`.
+    /// A real ConverseStream response captured from Bedrock with `allinoneime-cli --dump`.
     @Test func decodesRealBedrockResponse() throws {
         let messages = try decodeAll(try fixture("bedrock-converse-stream"))
         #expect(messages.count == 16)

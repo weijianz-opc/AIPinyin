@@ -1,0 +1,3 @@
+/* Name of the settings launcher in Finder, Spotlight and Launchpad. */
+"CFBundleName" = "AllInOneIME Settings";
+"CFBundleDisplayName" = "AllInOneIME Settings";

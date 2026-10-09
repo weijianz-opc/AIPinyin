@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 struct AWSSharedConfigTests {
     let credentials = """
@@ -130,7 +130,7 @@ struct ConfigTests {
     }
 
     @Test func fileRoundTripAndMissingFile() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aipinyin-test-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("allinoneime-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("config.json")
         #expect(try Config.load(from: url) == .default)

@@ -1,13 +1,13 @@
-import AIPinyinCore
+import AllInOneIMECore
 import Foundation
 
 let usage = """
-    usage: aipinyin-cli [options] <sentence>
-           aipinyin-cli [options] --bench
-           aipinyin-cli [options] --dump FILE <sentence>
+    usage: allinoneime-cli [options] <sentence>
+           allinoneime-cli [options] --bench
+           allinoneime-cli [options] --dump FILE <sentence>
 
     Runs level two (translate / polish + rewrites) with the same Core code the input method uses.
-    Settings come from ~/.config/aipinyin/config.json; flags override them.
+    Settings come from ~/.config/allinoneime/config.json; flags override them.
 
     options:
       --profile NAME   AWS profile
@@ -152,6 +152,7 @@ func rewriteStatus(_ line: CandidateLine?, original: String) -> String {
 }
 
 let options = parseOptions()
+LegacyData.migrate()  // settings from the AIPinyin days move to ~/.config/allinoneime first
 var config: Config
 do {
     config = try Config.load()

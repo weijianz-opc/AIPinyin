@@ -1,5 +1,5 @@
-// Builds the README images from the panels rendered by `AIPinyin --selftest`:
-//   swift Scripts/make-readme-images.swift /tmp/aipinyin-selftest docs
+// Builds the README images from the panels rendered by `AllInOneIME --selftest`:
+//   swift Scripts/make-readme-images.swift /tmp/allinoneime-selftest docs
 // docs/demo.png      pinyin → translation, side by side, each under a text line with the inline (marked) text
 // docs/english.png   English typed directly → English polish (with 黑话); Chinese as the output language
 // docs/voice.png     dictation (hold right ⌥)
@@ -7,7 +7,7 @@
 import AppKit
 
 let args = CommandLine.arguments
-let source = URL(fileURLWithPath: args.count > 1 ? args[1] : "/tmp/aipinyin-selftest")
+let source = URL(fileURLWithPath: args.count > 1 ? args[1] : "/tmp/allinoneime-selftest")
 let output = URL(fileURLWithPath: args.count > 2 ? args[2] : "docs")
 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 

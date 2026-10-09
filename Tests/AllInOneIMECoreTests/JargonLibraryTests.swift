@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AIPinyinCore
+@testable import AllInOneIMECore
 
 struct JargonLibraryTests {
     @Test func parsesTheUsualFormats() {
@@ -39,7 +39,7 @@ struct JargonLibraryTests {
     }
 
     @Test func loadsFromAFileAndTreatsAMissingFileAsEmpty() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aipinyin-jargon-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("allinoneime-jargon-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("jargon.txt")

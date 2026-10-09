@@ -1,4 +1,4 @@
-import AIPinyinCore
+import AllInOneIMECore
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -98,7 +98,7 @@ final class SettingsModel: ObservableObject {
 
     func setStyle(_ style: RewriteStyle, on: Bool) {
         guard on != isStyleOn(style) else { return }
-        config.rewriteStyles = AIPinyinInputController.toggled(style.name, in: config.rewriteStyles)
+        config.rewriteStyles = AllInOneIMEInputController.toggled(style.name, in: config.rewriteStyles)
         save()
     }
 
@@ -534,7 +534,7 @@ final class SettingsWindow {
     static let shared = SettingsWindow()
     private var window: NSWindow?
 
-    static var title: String { tr("AI 拼音 设置", "AI Pinyin Settings") }
+    static var title: String { tr("AllInOneIME 设置", "AllInOneIME Settings") }
 
     /// After the window's language changed.
     func updateTitle() { window?.title = Self.title }
