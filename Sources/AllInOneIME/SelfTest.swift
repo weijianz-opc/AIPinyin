@@ -884,6 +884,18 @@ enum SelfTest {
         check(controller.composer.phase == .choosing && controller.composer.choices.first?.text == "这个项目的进度太慢了我们需要尽快想办法",
               "⏎ again improves it")
         controller.commitComposition(client)
+        // ⌃V works in a terminal too (it doesn't paste on ⌃V itself), also after text already typed.
+        press(controller, client, "@", code: 0x13, flags: .shift)
+        type("i", controller, client)
+        _ = enter(controller, client)
+        check(controller.panelModel().footer == "⌃V 粘贴 · ⌫ 删字 · Esc 清除", "the footer names ⌃V (\(controller.panelModel().footer))")
+        type("nihao", controller, client)
+        let insertedBeforeControlV = client.inserted.count
+        check(press(controller, client, "v", code: 0x09, flags: .control)
+              && pump(timeout: 1) { client.marked.hasSuffix("想办法") }
+              && client.marked == "@improve 你好这个项目的进度太慢了我们需要尽快想办法" && client.inserted.count == insertedBeforeControlV,
+              "in a terminal ⌃V adds the clipboard's text after what was typed (\(client.marked))")
+        _ = escape(controller, client)
         client.bundleIDOverride = nil
         controller.activateServer(client)
         controller.readClipboard = { nil }

@@ -143,6 +143,50 @@ extension ComposerTests {
         #expect(c.handleKeyDown(pasteKey) == ref.handleKeyDown(k("a", mods: .command)))  // as before the paste feature
     }
 
+    var controlV: KeyEvent { KeyEvent(keyCode: 0x09, characters: "\u{16}", charactersIgnoringModifiers: "v", modifiers: .control) }
+
+    func readsClipboard(_ effects: [Composer.Effect]) -> Bool {
+        effects.contains { if case .readClipboard = $0 { return true } else { return false } }
+    }
+
+    @Test func controlVPastesIntoTheCommandInEveryApp() {
+        // Terminals included (no app pastes on ⌃V by itself), after text already typed.
+        for terminal in [false, true] {
+            let (c, _) = improveDraft()
+            c.pastesIntoDraft = !terminal
+            type("nihao", c)
+            let r = c.handleKeyDown(controlV)
+            #expect(r.handled && r.effects.last == .readClipboard(id: 1), "terminal: \(terminal)")
+            #expect(c.draft == "@improve 你好" && !c.engineState.isComposing)  // the pinyin is converted first
+            #expect(c.pasted("，这个方案还不够好", id: 1) == [.updateMarkedText, .showPanel])
+            #expect(c.draft == "@improve 你好，这个方案还不够好")
+            #expect(c.handleKeyDown(enterKey).effects.first == .startConversion(input: "你好，这个方案还不够好", id: 1))
+        }
+        // "@imp" picks its command first, as with ⌘V.
+        let (p, _) = composer(ai: false, key: .enter)
+        _ = p.handleKeyDown(at)
+        type("imp", p)
+        #expect(p.handleKeyDown(controlV).effects.last == .readClipboard(id: 1))
+        _ = p.pasted("hello world", id: 1)
+        #expect(p.draft == "@improve hello world")
+        // Nothing pending, or "@" alone (a mention): ⌃V is the app's (a shell's literal next, a text
+        // view's page down), and the clipboard isn't read.
+        let (idle, _) = composer(ai: false, key: .enter)
+        #expect(idle.handleKeyDown(controlV) == .passThrough)
+        let (m, _) = composer(ai: false, key: .enter)
+        _ = m.handleKeyDown(at)
+        let mention = m.handleKeyDown(controlV)
+        #expect(commits(mention) == ["@"] && !mention.handled && !readsClipboard(mention.effects))
+        // Results showing: not read either; ⌃⇧V is not ⌃V.
+        let (l, _) = improveDraft()
+        type("nihao", l)
+        _ = l.handleKeyDown(enterKey)
+        #expect(l.isLevelTwo && !readsClipboard(l.handleKeyDown(controlV).effects))
+        let (s, _) = improveDraft()
+        let shifted = KeyEvent(keyCode: 0x09, characters: "\u{16}", charactersIgnoringModifiers: "V", modifiers: [.control, .shift])
+        #expect(!readsClipboard(s.handleKeyDown(shifted).effects) && s.draft == "@improve ")
+    }
+
     @Test func theActionKeyOnAnEmptyCommandTakesTheClipboard() {
         for terminal in [false, true] {
             let (c, _) = improveDraft()

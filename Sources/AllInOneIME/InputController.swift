@@ -341,7 +341,10 @@ final class AllInOneIMEInputController: IMKInputController {
                 // the app isn't left waiting for the key (and doesn't paste on its own meanwhile).
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
-                    self.perform(self.composer.pasted(self.readClipboard(), id: id), client: nil)
+                    let text = self.readClipboard()
+                    // Only how much: never the text itself.
+                    log.notice("clipboard for a command: \(text.map { "\($0.count) chars" } ?? "no usable text", privacy: .public)")
+                    self.perform(self.composer.pasted(text, id: id), client: nil)
                 }
             case .cancelConversion:
                 conversionTask?.cancel()
@@ -807,7 +810,7 @@ final class AllInOneIMEInputController: IMKInputController {
         } else if !composer.draft.isEmpty {
             model.status = .hint(draftHint(config: config))
             let asTyped = composer.actionKey == .enter ? "⇧⏎" : "⏎"
-            model.footer = composer.draftCommand != nil ? tr("⌫ 删字 · Esc 清除", "⌫ delete · Esc clear")
+            model.footer = composer.draftCommand != nil ? tr("⌃V 粘贴 · ⌫ 删字 · Esc 清除", "⌃V paste · ⌫ delete · Esc clear")
                 : composer.isLatinDraft ? tr("\(asTyped) 直接上屏 · ⌫ 删字", "\(asTyped) insert as typed · ⌫ delete")
                 : tr("\(asTyped) 上屏原文 · ⌫ 删字 · Esc 清除", "\(asTyped) insert as typed · ⌫ delete · Esc clear")
         }

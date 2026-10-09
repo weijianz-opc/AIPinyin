@@ -188,8 +188,8 @@ public final class Composer {
     /// The clipboard was asked for by the action key on a command with nothing after it.
     private var pasteForEmptyCommand = false
     /// Whether ⌘V in a draft takes the clipboard into it. False in apps that paste on ⌘V themselves
-    /// whatever the input method does (terminals): the text would be pasted twice. There the action
-    /// key on a command with nothing after it takes the clipboard instead.
+    /// whatever the input method does (terminals): the text would be pasted twice. There ⌃V, and the
+    /// action key on a command with nothing after it, take the clipboard instead.
     public var pastesIntoDraft = true
     /// Whether secure input is on anywhere (set by the input controller). Nothing is sent to a model
     /// then: a terminal command doesn't start Claude Code, and its text stays in the draft. (The other
@@ -431,6 +431,12 @@ public final class Composer {
             return .consumed([.copy(text), .notice(messages.copied)])  // the result stays up
         }
         if modifiers == .command, event.charactersIgnoringModifiers.lowercased() == "v", let response = pasteIntoDraft() {
+            return response
+        }
+        // ⌃V does the same in every app: none pastes on it by itself (terminals and Notes do on ⌘V,
+        // whatever the input method does), so the text is pasted once, into the draft.
+        if modifiers == .control, event.charactersIgnoringModifiers.lowercased() == "v",
+           let response = pasteIntoDraft(evenWhereTheAppPastes: true) {
             return response
         }
         if modifiers.contains(.command) {
@@ -750,12 +756,13 @@ public final class Composer {
     /// The most text ⌘V puts into a draft, in Characters (a long paragraph; the answer grows with it).
     public static let maxPasteLength = 2000
 
-    /// ⌘V with a draft pending ("@improve ", a command name being typed, a sentence-mode draft): the
-    /// clipboard's text will join the draft instead of the document (`pasted`), so the action key then
-    /// runs on it. Pinyin still being typed is converted first, and "@imp" picks its command. Nil
-    /// without a draft, and after "@" alone (a mention): ⌘V then pastes into the document as usual.
-    private func pasteIntoDraft() -> Response? {
-        guard pastesIntoDraft, !isLevelTwo, voice == .off, !draft.isEmpty else { return nil }
+    /// ⌘V or ⌃V with a draft pending ("@improve ", a command name being typed, a sentence-mode draft):
+    /// the clipboard's text will join the draft instead of the document (`pasted`), so the action key
+    /// then runs on it. Pinyin still being typed is converted first, and "@imp" picks its command. Nil
+    /// without a draft, and after "@" alone (a mention): the key then does what it does in the app.
+    /// ⌘V is left to apps that paste on it themselves (`pastesIntoDraft`); ⌃V works everywhere.
+    private func pasteIntoDraft(evenWhereTheAppPastes: Bool = false) -> Response? {
+        guard pastesIntoDraft || evenWhereTheAppPastes, !isLevelTwo, voice == .off, !draft.isEmpty else { return nil }
         if let query = paletteQuery, query.isEmpty || paletteMatches.isEmpty { return nil }
         var effects: [Effect] = []
         if paletteQuery != nil { _ = complete(paletteMatches) }  // the draft is now "@name "
