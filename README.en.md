@@ -217,13 +217,13 @@ You don't need AWS: pick one under "AI Provider" in the settings, paste an API k
 
 | Provider | Default model | API key |
 |---|---|---|
-| Claude API | `claude-opus-5-5` (Sonnet 5.5 and Haiku 5.5 are faster and cheaper) | [Claude Console](https://platform.claude.com) |
+| Claude API | `claude-haiku-5-5` (fastest, cheapest; Sonnet 5.5 and Opus 5.5 are more careful but slower and pricier) | [Claude Console](https://platform.claude.com) |
 | Gemini API | `gemini-3.8-flash` | Google AI Studio |
 | OpenAI-compatible | Your choice, e.g. DeepSeek's `deepseek-chat` | The service's key; set the Base URL to its address, e.g. `https://api.deepseek.com/v1`, or `http://localhost:11434/v1` for Ollama on this Mac |
 
 - API keys are kept in the system keychain, never in the config file. Without one there, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) and `OPENAI_API_KEY` from your shell are used.
 - "Thinking" is low by default: the input method waits on every sentence, and less thinking is faster. Choose "Not set" for models that don't take it.
-- With Claude Opus 5.5 and Sonnet 5.5, requests carry the Claude API's refusal fallback (`fallbacks: "default"`): when a safety classifier declines, the server retries on another model.
+- With Claude Opus 5.5 or Sonnet 5.5 chosen, requests carry the Claude API's refusal fallback (`fallbacks: "default"`): when a safety classifier declines, the server retries on another model.
 - In the config file: `provider` (`"bedrock"`, `"anthropic"`, `"gemini"`, `"openai"`), and `model`, `baseURL`, `effort` and `temperature` under `anthropic`, `gemini` and `openai` (unset ones use the defaults).
 
 All settings are stored in `~/.config/allinoneime/config.json`; after a change, the next translation uses the new settings, with no restart. The newer keys:

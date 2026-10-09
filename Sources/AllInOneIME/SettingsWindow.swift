@@ -16,9 +16,9 @@ struct SuggestedModel: Identifiable, Hashable {
         case .bedrock: return all
         case .anthropic:
             return [
-                SuggestedModel(id: "claude-opus-5-5", title: "Claude Opus 5.5", note: tr("默认，最强", "Default, the most capable")),
-                SuggestedModel(id: "claude-sonnet-5-5", title: "Claude Sonnet 5.5", note: tr("更快、更便宜", "Faster, cheaper")),
-                SuggestedModel(id: "claude-haiku-5-5", title: "Claude Haiku 5.5", note: tr("最快、最便宜", "Fastest, cheapest")),
+                SuggestedModel(id: "claude-haiku-5-5", title: "Claude Haiku 5.5", note: tr("默认：最快、最便宜", "Default: fastest, cheapest")),
+                SuggestedModel(id: "claude-sonnet-5-5", title: "Claude Sonnet 5.5", note: tr("更用心，慢一些", "More careful, slower")),
+                SuggestedModel(id: "claude-opus-5-5", title: "Claude Opus 5.5", note: tr("最强，最慢最贵", "Most capable, slowest, priciest")),
             ]
         case .gemini:
             return [SuggestedModel(id: "gemini-3.8-flash", title: "Gemini 3.8 Flash", note: tr("默认", "Default"))]
@@ -670,7 +670,7 @@ struct SettingsView: View {
 
     static func modelExample(_ provider: Provider) -> String {
         switch provider {
-        case .anthropic: return "claude-haiku-5-5"
+        case .anthropic: return "claude-sonnet-5-5"
         case .gemini: return "gemini-3.8-flash"
         case .openai: return "deepseek-chat"
         case .bedrock: return "us.anthropic.claude-haiku-4-5-20251001-v1:0"

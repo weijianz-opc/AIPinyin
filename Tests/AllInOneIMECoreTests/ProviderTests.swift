@@ -19,12 +19,13 @@ struct ProviderTests {
     }
 
     @Test func claudeRequest() throws {
-        let r = try request(.anthropic)
+        let r = try request(.anthropic, ProviderSettings(model: "claude-opus-5-5"))
         #expect(r.url?.absoluteString == "https://api.anthropic.com/v1/messages")
         #expect(r.value(forHTTPHeaderField: "x-api-key") == "sk-test")
         #expect(r.value(forHTTPHeaderField: "anthropic-version") == "2023-06-01")
         let j = try json(r)
         #expect(j["model"] as? String == "claude-opus-5-5" && j["stream"] as? Bool == true)
+        #expect(try json(request(.anthropic))["model"] as? String == "claude-haiku-5-5")  // the default
         #expect(j["system"] as? String == "You are the writing assistant.")
         #expect((j["messages"] as? [[String: String]])?.map { $0["role"]! } == ["user", "assistant", "user"])
         #expect((j["output_config"] as? [String: String])?["effort"] == "low")
@@ -33,7 +34,7 @@ struct ProviderTests {
         // The refusal fallback, on the models that take it.
         #expect(j["fallbacks"] as? String == "default")
         #expect(r.value(forHTTPHeaderField: "anthropic-beta") == "server-side-fallback-2026-07-01")
-        let haiku = try request(.anthropic, ProviderSettings(model: "claude-haiku-5-5", effort: ""))
+        let haiku = try request(.anthropic, ProviderSettings(effort: ""))
         let h = try json(haiku)
         #expect(h["fallbacks"] == nil && haiku.value(forHTTPHeaderField: "anthropic-beta") == nil)
         #expect(h["output_config"] == nil && h["max_tokens"] as? Int == 1000)
@@ -115,7 +116,7 @@ struct ProviderTests {
             """.utf8))
         #expect(config.provider == .openai && config.activeModel == "openai:deepseek-chat")
         #expect(config.settings(for: .openai).baseURL == "https://api.deepseek.com/v1")
-        #expect(config.settings(for: .anthropic).model == "claude-opus-5-5")  // defaults for the others
+        #expect(config.settings(for: .anthropic).model == "claude-haiku-5-5")  // defaults for the others
         let old = try JSONDecoder().decode(Config.self, from: Data("{}".utf8))
         #expect(old.provider == .bedrock && old.activeModel == Config.default.modelId)  // existing files keep Bedrock
         let again = try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(config))

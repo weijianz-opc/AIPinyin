@@ -56,8 +56,8 @@ public struct ProviderSettings: Codable, Equatable, Sendable {
         case .bedrock:
             return ProviderSettings()
         case .anthropic:
-            // Low effort: an input method waits on every sentence.
-            return ProviderSettings(model: "claude-opus-5-5", baseURL: "https://api.anthropic.com", effort: "low")
+            // The fastest, cheapest Claude at low effort: an input method waits on every sentence.
+            return ProviderSettings(model: "claude-haiku-5-5", baseURL: "https://api.anthropic.com", effort: "low")
         case .gemini:
             return ProviderSettings(model: "gemini-3.8-flash", baseURL: "https://generativelanguage.googleapis.com",
                                     effort: "low")
