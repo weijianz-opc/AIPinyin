@@ -13,7 +13,7 @@ public enum ActionKey: String, Codable, CaseIterable, Sendable {
     /// Space on a finished sentence, a double Space in English mode (the original behavior).
     case space
 
-    /// Name in hints and settings ("⏎ → 翻译成英文").
+    /// Name in hints and settings ("⏎ → 翻译成英文": ⏎ → translate into English).
     public var displayName: String {
         switch self {
         case .enter: return "⏎"
@@ -23,8 +23,9 @@ public enum ActionKey: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// How to press it, as in "打中文按 ⏎": "按 ⏎", "按 ⌥空格", "单按 ⌥", "按空格"; for English input
-    /// with `space`, "连按两次空格".
+    /// How to press it, in Chinese, as in "打中文按 ⏎" (type Chinese, press ⏎): "按 ⏎", "按 ⌥空格",
+    /// "单按 ⌥", "按空格"; for English input with `space`, "连按两次空格" (press Space twice).
+    /// `UIText.howToPress` has the English.
     public func howToPress(english: Bool = false) -> String {
         switch self {
         case .enter: return "按 ⏎"

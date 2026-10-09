@@ -147,7 +147,8 @@ let benchSamples = [
     "好的",
 ]
 
-/// "改写" if the rewrite changed the wording, "≈原文" if it only changed punctuation, "无" if missing.
+/// "改写" (rewritten) if the rewrite changed the wording, "≈原文" (≈ original) if it only changed
+/// punctuation, "无" (none) if missing.
 func rewriteStatus(_ line: CandidateLine?, original: String) -> String {
     guard let line, !line.text.isEmpty else { return "无" }
     return line.text.wordingKey == original.wordingKey ? "≈原文" : "改写"

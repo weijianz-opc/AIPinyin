@@ -15,7 +15,7 @@ public struct Config: Codable, Equatable, Sendable {
     /// Network idle timeout for one conversion request.
     public var timeoutSeconds: Double
     /// Rewrite presets offered after the three main versions, in this order (names from
-    /// `RewriteStyle.catalog`, e.g. "润色", "简洁", "正式"); empty = main versions only.
+    /// `RewriteStyle.catalog`, e.g. "润色" polish, "简洁" concise, "正式" formal); empty = main versions only.
     /// Rewrites are in the language the sentence was typed in.
     public var rewriteStyles: [String]
     /// Language of the three main versions (1–3): a sentence in another language is translated,
@@ -23,12 +23,12 @@ public struct Config: Codable, Equatable, Sendable {
     public var outputLanguage: Language
     /// Mode a new text field starts in: pinyin (Chinese) or English letters.
     public var defaultInput: Language
-    /// With AI on, English typed in English mode also collects into a draft that the action key
+    /// In sentence mode, English typed in English mode also collects into a draft that the action key
     /// sends to the model (false: English letters go straight to the application).
     public var englishAI: Bool
     /// Hold the right Option key to dictate into the draft (on-device speech recognition).
     public var voiceInput: Bool
-    /// The user's own jargon list for the 黑话 style (see `JargonLibrary`); nil = the default file.
+    /// The user's own jargon list for the jargon (黑话) style (see `JargonLibrary`); nil = the default file.
     public var jargonFile: String?
     /// The key that sends a finished sentence to the model.
     public var actionKey: ActionKey

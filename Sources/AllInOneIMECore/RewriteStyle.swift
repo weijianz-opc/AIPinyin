@@ -1,6 +1,6 @@
 import Foundation
 
-/// A preset for the level-two rewrites ("润色", "简洁", …), written in the language the sentence was
+/// A preset for the level-two rewrites ("润色" polish, "简洁" concise, …), written in the language the sentence was
 /// typed in. Which presets are offered, and in which order, comes from `Config.rewriteStyles`.
 public struct RewriteStyle: Equatable, Sendable {
     /// Shown in the candidate panel and the input menu; also what `Config.rewriteStyles` lists.
@@ -96,7 +96,7 @@ public struct RewriteStyle: Equatable, Sendable {
 
     public static let defaultNames = ["润色", "简洁", "正式"]
 
-    /// The 黑话 preset (it can use the user's own jargon list).
+    /// The jargon (黑话) preset (it can use the user's own jargon list).
     public static let jargonTag = "JARGON"
     public static let jargonName = "黑话"
 

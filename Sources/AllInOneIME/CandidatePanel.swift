@@ -234,7 +234,7 @@ final class CandidateView: NSView {
         }
         if !row.comment.isEmpty {
             let color: NSColor = highlighted ? NSColor.white.withAlphaComponent(0.7) : .tertiaryLabelColor
-            // No-break spaces and word joiners: when the line wraps, the comment ("黑话") moves as one
+            // No-break spaces and word joiners: when the line wraps, the comment ("黑话", jargon) moves as one
             // piece together with the last word instead of breaking between its characters.
             let glued = "\u{00A0}\u{00A0}" + row.comment.map(String.init).joined(separator: "\u{2060}")
             text.append(NSAttributedString(string: glued, attributes: [.font: Fonts.comment, .foregroundColor: color]))

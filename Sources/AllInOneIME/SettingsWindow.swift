@@ -46,7 +46,7 @@ final class SettingsModel: ObservableObject {
     private let persists: Bool
     private var testTask: Task<Void, Never>?
     /// Screenshots only: the name shown for the selected AWS profile. README images are public and a
-    /// profile is often named after its owner; the keys, region and 测试连接 still use the real one.
+    /// profile is often named after its owner; the keys, region and Test Connection (测试连接) still use the real one.
     var profileShownAs: String?
 
     init(configURL: URL = Config.defaultURL,

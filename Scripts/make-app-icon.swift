@@ -1,4 +1,4 @@
-// Builds Resources/AppIcon.icns (the input method and 「AllInOneIME 设置」 app icon) from the
+// Builds Resources/AppIcon.icns (the input method's and the AllInOneIME Settings app's icon) from the
 // 1024 px master Resources/AppIcon.png. Run:
 //   swift Scripts/make-app-icon.swift Resources/AppIcon.png Resources/AppIcon.icns
 import AppKit

@@ -244,7 +244,7 @@ struct ComposerTests {
         type("hi", d)
         _ = d.choose(index: 0)  // mouse click
         #expect(d.draft == "👋")
-        // AI off: picks go straight to the document.
+        // Without sentence mode: picks go straight to the document.
         let (o, g) = composer(ai: false)
         g.dictionary["rq"] = ["2026-10-06"]
         type("rq", o)
@@ -350,7 +350,7 @@ struct ComposerTests {
         _ = e.receive(ConversionResult(versions: [CandidateLine("Hi.")],
                                        rewrites: rewrites([("润色", "您好！"), ("正式", "您好。")])),
                       isFinal: true, id: 1)
-        #expect(e.choices.map(\.label) == ["0", "1", "4"])  // 正式 repeats the 润色 wording
+        #expect(e.choices.map(\.label) == ["0", "1", "4"])  // 正式 (formal) repeats the 润色 (polish) wording
         #expect(e.choices.last?.kind == .rewrite("润色"))
     }
 
@@ -1186,7 +1186,7 @@ struct ComposerTests {
     let at = KeyEvent(keyCode: 0x13, characters: "@", charactersIgnoringModifiers: "@", modifiers: .shift)
     let tab = KeyEvent(keyCode: VirtualKey.tab, characters: "\t")
 
-    /// A composer (单按 ⌥) with "@" typed.
+    /// A composer (action key: a tap of ⌥) with "@" typed.
     func palette(_ query: String = "", english: Bool = false, englishAI: Bool = true) -> (Composer, FakeEngine) {
         let (c, e) = composer(englishAI: englishAI, key: .optionTap)
         if english { c.setInputMode(.english) }
@@ -1249,7 +1249,7 @@ struct ComposerTests {
         _ = b.handleKeyDown(backspaceKey)
         #expect(b.draft == "@")
         #expect(b.handleKeyDown(backspaceKey).effects == [.updateMarkedText, .hidePanel] && b.phase == .idle)
-        // "@" inside a sentence, or with AI off, is just text.
+        // "@" inside a sentence is just text.
         let (m, _) = composer(key: .optionTap)
         type("nihao", m)
         _ = m.handleKeyDown(spaceKey)

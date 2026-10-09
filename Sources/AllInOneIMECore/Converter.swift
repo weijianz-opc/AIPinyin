@@ -17,7 +17,7 @@ public struct ConversionUpdate: Equatable, Sendable {
 public final class Converter: Sendable {
     public typealias ConfigLoader = @Sendable () throws -> Config
     public typealias CredentialLoader = @Sendable (_ profile: String) throws -> AWSSharedConfig.Resolved
-    /// The user's jargon list for a config (only asked for when the 黑话 style is on).
+    /// The user's jargon list for a config (only asked for when the jargon (黑话) style is on).
     public typealias JargonLoader = @Sendable (_ config: Config) -> [JargonEntry]
 
     private let client: BedrockClient

@@ -34,7 +34,7 @@ enum RimeDirectories {
     }
 }
 
-/// Opens the settings window when the input method is "opened" again (the 「AllInOneIME 设置」 app does
+/// Opens the settings window when the input method is "opened" again (the AllInOneIME Settings app does
 /// that). The text input system never sends reopen events, so typing is unaffected.
 final class IMEAppDelegate: NSObject, NSApplicationDelegate {
     static let shared = IMEAppDelegate()
@@ -153,12 +153,20 @@ func register() -> Int32 {
     prepareDictionaries()
     _ = printStatus()
     if !enabled {
-        print("""
+        // In the interface language (the setting, else the system's): the menu names are the system's.
+        UIText.choice = (try? Config.load())?.uiLanguage
+        print(tr("""
 
             macOS 需要你手动添加一次（“键盘”设置应该已经打开）：
               系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME → 添加
             之后用 Ctrl+Space 或 🌐 键切换到 AllInOneIME。
-            """)
+            """, """
+
+            macOS needs you to add it once (Keyboard settings should have opened):
+              System Settings → Keyboard → Text Input › Input Sources "Edit…" → + at the bottom left
+              → Chinese, Simplified → AllInOneIME → Add
+            Then switch to AllInOneIME with Ctrl+Space or the 🌐 key.
+            """))
     }
     return 0
 }
@@ -257,7 +265,7 @@ case "--selftest":
     let directory = URL(fileURLWithPath: arguments.count > 1 ? arguments[1] : "/tmp/allinoneime-selftest")
     exit(MainActor.assumeIsolated { SelfTest.run(snapshotDirectory: directory) })
 case "--settings":
-    // Started by the 「AllInOneIME 设置」 app: serve as the input method and show the settings window.
+    // Started by the AllInOneIME Settings app: serve as the input method and show the settings window.
     runServer(showSettings: true)
 case "-h", "--help":
     print(usage)

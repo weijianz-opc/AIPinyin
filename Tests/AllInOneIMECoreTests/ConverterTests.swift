@@ -311,7 +311,7 @@ struct ConverterTests {
             },
             loadJargon: { _ in state.withLock { $0.reads += 1; return $0.list } })
         _ = try await collect(converter.convert("我今天有点不舒服"))
-        #expect(state.withLock { $0.reads } == 0)  // no 黑话: the list isn't even read
+        #expect(state.withLock { $0.reads } == 0)  // no jargon (黑话) style: the list isn't even read
         state.withLock { $0.config.rewriteStyles = ["黑话"] }
         let first = try await collect(converter.convert("我今天有点不舒服"))
         #expect(first.last?.fromCache == false && state.withLock { $0.reads } == 1)

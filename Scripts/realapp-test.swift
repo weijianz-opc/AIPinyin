@@ -5,7 +5,7 @@
 // Keys are CGEvent-backed events dispatched to this app's own window, so they take the same
 // NSTextInputContext → IMK path as real typing, need no Accessibility permission, and never reach
 // other apps. The input source is switched to AllInOneIME for the test and restored afterwards;
-// the AI on/off setting is restored too.
+// the sentence mode setting is restored too.
 //
 // Run with: make realtest
 import AppKit
@@ -29,13 +29,13 @@ func selectInputSource(_ id: String) -> Bool {
     return TISSelectInputSource(source) == noErr
 }
 
-/// The input method's persisted "AI on" switch (nil = never set, which means on).
+/// The input method's persisted sentence mode setting (nil = never set, which means off).
 func sentenceModeSetting() -> Bool? {
     CFPreferencesAppSynchronize(imeID as CFString)
     return CFPreferencesCopyAppValue("sentenceMode" as CFString, imeID as CFString) as? Bool
 }
 
-/// Writes (or with nil removes) the input method's "AI on" switch.
+/// Writes (or with nil removes) the input method's sentence mode setting.
 func setSentenceModeSetting(_ value: Bool?) {
     CFPreferencesSetAppValue("sentenceMode" as CFString, value.map { $0 as CFPropertyList }, imeID as CFString)
     CFPreferencesAppSynchronize(imeID as CFString)

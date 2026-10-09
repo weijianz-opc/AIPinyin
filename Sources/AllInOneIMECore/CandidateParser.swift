@@ -11,7 +11,7 @@ public struct CandidateLine: Equatable, Sendable {
     }
 }
 
-/// One rewrite in a preset style ("简洁", "正式", …), in the language the sentence was typed in.
+/// One rewrite in a preset style ("简洁" concise, "正式" formal, …), in the language the sentence was typed in.
 public struct Rewrite: Equatable, Sendable {
     /// `RewriteStyle.name`
     public var style: String

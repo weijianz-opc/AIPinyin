@@ -40,7 +40,7 @@ enum LiveConfig {
     }
 }
 
-/// The user's jargon list (for explaining the terms a 黑话 line uses), re-read when the file changes.
+/// The user's jargon list (for explaining the terms a jargon (黑话) line uses), re-read when the file changes.
 enum LiveJargon {
     private static var cached: (url: URL, date: Date?, entries: [JargonEntry])?
 
@@ -74,7 +74,7 @@ final class AllInOneIMEInputController: IMKInputController {
     /// Shown once each time composing gets paused for secure input.
     private var secureNoticeShown = false
     var converter: Converter = sharedConverter
-    /// Persists the AI on/off switch (the self-test replaces this so it leaves the setting alone).
+    /// Persists the sentence mode switch (the self-test replaces this so it leaves the setting alone).
     var saveSentenceMode: (Bool) -> Void = { Settings.sentenceMode = $0 }
     /// Whether secure event input is on anywhere; no text is sent to the model then.
     /// (The self-test replaces this to exercise both states.)
@@ -207,7 +207,7 @@ final class AllInOneIMEInputController: IMKInputController {
         applySettings()
     }
 
-    /// Takes over the current settings: AI switch, English drafts, voice key, action key, and the
+    /// Takes over the current settings: sentence mode, English drafts, voice key, action key, and the
     /// default input mode (applied to new sessions, and again when the setting changes; a Shift toggle
     /// otherwise sticks).
     @MainActor
@@ -629,8 +629,8 @@ final class AllInOneIMEInputController: IMKInputController {
         }
     }
 
-    /// Short status message ("英", "AI 翻译：关" …): its own small panel when nothing else is shown,
-    /// otherwise the right side of the footer.
+    /// Short status message ("英" English mode, "整句模式：关" sentence mode off, …): its own small
+    /// panel when nothing else is shown, otherwise the right side of the footer.
     @MainActor
     private func showNotice(_ text: String, client: IMKTextInput?) {
         let client = client ?? clientOverride ?? self.client()
@@ -704,7 +704,7 @@ final class AllInOneIMEInputController: IMKInputController {
                     return CandidateView.Row(label: choice.label, text: Self.preview(choice.text), style: .translation,
                                              isComplete: choice.isComplete)
                 case let .rewrite(style):
-                    // A 黑话 line notes what the terms from the user's jargon list in it mean.
+                    // A jargon (黑话) line notes what the terms from the user's jargon list in it mean.
                     let note = style == RewriteStyle.jargonName
                         ? JargonLibrary.annotation(for: choice.text, entries: LiveJargon.entries(for: config)) : nil
                     let name = RewriteStyle.named(style).map(UIText.name) ?? style

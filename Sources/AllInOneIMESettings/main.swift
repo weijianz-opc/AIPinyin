@@ -1,4 +1,4 @@
-// 「AllInOneIME 设置」 (AllInOneIME Settings): a small app in ~/Applications so the settings are easy
+// AllInOneIME Settings (「AllInOneIME 设置」): a small app in ~/Applications so the settings are easy
 // to find (Spotlight, Launchpad, Finder). macOS only shows options for its own input methods in
 // System Settings, so third-party input methods ship their own entry point like this one.
 //

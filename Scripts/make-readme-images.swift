@@ -2,7 +2,7 @@
 //   swift Scripts/make-readme-images.swift /tmp/allinoneime-selftest docs          Chinese interface and captions
 //   swift Scripts/make-readme-images.swift /tmp/allinoneime-selftest docs/en en    English (the `-en` renders)
 // demo.png      pinyin → translation, side by side, each under a text line with the inline (marked) text
-// english.png   English typed directly → English polish (with 黑话); Chinese as the output language
+// english.png   English typed directly → English polish (with jargon, 黑话); Chinese as the output language
 // voice.png     dictation (hold right ⌥) after a command
 // commands.png  the @ command palette → @question's answer
 // open.png      @open: Spotlight as you type, and a path listing a folder (only macOS's own apps)

@@ -12,10 +12,10 @@ public struct JargonEntry: Equatable, Sendable {
     }
 }
 
-/// The user's own jargon list for the 黑话 style ("bring your own"; nothing is built in): a plain
+/// The user's own jargon list for the jargon (黑话) style ("bring your own"; nothing is built in): a plain
 /// text file with one term per line, optionally followed by its meaning after "：", ":", "=", a tab
 /// or " - ". Lines starting with # are comments. With a list, the model prefers its terms, and the
-/// candidate panel explains the ones a 黑话 line uses.
+/// candidate panel explains the ones a jargon (黑话) line uses.
 public enum JargonLibrary {
     /// At most this many entries are read (and sent with a request).
     public static let maxEntries = 150

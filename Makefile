@@ -95,7 +95,7 @@ icon:
 	swift Scripts/make-icon.swift Resources/AppIcon.png Resources/icon.tiff
 	swift Scripts/make-app-icon.swift Resources/AppIcon.png Resources/AppIcon.icns
 
-# 「AllInOneIME 设置」 (AllInOneIME Settings): launcher app for ~/Applications (Spotlight / Launchpad /
+# AllInOneIME Settings (「AllInOneIME 设置」): launcher app for ~/Applications (Spotlight / Launchpad /
 # Finder) that opens the input method's settings window. macOS shows no options for third-party input
 # methods in System Settings. Finder shows its name in the system language (Settings-*.lproj).
 SETTINGS_NAME := AllInOneIME Settings

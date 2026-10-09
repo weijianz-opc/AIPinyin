@@ -5,9 +5,9 @@ import Foundation
 /// Level one is a local pinyin engine (Rime): typing, selecting and committing words works like any
 /// pinyin input method, and without an @ command that is all it does. A sentence that starts with an
 /// @ command (`Command`, e.g. "@question …") collects into a *draft* (shown inline, not yet in the
-/// document) instead of being inserted; in `sentenceMode` (the original flow) every sentence does. In English mode, typed letters can start a
-/// draft too (`englishAI`), and holding the right Option key dictates into the draft. The action
-/// key (`ActionKey`: Return by default, an Option tap, ⌥Space, or Space on a finished draft) starts
+/// document) instead of being inserted; in `sentenceMode` (the original flow) every sentence does. In
+/// English mode, typed letters can start a draft too (`englishAI`), and holding the right Option key
+/// dictates into the draft. The action key (`ActionKey`: Return by default, an Option tap, ⌥Space, or Space on a finished draft) starts
 /// level two: pinyin still being typed is converted first, then the sentence goes to the model, which
 /// streams three versions in the output language and rewrites in the configured styles, or to the
 /// @ command at its start (`Command`).
@@ -16,7 +16,7 @@ import Foundation
 ///      ▲               │   ▲ ◀──────────── Esc / ⌫ / typing more ────────────────────────┘ │
 ///      └── ⏎ commits draft ┘ ◀──────────────── Space / digits / ⏎ commit ──────────────────┘
 ///
-/// With AI off, level one behaves like a plain Rime input method (commits go straight to the document).
+/// Without sentence mode or an @ command, level one is a plain Rime input method (commits go straight in).
 /// The input controller performs the returned `Effect`s in order. Main thread only.
 public final class Composer {
     public enum Phase: Equatable, Sendable {
@@ -76,7 +76,7 @@ public final class Composer {
         case hidePanel
         /// Briefly show a status message near the caret.
         case notice(String)
-        /// The AI setting was toggled; persist it.
+        /// Sentence mode was toggled; persist it.
         case sentenceModeChanged(Bool)
         /// The right Option key went down on its own: call `voiceHoldElapsed` after `delay` seconds.
         case armVoice(delay: Double)
@@ -109,7 +109,7 @@ public final class Composer {
             case original
             /// One of the three main versions in the output language.
             case version
-            /// A rewrite in the sentence's own language; the value is the style name ("简洁", …).
+            /// A rewrite in the sentence's own language; the value is the style's Chinese name ("简洁", …).
             case rewrite(String)
             /// What a `.generate` command (`@question`, `@claude`) wrote.
             case answer
@@ -195,7 +195,7 @@ public final class Composer {
     /// then: a terminal command doesn't start Claude Code, and its text stays in the draft. (The other
     /// commands are refused by the controller, which sends their requests.)
     public var secureInputActive: () -> Bool = { false }
-    /// Confirmed text waiting for level two (AI mode only).
+    /// Confirmed text waiting for level two (an @ command, or any sentence in sentence mode).
     public private(set) var draft = ""
     /// Last known state of the level-one engine.
     public private(set) var engineState = EngineSnapshot.empty
@@ -204,7 +204,7 @@ public final class Composer {
     /// Sentence mode (the original flow): text collects into a draft without an @ command too, and
     /// the action key improves it. Off: a regular input method, with drafts only for @ commands.
     public var sentenceMode: Bool
-    /// With AI on, English-mode typing starts a draft (otherwise letters go to the application).
+    /// In sentence mode, English-mode typing starts a draft (otherwise letters go to the application).
     public var englishAI: Bool
     /// Holding the right Option key records speech.
     public var voiceEnabled: Bool
@@ -608,8 +608,8 @@ public final class Composer {
         return [.updateMarkedText, .showPanel]
     }
 
-    /// The final transcript: it continues the draft (AI on) or is inserted (AI off). If the translate
-    /// key was pressed during dictation, the sentence then goes to the model.
+    /// The final transcript: it continues the draft (one is pending, or sentence mode is on) or is
+    /// inserted. If the action key was pressed during dictation, the sentence then goes to the model.
     public func voiceFinished(_ text: String, id: Int) -> [Effect] {
         guard voice.id == id else { return [] }
         voice = .off

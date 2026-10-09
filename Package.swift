@@ -48,7 +48,7 @@ let package = Package(
         // Developer tool: run level two (translate/polish) from the terminal.
         .executableTarget(name: "allinoneime-cli", dependencies: ["AllInOneIMECore"]),
 
-        // 「AllInOneIME 设置」: a launcher in ~/Applications that opens the input method's settings window.
+        // AllInOneIME Settings (「AllInOneIME 设置」): a launcher in ~/Applications that opens the settings window.
         .executableTarget(name: "AllInOneIMESettings", swiftSettings: [.swiftLanguageMode(.v5)]),
 
         .testTarget(

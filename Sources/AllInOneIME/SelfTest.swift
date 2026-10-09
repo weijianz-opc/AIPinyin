@@ -214,7 +214,7 @@ enum SelfTest {
         }
 
         // Rendered offscreen (nothing appears on screen) for a visual check and the README: the
-        // real config, read-only, with a live 测试连接 result.
+        // real config, read-only, with a live Test Connection (测试连接) result.
         let list = dir.appendingPathComponent("jargon.txt")
         try? Data("# 我们组的\nbandwidth：精力\nLP\tLeadership Principles\n抓手 - 着力点\n".utf8).write(to: list)
         model.config.jargonFile = list.path
@@ -309,7 +309,7 @@ enum SelfTest {
         return controller.composer.phase == .choosing
     }
 
-    /// English typed in English mode → English polish (and English rewrites, incl. 黑话); Chinese
+    /// English typed in English mode → English polish (and English rewrites, incl. jargon, 黑话); Chinese
     /// output; the default input mode.
     static func testEnglishAndOutput(_ controller: AllInOneIMEInputController, _ client: FakeTextClient,
                                      snapshotDirectory: URL) {
@@ -336,7 +336,7 @@ enum SelfTest {
             check(!rewrites.isEmpty && rewrites.allSatisfy { !$0.text.containsHan }, "rewrites stay in English")
             check(rewrites.contains { $0.kind == .rewrite("黑话") }, "黑话 rewrite present")
             readmeSnapshot("7-english-light", controller, client, in: snapshotDirectory)
-            // The user's own jargon list: the 黑话 row notes what the list's terms in it mean.
+            // The user's own jargon list: the jargon (黑话) row notes what the list's terms in it mean.
             let jargonFile = snapshotDirectory.appendingPathComponent("jargon.txt")
             try? Data("bandwidth：精力、时间\nminor issue：小问题（其实很严重）\n".utf8).write(to: jargonFile)
             settings.jargonFile = jargonFile.path
@@ -568,7 +568,7 @@ enum SelfTest {
             _ = pump(timeout: 5) { !controller.composer.currentLiveResults.isEmpty }
             return controller.composer.currentLiveResults
         }
-        // Lets a notice from before (中 / 英, 已在终端打开 Claude Code) expire: not in the README images.
+        // Lets a notice from before (the 中 / 英 mode switch, Claude Code opened in Terminal) expire: not in the README images.
         func settle() { _ = pump(timeout: 6) { controller.panelModel().detail == nil } }
 
         settle()
@@ -580,7 +580,7 @@ enum SelfTest {
         type("q", controller, client)
         _ = enter(controller, client)
         check(client.marked == "@question ", "⏎ picks @question ('\(client.marked)')")
-        type("shenmeshiliangzijisuan", controller, client)  // 什么是量子计算
+        type("shenmeshiliangzijisuan", controller, client)  // 什么是量子计算: what is quantum computing
         _ = enter(controller, client)  // converts the pinyin and asks
         if finishConversion(controller, "@question") {
             let answer = controller.composer.choices.last
@@ -597,7 +597,7 @@ enum SelfTest {
         at()
         type("cl", controller, client)
         _ = space(controller, client)
-        type("bangwoxiegeshellxiaojiaoben", controller, client)  // 帮我写个shell小脚本
+        type("bangwoxiegeshellxiaojiaoben", controller, client)  // 帮我写个shell小脚本: write me a small shell script
         let insertedBefore = client.inserted
         _ = enter(controller, client)
         check(terminal.count == 1 && terminal.first?.hasPrefix("帮我写") == true && client.inserted == insertedBefore
@@ -982,7 +982,7 @@ enum SelfTest {
         check(press(controller, client, "0", code: 0x1D) && client.inserted.last == "你好", "0 still inserts the Chinese")
         // The rest exercises the normal state (the real flag may be on now, e.g. while the screen is locked).
         controller.secureInputActive = { false }
-        _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // the 中/英 notice, not in the README images
+        _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // the 中/英 (Chinese/English) notice, not in the README images
 
         print("— level two: translate + polish (live Bedrock)")
         type("wojintianyoudianbushufu", controller, client)
@@ -1085,7 +1085,8 @@ enum SelfTest {
         controller.applySettings()
         check(controller.composer.actionKey == .enter, "back to ⏎")
 
-        // The cached sentence once more, with the interface in English (an English system, or 界面语言 English).
+        // The cached sentence once more, with the interface in English (an English system, or the
+        // Interface language setting, 界面语言, set to English).
         print("— interface language: English")
         settings.uiLanguage = .english
         controller.applySettings()
@@ -1115,7 +1116,7 @@ enum SelfTest {
         settings.uiLanguage = .chinese
         controller.applySettings()
         check(controller.composer.messages == .chinese && UIText.chinese, "back to Chinese")
-        _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // let the 中 notice expire
+        _ = pump(timeout: 3) { controller.panelModel().detail == nil }  // let the 中 (Chinese mode) notice expire
 
         testEnglishAndOutput(controller, client, snapshotDirectory: snapshotDirectory)
         testVoice(controller, client, snapshotDirectory: snapshotDirectory)
