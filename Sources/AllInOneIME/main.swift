@@ -21,15 +21,21 @@ func printError(_ message: String) {
 
 /// Where level one keeps its data: dictionaries shipped in the bundle, learned words per user.
 enum RimeDirectories {
+    /// Folder name for the per-user data: "AllInOneIME", or the beta's own (`make install-beta` sets
+    /// `AllInOneIMEDataFolder`), so the two can run side by side: Rime's user dictionary can only be
+    /// open in one process. Both use the same settings file.
+    static var folder: String {
+        Bundle.main.object(forInfoDictionaryKey: "AllInOneIMEDataFolder") as? String ?? "AllInOneIME"
+    }
     static var shared: URL? {
         Bundle.main.sharedSupportURL?.appendingPathComponent("rime")
     }
     static var user: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/AllInOneIME/Rime")
+            .appendingPathComponent("Library/Application Support/\(folder)/Rime")
     }
     static var logs: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/AllInOneIME")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/\(folder)")
     }
 }
 
@@ -143,11 +149,12 @@ func register() -> Int32 {
     prepareDictionaries()
     _ = printStatus()
     if !enabled {
+        let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "AllInOneIME"
         print("""
 
             macOS 需要你手动添加一次（“键盘”设置应该已经打开）：
-              系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME → 添加
-            之后用 Ctrl+Space 或 🌐 键切换到 AllInOneIME。
+              系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → \(name) → 添加
+            之后用 Ctrl+Space 或 🌐 键切换到 \(name)。
             """)
     }
     return 0

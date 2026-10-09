@@ -21,7 +21,7 @@ RIME_LIB   := $(RIME_DIST)/lib/librime.1.dylib
 RIME_DATA  := $(DEPS)/rime-data
 RIME_BUILT := $(RIME_DATA)/build/rime_ice.table.bin
 
-.PHONY: all deps build app settings-app test icon install uninstall cli status selftest screenshots realtest realtest-build realtest-run realtest-when-unlocked realtest-cancel clean distclean
+.PHONY: all deps build app settings-app test icon install uninstall beta install-beta uninstall-beta cli status selftest screenshots realtest realtest-build realtest-run realtest-when-unlocked realtest-cancel clean distclean
 
 all: app
 
@@ -149,6 +149,59 @@ uninstall:
 	@pkill -x $(APP_NAME) || true
 	@pkill -x $(LEGACY_APP_NAME) || true
 	rm -rf "$(INSTALLED_APP)" "$(USER_APPS)/$(SETTINGS_NAME).app" "$(LEGACY_INSTALLED_APP)" "$(LEGACY_SETTINGS_APP)"
+
+# A beta next to the installed input method (to try a branch without giving up the main build):
+# 「AllInOneIME Beta」 with its own bundle and input source ID, connection, process name and data
+# folder (Rime's learned words: its user dictionary can only be open in one process), an outlined
+# menu-bar icon, and the same settings file. Like the main one, it is added once in System Settings.
+BETA_NAME      := AllInOneIME Beta
+BETA_EXEC      := AllInOneIMEBeta
+BETA_ID        := com.aipinyin.inputmethod.AIPinyinBeta
+BETA_APP       := $(BUILD_DIR)/$(BETA_NAME).app
+INSTALLED_BETA := $(INSTALL_DIR)/$(BETA_NAME).app
+BETA_ICON      := $(BUILD_DIR)/icon-beta.tiff
+
+$(BETA_ICON): Scripts/make-icon.swift Resources/AppIcon.png
+	mkdir -p $(BUILD_DIR)
+	swift Scripts/make-icon.swift Resources/AppIcon.png $@ --beta
+
+# The regular bundle, renamed and re-signed (no copy with the main bundle ID is left in build/).
+beta: app $(BETA_ICON)
+	rm -rf "$(BETA_APP)"
+	-"$(LSREGISTER)" -u "$(APP)" 2>/dev/null
+	mv "$(APP)" "$(BETA_APP)"
+	mv "$(BETA_APP)/Contents/MacOS/$(APP_NAME)" "$(BETA_APP)/Contents/MacOS/$(BETA_EXEC)"
+	cp $(BETA_ICON) "$(BETA_APP)/Contents/Resources/icon-beta.tiff"
+	plutil -replace CFBundleIdentifier -string $(BETA_ID) "$(BETA_APP)/Contents/Info.plist"
+	plutil -replace TISInputSourceID -string $(BETA_ID) "$(BETA_APP)/Contents/Info.plist"
+	plutil -replace InputMethodConnectionName -string $(BETA_ID)_Connection "$(BETA_APP)/Contents/Info.plist"
+	plutil -replace CFBundleExecutable -string $(BETA_EXEC) "$(BETA_APP)/Contents/Info.plist"
+	plutil -replace CFBundleName -string "$(BETA_NAME)" "$(BETA_APP)/Contents/Info.plist"
+	plutil -replace CFBundleDisplayName -string "$(BETA_NAME)" "$(BETA_APP)/Contents/Info.plist"
+	plutil -replace tsInputMethodIconFileKey -string icon-beta.tiff "$(BETA_APP)/Contents/Info.plist"
+	plutil -replace AllInOneIMEDataFolder -string "$(BETA_NAME)" "$(BETA_APP)/Contents/Info.plist"
+	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
+		codesign --force --options runtime --entitlements Resources/AllInOneIME.entitlements \
+			--sign "$(SIGN_IDENTITY)" "$(BETA_APP)"; \
+	else \
+		codesign --force --sign - "$(BETA_APP)"; \
+	fi
+	codesign --verify --strict --deep "$(BETA_APP)"
+	@echo "Built $(BETA_APP)"
+
+install-beta: beta
+	@pkill -x $(BETA_EXEC) || true
+	mkdir -p "$(INSTALL_DIR)"
+	rm -rf "$(INSTALLED_BETA)"
+	mv "$(BETA_APP)" "$(INSTALL_DIR)/"
+	"$(LSREGISTER)" -f "$(INSTALLED_BETA)"
+	"$(INSTALLED_BETA)/Contents/MacOS/$(BETA_EXEC)" --register
+
+uninstall-beta:
+	-"$(INSTALLED_BETA)/Contents/MacOS/$(BETA_EXEC)" --disable
+	@pkill -x $(BETA_EXEC) || true
+	-"$(LSREGISTER)" -u "$(INSTALLED_BETA)" 2>/dev/null
+	rm -rf "$(INSTALLED_BETA)"
 
 status:
 	"$(INSTALLED_APP)/Contents/MacOS/$(APP_NAME)" --status

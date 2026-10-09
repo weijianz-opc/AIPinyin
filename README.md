@@ -137,6 +137,19 @@ make install
 
 卸载：`make uninstall`。
 
+### 测试版（和正式版同时装）
+
+想试一个分支又不想换掉正在用的版本，在那个分支的目录里：
+
+```sh
+make install-beta     # 装成「AllInOneIME Beta」，菜单栏图标是空心的
+make uninstall-beta
+```
+
+测试版是另一个输入法：有自己的输入法 ID 和词库目录（学到的词不和正式版共用），设置文件共用。
+装好后同样要在系统设置里添加一次「AllInOneIME Beta」，之后用 Ctrl+空格 或 🌐 键在两个之间切换。
+第一次用语音时，macOS 会再问一次麦克风权限。
+
 ## 配置 AI（Amazon Bedrock）
 
 翻译和改写用你自己 AWS 账号里的 Bedrock，费用记在你的账号上。

@@ -1,12 +1,14 @@
 // Generates Resources/icon.tiff, the input method's menu-bar icon: the ∞-and-cursor mark of
 // Resources/AppIcon.png knocked out of a 16 pt rounded badge, in 1x and 2x. macOS draws it as a
-// template image (only its alpha counts). Run:
-//   swift Scripts/make-icon.swift Resources/AppIcon.png Resources/icon.tiff
+// template image (only its alpha counts). With --beta, the beta's icon: the mark inside an outlined
+// badge, so the two input methods look different in the menu bar. Run:
+//   swift Scripts/make-icon.swift Resources/AppIcon.png Resources/icon.tiff [--beta]
 import AppKit
 
 let args = CommandLine.arguments
 let source = URL(fileURLWithPath: args.count > 1 ? args[1] : "Resources/AppIcon.png")
 let out = args.count > 2 ? args[2] : "Resources/icon.tiff"
+let beta = args.contains("--beta")
 
 func bitmap(_ width: Int, _ height: Int) -> NSBitmapImageRep {
     NSBitmapImageRep(
@@ -76,15 +78,22 @@ func rep(pixels: Int) -> NSBitmapImageRep {
     context.imageInterpolation = .high
     // The context maps the rep's 16 pt size onto its pixel grid; draw in points.
     let badge = NSRect(x: 0.5, y: 1.5, width: 15, height: 13)
-    NSColor.black.setFill()
-    NSBezierPath(roundedRect: badge, xRadius: 3, yRadius: 3).fill()
-    // The mark, as large as fits with a margin, knocked out of the badge.
-    let room = badge.insetBy(dx: 1.6, dy: 1.2)
+    NSColor.black.set()
+    if beta {
+        // Outlined badge, the mark drawn inside it (the main icon is the reverse).
+        let outline = NSBezierPath(roundedRect: badge.insetBy(dx: 0.6, dy: 0.6), xRadius: 2.6, yRadius: 2.6)
+        outline.lineWidth = 1.2
+        outline.stroke()
+    } else {
+        NSBezierPath(roundedRect: badge, xRadius: 3, yRadius: 3).fill()
+    }
+    // The mark, as large as fits with a margin, knocked out of the badge (drawn into the outline).
+    let room = badge.insetBy(dx: beta ? 2.4 : 1.6, dy: beta ? 2.0 : 1.2)
     let scale = min(room.width / glyph.size.width, room.height / glyph.size.height)
     let size = NSSize(width: glyph.size.width * scale, height: glyph.size.height * scale)
     glyph.draw(in: NSRect(x: room.midX - size.width / 2, y: room.midY - size.height / 2,
                           width: size.width, height: size.height),
-               from: .zero, operation: .destinationOut, fraction: 1)
+               from: .zero, operation: beta ? .sourceOver : .destinationOut, fraction: 1)
     NSGraphicsContext.restoreGraphicsState()
     return rep
 }
