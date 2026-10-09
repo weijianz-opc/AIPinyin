@@ -26,7 +26,8 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | ⏎ | Runs the command. Works even if the pinyin isn't picked yet: it's picked first, as with Space |
 | Space, ⏎ / digits | Once the results are up: insert the highlighted / numbered one; 0 is the original |
 | ⌘C | Copies the highlighted result (for `@open`, the path); the candidate panel stays open |
-| ⌘V | In a command (e.g. after `@improve `, or in a sentence-mode draft): appends the clipboard text instead of pasting it into the app. Multiple lines become one, up to 2000 characters at a time. Without a command, it pastes as usual. Terminals (Ghostty, iTerm2, Terminal, etc.) handle ⌘V themselves; there, use the next row |
+| ⌃V | In a command (e.g. after `@improve `, or in a sentence-mode draft): appends the clipboard text after what you've typed instead of pasting it into the app. Multiple lines become one, up to 2000 characters at a time. Works in any app; without a command, the key goes to the app as usual |
+| ⌘V | Like ⌃V, but some apps handle ⌘V themselves (terminals such as Ghostty, iTerm2 and Terminal, and Notes) and paste into the app as usual; use ⌃V there |
 | ⏎ (nothing written after the command yet) | Uses the clipboard text: it's shown in the command first, then ⏎ runs it. E.g. after copying a paragraph: `@i` ⏎ ⏎ ⏎. Works in any app |
 | Esc, ⌫ | Back to the sentence to keep editing; typing just continues it |
 | Tap Shift | Switch between Chinese and English |
@@ -195,7 +196,7 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 
 - Pinyin typing is entirely local. Only when you press the action key on `@improve` or `@question` (or on a sentence in sentence mode) is that sentence sent to your own Bedrock. With "Jargon" checked and a jargon list set, the list is sent along with it.
 - Voice is recorded only while you hold right ⌥ and is recognized on the Mac; the recognized text is sent only in the commands above, when you press the action key.
-- The input method reads the clipboard text, once, only when you press ⌘V in a command (or a sentence-mode draft) or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.
+- The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command (or a sentence-mode draft) or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.
 - In password fields (secure input) it doesn't compose text and can't record. Whenever the system is in secure input (password fields, Terminal's Secure Keyboard Entry, etc.), nothing is sent to the AI.
 - Logs don't record what you type. For every third-party input method, macOS warns "The developer can access anything you type with this input source"; it's a generic system warning.
 

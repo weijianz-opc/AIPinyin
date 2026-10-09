@@ -2,6 +2,12 @@
 
 [中文](CHANGELOG.md) | English
 
+## Unreleased
+
+### Added
+
+- ⌃V in a command (or in a sentence-mode draft) appends the clipboard text after what you've typed, in any app, terminals included. In terminals (Ghostty etc.) and Notes, the app takes ⌘V and pastes it itself; use ⌃V there.
+
 ## 0.2.0 (2026-10-09)
 
 ### Added
