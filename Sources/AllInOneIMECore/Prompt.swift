@@ -164,7 +164,7 @@ public enum Prompt {
     /// Bump when the wording of `commandSystem` changes (it is part of the cache key).
     public static let commandVersion = 2
 
-    /// The request for a `.generate` command (`@question`, `@claude`): the text goes to the model as
+    /// The request for a `.generate` command (`@question`, a custom `prompt` command): the text goes to the model as
     /// it was typed, and the answer is written to be inserted at the cursor.
     public static func commandRequest(_ command: Command, input: String, config: Config) -> ConverseRequest {
         ConverseRequest(
@@ -180,11 +180,13 @@ public enum Prompt {
             single paragraph (line breaks are removed before inserting): no Markdown (no headings, bold, \
             lists, tables or code fences), no preamble such as "Sure" or "Here is", and no closing remarks.
             """
+        // A custom command: the user's own instruction, after the rules for inserting.
+        if let prompt = command.custom?.prompt { return insert + "\n\n" + prompt }
         switch command {
         case .question:
             return insert + " Answer the user's question accurately and concisely: two or three sentences, "
                 + "unless the question asks for more. If you are not sure, say so briefly."
-        case .improve, .claude, .open:
+        default:
             return insert
         }
     }

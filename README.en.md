@@ -54,7 +54,37 @@ When `@` isn't followed by a command, as in `@张三` (a name) or `@john`, the `
 people in chat apps still works.
 `@question` and `@improve` send to your own Bedrock only when you press the action key; `@open` searches only on this
 Mac; `@claude` uses the Claude Code installed on your Mac (the `claude` command) and its own account, and it asks you
-first, as usual, before changing files or running commands.
+first, as usual, before changing files or running commands. Without Claude Code installed, `@claude` isn't offered.
+
+### Your own commands
+
+Add `customCommands` to the config file (`~/.config/allinoneime/config.json`) for `@` commands of your own; they
+come after the built-in ones. Names are English letters only and can't be a built-in command's; saved changes apply
+from the next sentence.
+
+```json
+"customCommands": [
+  { "name": "python", "type": "run", "argv": ["python3", "-c", "{input}"], "summary": "Run Python" },
+  { "name": "calc", "type": "run", "argv": ["bc", "-l"], "stdin": "{input}\n" },
+  { "name": "sh", "type": "terminal", "argv": ["zsh", "-c", "{input}"] },
+  { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." }
+]
+```
+
+| `type` | What it does |
+|---|---|
+| `prompt` | Goes to the AI with `prompt` as its instruction; the answer appears in the candidates, to insert or copy (⌘C) |
+| `run` | Runs `argv` in the background; what it prints appears in the candidates (several lines are inserted as printed). On an error, its last line is shown |
+| `terminal` | Runs `argv` in a new Terminal window; nothing is inserted |
+
+- `{input}` becomes what you wrote after the command, and it always stays within the one argument it's in: no shell is involved. For a shell, say so, like `sh` above (`zsh -c`).
+- `stdin`: what goes to the program's standard input, with `{input}` replaced too.
+- `run` and `terminal` type English letters by default (like `@open`; Chinese comes back after), and full-width punctuation becomes ASCII: `print（“牛逼”）` → `print("牛逼")`. Set `"ascii": false` to keep text as typed.
+- Programs run in your home folder with your login shell's PATH (so Homebrew, pyenv and nvm installs are found). `run` stops a program after 10 seconds (`timeoutSeconds`) or when it prints too much; Esc stops it at any time.
+- `summary` is the description in the command list (optional).
+- When the program in `argv` isn't found (say, no `python3`), the command isn't offered and `@python …` is inserted as text; once it's installed, the command appears in the next text field.
+
+`run` and `terminal` run code on your Mac: only add commands you wrote and trust. They, too, run only when you press the action key, and never during secure input.
 
 ### Action key
 
@@ -166,9 +196,11 @@ Before upgrading, read the [changelog](CHANGELOG.en.md): it has each version's c
 
 To uninstall: `make uninstall`.
 
-## Setting up the AI (Amazon Bedrock)
+## Setting up the AI
 
-Translations and rewrites use Bedrock in your own AWS account, and the costs go to your account.
+Translations and rewrites use your own AI provider, and the costs go to your account: Amazon Bedrock in your AWS account by default, or the Claude API, Gemini or an OpenAI-compatible service (see "Other AI providers" below).
+
+### Amazon Bedrock
 
 1. Enable Bedrock in the AWS console and make sure you can use the chosen model. The default is Claude Haiku 4.5; the first time you use an Anthropic model, you fill in a use-case form once.
 2. Create an access key with the `bedrock:InvokeModelWithResponseStream` permission and put it in a profile in `~/.aws/credentials`.
@@ -178,6 +210,21 @@ Translations and rewrites use Bedrock in your own AWS account, and the costs go 
    (Chinese if Chinese comes before English in the system's preferred languages, English otherwise). The settings window, the hints in the candidate panel and the input menu all follow it.
 
 <img src="docs/en/settings.png" width="420" alt="The settings window">
+
+### Other AI providers: Claude API, Gemini, OpenAI-compatible services
+
+You don't need AWS: pick one under "AI Provider" in the settings, paste an API key, click "Save", then "Test Connection".
+
+| Provider | Default model | API key |
+|---|---|---|
+| Claude API | `claude-haiku-5-5` (fastest, cheapest; Sonnet 5.5 and Opus 5.5 are more careful but slower and pricier) | [Claude Console](https://platform.claude.com) |
+| Gemini API | `gemini-3.8-flash` | Google AI Studio |
+| OpenAI-compatible | OpenAI's `gpt-6-luna` (or `gpt-5.4-mini`); "Common Services…" has DeepSeek, Qwen, Kimi, Zhipu GLM, SiliconFlow, OpenRouter and Ollama on this Mac: picking one fills in its base URL, then enter its model | The service's key; set the Base URL to its address, e.g. `https://api.deepseek.com/v1`, or `http://localhost:11434/v1` for Ollama on this Mac |
+
+- API keys are kept in the system keychain, never in the config file. Without one there, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) and `OPENAI_API_KEY` from your shell are used.
+- "Thinking" is low by default: the input method waits on every sentence, and less thinking is faster. Choose "Not set" for models that don't take it.
+- With Claude Opus 5.5 or Sonnet 5.5 chosen, requests carry the Claude API's refusal fallback (`fallbacks: "default"`): when a safety classifier declines, the server retries on another model.
+- In the config file: `provider` (`"bedrock"`, `"anthropic"`, `"gemini"`, `"openai"`), and `model`, `baseURL`, `effort` and `temperature` under `anthropic`, `gemini` and `openai` (unset ones use the defaults).
 
 All settings are stored in `~/.config/allinoneime/config.json`; after a change, the next translation uses the new settings, with no restart. The newer keys:
 
@@ -194,7 +241,7 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 
 ## Privacy
 
-- Pinyin typing is entirely local. Only when you press the action key on `@improve` or `@question` (or on a sentence in sentence mode) is that sentence sent to your own Bedrock. With "Jargon" checked and a jargon list set, the list is sent along with it.
+- Pinyin typing is entirely local. Only when you press the action key on `@improve` or `@question` (or on a sentence in sentence mode) is that sentence sent to the AI provider you chose (your own Bedrock, or the service whose key you added). With "Jargon" checked and a jargon list set, the list is sent along with it.
 - Voice is recorded only while you hold right ⌥ and is recognized on the Mac; the recognized text is sent only in the commands above, when you press the action key.
 - The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command (or a sentence-mode draft) or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.
 - In password fields (secure input) it doesn't compose text and can't record. Whenever the system is in secure input (password fields, Terminal's Secure Keyboard Entry, etc.), nothing is sent to the AI.

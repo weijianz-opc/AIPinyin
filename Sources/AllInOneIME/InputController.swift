@@ -91,6 +91,20 @@ final class AllInOneIMEInputController: IMKInputController {
     var openItem: (String) -> Void = { NSWorkspace.shared.open(URL(fileURLWithPath: $0)) }
     /// `@claude`: starts Claude Code in Terminal (the self-test starts nothing).
     var runInTerminal: (String) throws -> Void = { try TerminalLauncher.claude($0) }
+    /// A custom `terminal` command: runs its arguments in Terminal (the self-test starts nothing).
+    var launchInTerminal: ([String]) throws -> Void = { try TerminalLauncher.launch($0) }
+    /// Whether a command's program is on this Mac (the self-test supplies its own). Called off the main thread.
+    var programInstalled: @Sendable (String) -> Bool = { program in
+        if program == "claude", TerminalLauncher.claudePath != nil { return true }
+        return CommandRunner.resolve(program, path: ShellEnvironment.current["PATH"]) != nil
+    }
+    /// The commands whose programs were last checked (`setCommands`), and those whose program is missing.
+    private var checkedCommands: [Command] = []
+    private var missingCommands: Set<String> = []
+    /// The latest check (an older one that finishes later is ignored).
+    private var programCheck = 0
+    /// A custom `run` command: runs its program in the background (the self-test supplies its own).
+    var runProgram: (CustomCommand, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { CommandRunner.run($0, input: $1) }
     /// ⌘C on a result (the self-test leaves the clipboard alone).
     var copyText: (String) -> Void = { text in
         NSPasteboard.general.clearContents()
@@ -217,12 +231,39 @@ final class AllInOneIMEInputController: IMKInputController {
         composer.englishAI = config.englishAI
         composer.voiceEnabled = config.voiceInput && VoiceInput.isSupported
         composer.actionKey = config.actionKey
+        setCommands(Command.catalog(config.customCommands), recheck: true)
         // The interface language (config `uiLanguage`, else the system's) for the panel, notices and menu.
         UIText.choice = config.uiLanguage
         composer.messages = UIText.chinese ? .chinese : .english
         if appliedDefaultInput != config.defaultInput, composer.engine != nil, !composer.isComposing {
             composer.setInputMode(config.defaultInput)
             appliedDefaultInput = config.defaultInput
+        }
+    }
+
+    /// Takes over the commands "@" offers, without those whose program isn't on this Mac (`@claude`
+    /// without Claude Code, a custom command's missing `argv[0]`): "@claude …" is then just text, like
+    /// "@name". Which are missing is checked in the background when the commands changed, or with
+    /// `recheck` (a text field became active: something may have been installed meanwhile).
+    @MainActor
+    func setCommands(_ commands: [Command], recheck: Bool = false) {
+        composer.commands = commands.filter { !missingCommands.contains($0.name) }
+        guard recheck || commands != checkedCommands else { return }
+        checkedCommands = commands
+        programCheck += 1
+        let check = programCheck
+        let needed = commands.compactMap { command in command.program.map { (command.name, $0) } }
+        let installed = programInstalled
+        DispatchQueue.global().async { [weak self] in
+            // The first check asks the user's shell for its PATH, which takes a moment.
+            let missing = Set(needed.filter { !installed($0.1) }.map(\.0))
+            DispatchQueue.main.async {
+                guard let self, self.programCheck == check else { return }
+                if !missing.isEmpty { log.notice("commands hidden, their program isn't installed: \(missing.count)") }
+                self.missingCommands = missing
+                // Not while a command is being written: the draft keeps the commands it started with.
+                if !self.composer.isComposing { self.composer.commands = commands.filter { !missing.contains($0.name) } }
+            }
         }
     }
 
@@ -249,6 +290,8 @@ final class AllInOneIMEInputController: IMKInputController {
         }
         secureNoticeShown = false
         ensureEngine()
+        // Commands added to the config apply from the next sentence on (the file is re-read only when it changed).
+        if !composer.isComposing { setCommands(Command.catalog(loadSettings().customCommands)) }
         let response = composer.handleKeyDown(KeyEvent(
             keyCode: event.keyCode, characters: event.characters ?? "",
             charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
@@ -314,6 +357,9 @@ final class AllInOneIMEInputController: IMKInputController {
             case let .startCommand(command, input, id):
                 if refusedForSecureInput(id: id, client: target) { break }
                 startConversion(input, id: id, command: command)
+            case let .startRun(command, input, id):
+                if refusedForSecureInput(id: id, client: target, running: true) { break }
+                startConversion(input, id: id, command: command)
             case let .search(query, id):
                 conversionTask?.cancel()
                 conversionTask = Task { @MainActor [weak self] in
@@ -332,6 +378,14 @@ final class AllInOneIMEInputController: IMKInputController {
                     log.notice("@claude: Terminal session started (\(prompt.count) chars)")
                 } catch {
                     log.error("@claude: could not start Terminal: \(String(describing: error), privacy: .public)")
+                    showNotice(UIText.describe(error), client: target)
+                }
+            case let .launchInTerminal(argv):
+                do {
+                    try launchInTerminal(argv)
+                    log.notice("custom command: Terminal started (\(argv.count) arguments)")
+                } catch {
+                    log.error("custom command: could not start Terminal: \(String(describing: error), privacy: .public)")
                     showNotice(UIText.describe(error), client: target)
                 }
             case let .copy(text):
@@ -537,23 +591,33 @@ final class AllInOneIMEInputController: IMKInputController {
     /// While secure input is on anywhere (a password field or prompt may be active), nothing is sent
     /// off the Mac: the request fails at once. True if refused.
     @MainActor
-    private func refusedForSecureInput(id: Int, client: IMKTextInput?) -> Bool {
+    private func refusedForSecureInput(id: Int, client: IMKTextInput?, running: Bool = false) -> Bool {
         guard secureInputActive() else { return false }
         log.info("conversion \(id) not sent: secure input \(SecureInput.ownerDescription(), privacy: .public)")
-        perform(composer.fail(tr("系统安全输入已开启（密码框或锁屏），未发送给 AI",
-                                 "Secure input is on (a password field or the lock screen): nothing was sent to the AI"),
-                              id: id), client: client)
+        let message = running
+            ? tr("系统安全输入已开启（密码框或锁屏），没有运行命令",
+                 "Secure input is on (a password field or the lock screen): the command was not run")
+            : tr("系统安全输入已开启（密码框或锁屏），未发送给 AI",
+                 "Secure input is on (a password field or the lock screen): nothing was sent to the AI")
+        perform(composer.fail(message, id: id), client: client)
         return true
     }
 
-    /// Streams level two for `input`: the improve conversion, or a `.generate` command's answer.
+    /// Streams level two for `input`: the improve conversion, a `.generate` command's answer, or what a
+    /// `.run` command's program printed.
     @MainActor
     private func startConversion(_ input: String, id: Int, command: Command? = nil) {
         conversionTask?.cancel()
         lastElapsed = nil
         lastFromCache = false
-        log.notice("conversion \(id) started (\(input.count) chars\(command.map { ", @\($0.rawValue)" } ?? "", privacy: .public))")
-        let stream = command.map { converter.generate($0, input: input) } ?? converter.convert(input)
+        // Custom command names are the user's own: kept out of the public log.
+        log.notice("conversion \(id) started (\(input.count) chars\(command.map { ", @\($0.custom == nil ? $0.name : "custom")" } ?? "", privacy: .public))")
+        let stream: AsyncThrowingStream<ConversionUpdate, Error>
+        if let command, command.kind == .run, let custom = command.custom {
+            stream = runProgram(custom, input)
+        } else {
+            stream = command.map { converter.generate($0, input: input) } ?? converter.convert(input)
+        }
         conversionTask = Task { @MainActor [weak self] in
             do {
                 for try await update in stream {
@@ -580,6 +644,10 @@ final class AllInOneIMEInputController: IMKInputController {
         case let BedrockError.stream(type, _): return "stream \(type)"
         case BedrockError.invalidResponse: return "invalid response"
         case BedrockError.invalidRegion: return "invalid region"
+        case let ProviderError.http(provider, status, type, _): return "\(provider.rawValue) http \(status) \(type ?? "-")"
+        case let ProviderError.stream(provider, type, _): return "\(provider.rawValue) stream \(type)"
+        case let ProviderError.missingKey(provider): return "\(provider.rawValue) no key"
+        case let ProviderError.refused(provider): return "\(provider.rawValue) refused"
         case let urlError as URLError: return "url \(urlError.code.rawValue)"
         default: return String(describing: type(of: error))
         }
@@ -590,7 +658,7 @@ final class AllInOneIMEInputController: IMKInputController {
             switch urlError.code {
             case .timedOut: return "请求超时"
             case .notConnectedToInternet, .networkConnectionLost: return "网络连接失败"
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "无法连接 Bedrock"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "无法连接 AI 服务"
             default: return urlError.localizedDescription
             }
         }
@@ -712,7 +780,9 @@ final class AllInOneIMEInputController: IMKInputController {
                                              comment: note.map { "\(name) · \($0)" } ?? name,
                                              style: .translation, isComplete: choice.isComplete)
                 case .answer:
-                    return CandidateView.Row(label: choice.label, text: Self.preview(choice.text),
+                    // A program's output may have several lines; they are inserted as printed.
+                    let text = choice.text.replacingOccurrences(of: "\n", with: " ↵ ")
+                    return CandidateView.Row(label: choice.label, text: Self.preview(text),
                                              comment: UIText.answerLabel(composer.activeCommand),
                                              style: .translation, isComplete: choice.isComplete)
                 case let .file(path):
@@ -726,7 +796,8 @@ final class AllInOneIMEInputController: IMKInputController {
             switch composer.phase {
             case .translating:
                 let polishing = Language.of(composer.sentText) == config.outputLanguage
-                let loading = command == .question ? tr("AI 回答中…", "Answering…")
+                let loading = command?.kind == .generate ? tr("AI 回答中…", "Answering…")
+                    : command?.kind == .run ? tr("运行中…", "Running…")
                     : command == .open ? tr("搜索中…", "Searching…")
                     : polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")
                 model.status = choices.count <= 1 ? .loading(loading) : .none
@@ -792,7 +863,7 @@ final class AllInOneIMEInputController: IMKInputController {
         } else if composer.paletteQuery != nil {
             // "@…": the commands that start with what was typed.
             model.rows = composer.paletteMatches.enumerated().map {
-                CandidateView.Row(label: String($0.offset + 1), text: "@" + $0.element.rawValue,
+                CandidateView.Row(label: String($0.offset + 1), text: "@" + $0.element.name,
                                   comment: UIText.summary($0.element), style: .candidate)
             }
             model.highlighted = composer.paletteHighlighted
@@ -834,7 +905,7 @@ final class AllInOneIMEInputController: IMKInputController {
         ai.target = self
         ai.state = Settings.sentenceMode ? .on : .off
         menu.addItem(ai)
-        let model = config.map { tr("模型：", "Model: ") + $0.modelId } ?? tr("配置文件有误", "The config file has an error")
+        let model = config.map { tr("模型：", "Model: ") + ($0.settings(for: $0.provider).model ?? "") } ?? tr("配置文件有误", "The config file has an error")
         let info = NSMenuItem(title: model, action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
