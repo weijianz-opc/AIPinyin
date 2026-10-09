@@ -1327,6 +1327,25 @@ struct ComposerTests {
         #expect(!tapOption(refused, at: 5).contains { if case .launchInTerminal = $0 { return true } else { return false } })
     }
 
+    @Test func commandsWithoutTheirProgramOnlySaySo() {
+        let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
+        let catalog = Command.catalog([python])
+        #expect(catalog.map(\.program) == [nil, nil, "claude", nil, "python3"])
+        for (name, notice) in [("c", "没有安装 Claude Code（找不到 claude 命令），先安装再用 @claude"),
+                               ("p", "这台 Mac 上没有找到 python3，先安装它")] {
+            let (c, _) = composer(key: .optionTap)
+            c.commands = catalog
+            c.missingPrograms = ["claude": "claude", "python": "python3"]
+            _ = c.handleKeyDown(at)
+            type(name, c)
+            #expect(c.paletteMatches.count == 1)  // still offered
+            _ = c.handleKeyDown(tab)
+            type("ls", c)
+            // Nothing starts; the text stays to be fixed or inserted.
+            #expect(tapOption(c, at: 5) == [.updateMarkedText, .notice(notice)] && !c.isLevelTwo && c.draft.hasSuffix("ls"))
+        }
+    }
+
     @Test func claudeIsNotStartedWhileSecureInputIsOn() {
         let (c, _) = palette("c")
         _ = c.handleKeyDown(tab)

@@ -155,6 +155,10 @@ public final class Composer {
         public var ranInTerminal: String
         /// A custom terminal command while secure input is on: nothing is started.
         public var secureInputCommand: String
+        /// A command whose program isn't installed; "{program}" is its name.
+        public var notInstalled: String
+        /// `@claude` without Claude Code installed.
+        public var claudeNotInstalled: String
         /// ⌘V in a draft with more on the clipboard than `Composer.maxPasteLength`.
         public var pasteTooLong: String
         /// ⌘V in a draft with no text on the clipboard (or reading it isn't allowed).
@@ -168,6 +172,8 @@ public final class Composer {
             secureInputTerminal: "系统安全输入已开启（密码框或锁屏），没有打开 Claude Code",
             ranInTerminal: "已在终端运行",
             secureInputCommand: "系统安全输入已开启（密码框或锁屏），没有运行命令",
+            notInstalled: "这台 Mac 上没有找到 {program}，先安装它",
+            claudeNotInstalled: "没有安装 Claude Code（找不到 claude 命令），先安装再用 @claude",
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
             nothingToPaste: "剪贴板里没有能用的文字")
         public static let english = Messages(
@@ -179,6 +185,8 @@ public final class Composer {
             secureInputTerminal: "Secure input is on (a password field or the lock screen): Claude Code was not opened",
             ranInTerminal: "Running in Terminal",
             secureInputCommand: "Secure input is on (a password field or the lock screen): the command was not run",
+            notInstalled: "{program} isn't installed on this Mac",
+            claudeNotInstalled: "Claude Code isn't installed (no claude command): install it to use @claude",
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
             nothingToPaste: "No text on the clipboard to use")
     }
@@ -186,6 +194,9 @@ public final class Composer {
     public private(set) var activeCommand: Command?
     /// The commands "@" offers: the built-in ones and the user's (`Command.catalog`).
     public var commands: [Command] = Command.builtins
+    /// Commands whose program isn't installed (set by the input controller), by name: the program.
+    /// They stay in the list, but the action key only says what is missing.
+    public var missingPrograms: [String: String] = [:]
     /// Files and apps found for `@open`.
     public private(set) var searchResults: [SearchResult] = []
     /// Results for the `@open` text as it is typed (`liveQuery`), and the highlighted one.
@@ -1157,6 +1168,11 @@ public final class Composer {
         // action key again runs it). This works where ⌘V can't (terminals paste on their own).
         if input.isEmpty, parsed != nil, !isLevelTwo { return .consumed([requestClipboard(forEmptyCommand: true)]) }
         guard !input.isEmpty else { return parsed == nil ? .consumed() : .consumed([.notice(messages.typeAfterCommand)]) }
+        if let command = parsed?.command, let program = missingPrograms[command.name] {
+            let message = command == .claude ? messages.claudeNotInstalled
+                : messages.notInstalled.replacingOccurrences(of: "{program}", with: program)
+            return .consumed([.updateMarkedText, .notice(message)])
+        }
         if let command = parsed?.command, command.kind == .terminal {
             guard !secureInputActive() else {
                 return .consumed([.updateMarkedText, .notice(command.custom == nil ? messages.secureInputTerminal : messages.secureInputCommand)])

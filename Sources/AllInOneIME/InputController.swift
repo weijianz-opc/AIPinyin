@@ -93,6 +93,15 @@ final class AllInOneIMEInputController: IMKInputController {
     var runInTerminal: (String) throws -> Void = { try TerminalLauncher.claude($0) }
     /// A custom `terminal` command: runs its arguments in Terminal (the self-test starts nothing).
     var launchInTerminal: ([String]) throws -> Void = { try TerminalLauncher.launch($0) }
+    /// Whether a command's program is on this Mac (the self-test supplies its own). Called off the main thread.
+    var programInstalled: @Sendable (String) -> Bool = { program in
+        if program == "claude", TerminalLauncher.claudePath != nil { return true }
+        return CommandRunner.resolve(program, path: ShellEnvironment.current["PATH"]) != nil
+    }
+    /// The commands whose programs were last checked (`setCommands`).
+    private var checkedCommands: [Command] = []
+    /// The latest check (an older one that finishes later is ignored).
+    private var programCheck = 0
     /// A custom `run` command: runs its program in the background (the self-test supplies its own).
     var runProgram: (CustomCommand, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { CommandRunner.run($0, input: $1) }
     /// ⌘C on a result (the self-test leaves the clipboard alone).
@@ -221,13 +230,37 @@ final class AllInOneIMEInputController: IMKInputController {
         composer.englishAI = config.englishAI
         composer.voiceEnabled = config.voiceInput && VoiceInput.isSupported
         composer.actionKey = config.actionKey
-        composer.commands = Command.catalog(config.customCommands)
+        setCommands(Command.catalog(config.customCommands), recheck: true)
         // The interface language (config `uiLanguage`, else the system's) for the panel, notices and menu.
         UIText.choice = config.uiLanguage
         composer.messages = UIText.chinese ? .chinese : .english
         if appliedDefaultInput != config.defaultInput, composer.engine != nil, !composer.isComposing {
             composer.setInputMode(config.defaultInput)
             appliedDefaultInput = config.defaultInput
+        }
+    }
+
+    /// Takes over the commands "@" offers, and checks in the background which programs they need are
+    /// missing: when they changed, or with `recheck` (a text field became active: something may have
+    /// been installed meanwhile).
+    @MainActor
+    func setCommands(_ commands: [Command], recheck: Bool = false) {
+        composer.commands = commands
+        guard recheck || commands != checkedCommands else { return }
+        checkedCommands = commands
+        programCheck += 1
+        let check = programCheck
+        let needed = commands.compactMap { command in command.program.map { (command.name, $0) } }
+        let installed = programInstalled
+        DispatchQueue.global().async { [weak self] in
+            // The first check asks the user's shell for its PATH, which takes a moment.
+            var missing: [String: String] = [:]
+            for (name, program) in needed where !installed(program) { missing[name] = program }
+            DispatchQueue.main.async {
+                guard let self, self.programCheck == check else { return }
+                if !missing.isEmpty { log.notice("commands without their program: \(missing.count)") }
+                self.composer.missingPrograms = missing
+            }
         }
     }
 
@@ -255,7 +288,7 @@ final class AllInOneIMEInputController: IMKInputController {
         secureNoticeShown = false
         ensureEngine()
         // Commands added to the config apply from the next sentence on (the file is re-read only when it changed).
-        if !composer.isComposing { composer.commands = Command.catalog(loadSettings().customCommands) }
+        if !composer.isComposing { setCommands(Command.catalog(loadSettings().customCommands)) }
         let response = composer.handleKeyDown(KeyEvent(
             keyCode: event.keyCode, characters: event.characters ?? "",
             charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
@@ -707,6 +740,9 @@ final class AllInOneIMEInputController: IMKInputController {
         if composer.draftCommand != nil, composer.sentText.isEmpty {
             return "\(how) → " + tr("用剪贴板里的文字", "use the clipboard text")
         }
+        if let command = composer.draftCommand, let program = composer.missingPrograms[command.name] {
+            return UIText.notInstalled(program)
+        }
         return "\(how) → " + (composer.draftCommand.map { UIText.action($0, input: input, config: config) }
             ?? UIText.action(input: input, config: config))
     }
@@ -824,7 +860,8 @@ final class AllInOneIMEInputController: IMKInputController {
             // "@…": the commands that start with what was typed.
             model.rows = composer.paletteMatches.enumerated().map {
                 CandidateView.Row(label: String($0.offset + 1), text: "@" + $0.element.name,
-                                  comment: UIText.summary($0.element), style: .candidate)
+                                  comment: composer.missingPrograms[$0.element.name].map(UIText.notInstalled)
+                                      ?? UIText.summary($0.element), style: .candidate)
             }
             model.highlighted = composer.paletteHighlighted
             model.footer = tr("⏎ / Tab / 空格 选择 · Esc 取消", "⏎ / Tab / Space choose · Esc cancel")

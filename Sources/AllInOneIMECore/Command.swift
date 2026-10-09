@@ -45,6 +45,14 @@ public struct Command: Hashable, Sendable {
     /// command switches the engine to English, and Chinese comes back when the command is done.
     public var typesLatin: Bool { self == .open || custom?.typesLatin == true }
 
+    /// The program this command needs on the Mac: `claude` for `@claude`, `argv[0]` for a custom
+    /// `run` or `terminal` command; nil when it needs none.
+    public var program: String? {
+        if self == .claude { return "claude" }
+        guard let custom, custom.type != .prompt else { return nil }
+        return custom.argv?.first
+    }
+
     /// The built-in commands, then the user's valid ones (`CustomCommand.isValid`) whose names are
     /// still free, in the order of the config.
     public static func catalog(_ custom: [CustomCommand]) -> [Command] {

@@ -99,6 +99,11 @@ enum UIText {
         }
     }
 
+    /// A command whose program is missing, in the palette and under its draft.
+    static func notInstalled(_ program: String) -> String {
+        tr("未安装 \(program)", "\(program) not installed")
+    }
+
     /// What the action key does with a command draft, after "⏎ →".
     static func action(_ command: Command, input: Language, config: Config) -> String {
         switch command.custom?.type {

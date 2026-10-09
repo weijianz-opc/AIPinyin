@@ -35,7 +35,7 @@ public enum CommandRunner {
     }
 
     /// The program as it will be started: an absolute path, or the first match on `path`.
-    static func resolve(_ program: String, path: String?) -> URL? {
+    public static func resolve(_ program: String, path: String?) -> URL? {
         let fm = FileManager.default
         if program.contains("/") {
             let expanded = (program as NSString).expandingTildeInPath

@@ -50,7 +50,8 @@
 
 `@` 后面跟的不是命令时，比如 `@张三`、`@john`，`@` 照常上屏，在聊天软件里 @ 人不受影响。
 `@question` 和 `@improve` 只在按执行键时发到你自己的 Bedrock；`@open` 只在本机搜索；`@claude` 用的是你本机装的
-Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前它会照常先问你。
+Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前它会照常先问你；没装 Claude Code 时，命令列表里会标
+「未安装 claude」，按执行键只会提示，不会打开终端。
 
 ### 自己加命令
 
@@ -77,6 +78,7 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
 - `run` 和 `terminal` 默认用英文字母输入（像 `@open`，用完回到中文），全角标点会转成半角：`print（“牛逼”）` → `print("牛逼")`。不想这样就设 `"ascii": false`。
 - 程序在主目录里运行，用你的登录 shell 的 PATH（Homebrew、pyenv、nvm 装的都找得到）；`run` 默认 10 秒超时（`timeoutSeconds`），输出太多也会被停止，Esc 随时停止。
 - `summary` 是命令列表里的说明，可以不写。
+- 找不到 `argv` 里的程序时（比如没装 `python3`），命令列表里标「未安装」，按执行键只提示，不运行。
 
 `run` 和 `terminal` 会在你的 Mac 上执行代码：只放你自己写的、信得过的命令；它们同样只在按执行键时运行，安全输入时不运行。
 
