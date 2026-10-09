@@ -67,6 +67,9 @@ public final class Composer {
         case runInTerminal(prompt: String)
         /// Put `text` on the clipboard (⌘C on a result).
         case copy(String)
+        /// Read the clipboard's text for the draft (⌘V) and hand it to `pasted(_:id:)`, after the key
+        /// has been answered: the system may ask the user first.
+        case readClipboard(id: Int)
         case cancelConversion
         /// Show or refresh the candidate panel.
         case showPanel
@@ -142,18 +145,26 @@ public final class Composer {
         public var nothingFound: String
         public var copied: String
         public var openedTerminal: String
+        /// ⌘V in a draft with more on the clipboard than `Composer.maxPasteLength`.
+        public var pasteTooLong: String
+        /// ⌘V in a draft with no text on the clipboard (or reading it isn't allowed).
+        public var nothingToPaste: String
 
         public static let chinese = Messages(
             notReady: "词库准备中，稍候可用", holdToTalk: "按住右 ⌥ 说话", didNotHear: "没听清，再说一次",
             chineseMode: "中", englishMode: "英", sentenceModeOn: "整句模式：开", sentenceModeOff: "整句模式：关", noResult: "没有得到结果",
             typeAfterCommand: "在命令后面写上内容", nothingFound: "没有找到", copied: "已复制",
-            openedTerminal: "已在终端打开 Claude Code")
+            openedTerminal: "已在终端打开 Claude Code",
+            pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
+            nothingToPaste: "剪贴板里没有能用的文字")
         public static let english = Messages(
             notReady: "Loading the dictionaries, one moment", holdToTalk: "Hold right ⌥ to talk",
             didNotHear: "Didn't catch that, try again", chineseMode: "Chinese", englishMode: "English",
             sentenceModeOn: "Sentence mode: on", sentenceModeOff: "Sentence mode: off", noResult: "No result",
             typeAfterCommand: "Type something after the command", nothingFound: "Nothing found", copied: "Copied",
-            openedTerminal: "Opened Claude Code in Terminal")
+            openedTerminal: "Opened Claude Code in Terminal",
+            pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
+            nothingToPaste: "No text on the clipboard to use")
     }
     /// The command of the request in level two (nil: improve, as without one).
     public private(set) var activeCommand: Command?
@@ -167,6 +178,15 @@ public final class Composer {
     private var restoreChineseAfterOpen = false
     /// Highlighted row of the command palette.
     private var paletteHighlight = 0
+    /// The ⌘V whose clipboard text the draft is waiting for (`pasted`), and the last one's id.
+    private var pendingPaste: Int?
+    private var pasteCounter = 0
+    /// The clipboard was asked for by the action key on a command with nothing after it.
+    private var pasteForEmptyCommand = false
+    /// Whether ⌘V in a draft takes the clipboard into it. False in apps that paste on ⌘V themselves
+    /// whatever the input method does (terminals): the text would be pasted twice. There the action
+    /// key on a command with nothing after it takes the clipboard instead.
+    public var pastesIntoDraft = true
     /// Confirmed text waiting for level two (AI mode only).
     public private(set) var draft = ""
     /// Last known state of the level-one engine.
@@ -228,7 +248,8 @@ public final class Composer {
     }
 
     /// An English draft: started in English mode and still free of Chinese text. Keys that end
-    /// typing (Return, Tab, arrows, Esc, shortcuts) insert it as typed and then reach the application.
+    /// typing (Return, Tab, arrows, Esc, shortcuts) insert it as typed and then reach the application;
+    /// ⌘V instead takes the clipboard's text into the draft (`pasted`).
     public var isLatinDraft: Bool { draftStartedLatin && !draft.isEmpty && !draft.containsHan }
 
     /// Whether Space on the draft starts level two now. Only with the `space` action key (in English
@@ -400,6 +421,9 @@ public final class Composer {
         let modifiers = event.modifiers.subtracting(.capsLock)
         if modifiers == .command, event.charactersIgnoringModifiers.lowercased() == "c", let text = copyableText {
             return .consumed([.copy(text), .notice(messages.copied)])  // the result stays up
+        }
+        if modifiers == .command, event.charactersIgnoringModifiers.lowercased() == "v", let response = pasteIntoDraft() {
+            return response
         }
         if modifiers.contains(.command) {
             // A shortcut with an English draft pending acts on the text as typed (⌘A, ⌘⏎ …).
@@ -711,6 +735,70 @@ public final class Composer {
         if !consumed && !committedDirectly { return .passThrough }
         effects += [.updateMarkedText, wantsPanel ? .showPanel : .hidePanel]
         return Response(effects: effects, handled: consumed)
+    }
+
+    // MARK: - Paste
+
+    /// The most text ⌘V puts into a draft, in Characters (a long paragraph; the answer grows with it).
+    public static let maxPasteLength = 2000
+
+    /// ⌘V with a draft pending ("@improve ", a command name being typed, a sentence-mode draft): the
+    /// clipboard's text will join the draft instead of the document (`pasted`), so the action key then
+    /// runs on it. Pinyin still being typed is converted first, and "@imp" picks its command. Nil
+    /// without a draft, and after "@" alone (a mention): ⌘V then pastes into the document as usual.
+    private func pasteIntoDraft() -> Response? {
+        guard pastesIntoDraft, !isLevelTwo, voice == .off, !draft.isEmpty else { return nil }
+        if let query = paletteQuery, query.isEmpty || paletteMatches.isEmpty { return nil }
+        var effects: [Effect] = []
+        if paletteQuery != nil { _ = complete(paletteMatches) }  // the draft is now "@name "
+        if let engine, engine.snapshot().isComposing { effects += convertComposition(engine) }
+        setLevelOnePhase()
+        return .consumed(effects + [.updateMarkedText, .showPanel, requestClipboard(forEmptyCommand: false)])
+    }
+
+    /// Asks for the clipboard's text (`pasted`); only the latest request counts.
+    private func requestClipboard(forEmptyCommand: Bool) -> Effect {
+        pasteCounter += 1
+        pendingPaste = pasteCounter
+        pasteForEmptyCommand = forEmptyCommand
+        return .readClipboard(id: pasteCounter)
+    }
+
+    /// The clipboard's text for ⌘V `id` (nil: no text, or it may not be read): it continues the draft,
+    /// as pasting continues a text. Dropped when the draft has been sent or cleared meanwhile.
+    public func pasted(_ clipboard: String?, id: Int) -> [Effect] {
+        guard pendingPaste == id else { return [] }
+        pendingPaste = nil
+        guard !isLevelTwo, voice == .off, !draft.isEmpty else { return [] }
+        // Far too much is refused before it is looked at (this runs on the main thread).
+        if let clipboard, clipboard.utf16.count > Self.maxPasteLength * 8 { return [.notice(messages.pasteTooLong)] }
+        let text = clipboard.map(Self.oneLine) ?? ""
+        guard !text.isEmpty else { return [.notice(pasteForEmptyCommand ? messages.typeAfterCommand : messages.nothingToPaste)] }
+        guard text.count <= Self.maxPasteLength else { return [.notice(messages.pasteTooLong)] }
+        draft += text
+        setLevelOnePhase()
+        return [.updateMarkedText, .showPanel]
+    }
+
+    /// Clipboard text as one line for the draft (the improve answer has one line per version): line
+    /// breaks become spaces, or nothing between Chinese; control characters become spaces; the ends
+    /// are trimmed.
+    static func oneLine(_ text: String) -> String {
+        var out = ""
+        for line in text.components(separatedBy: .newlines) {
+            let part = CandidateParser.stripControls(line).trimmingCharacters(in: .whitespaces)
+            guard let first = part.first else { continue }
+            if let last = out.last, !(isCJK(last) && isCJK(first)) { out += " " }
+            out += part
+        }
+        return out
+    }
+
+    /// Chinese, Japanese and Korean characters and full-width punctuation: no space between lines of them.
+    static func isCJK(_ c: Character) -> Bool {
+        guard let v = c.unicodeScalars.first?.value else { return false }
+        return String(c).containsHan || (0x3000...0x30FF).contains(v) || (0xFF00...0xFFEF).contains(v)
+            || (0xAC00...0xD7AF).contains(v)
     }
 
     // MARK: - Command palette
@@ -1036,6 +1124,9 @@ public final class Composer {
     private func startAction() -> Response {
         let parsed = Command.parse(draft)
         let input = sentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A command with nothing after it takes the clipboard's text (shown in the draft first; the
+        // action key again runs it). This works where ⌘V can't (terminals paste on their own).
+        if input.isEmpty, parsed != nil, !isLevelTwo { return .consumed([requestClipboard(forEmptyCommand: true)]) }
         guard !input.isEmpty else { return parsed == nil ? .consumed() : .consumed([.notice(messages.typeAfterCommand)]) }
         if let command = parsed?.command, command.kind == .terminal {
             // The session runs in its own window: nothing to wait for or insert here.
@@ -1178,6 +1269,7 @@ public final class Composer {
         searchResults = []
         activeCommand = nil
         paletteHighlight = 0
+        pendingPaste = nil  // a paste still on its way is dropped
         liveResults = []
         liveResultsQuery = nil
         liveHighlight = 0

@@ -148,7 +148,17 @@ public enum Prompt {
         return ConverseRequest(
             system: [.init(system(styles: styles, output: config.outputLanguage, jargon: jargon))],
             messages: messages,
-            inferenceConfig: .init(maxTokens: config.maxTokens, temperature: config.temperature))
+            inferenceConfig: .init(maxTokens: maxTokens(for: input, lines: 3 + styles.count, config: config),
+                                   temperature: config.temperature))
+    }
+
+    /// Room for the answer: the configured limit, or with the default limit and long input (a pasted
+    /// paragraph) enough for every line to be about as long as the input, up to 8192 tokens. A limit
+    /// the user set is kept as it is. Only generated tokens are billed.
+    static func maxTokens(for input: String, lines: Int, config: Config) -> Int {
+        guard config.maxTokens == Config.default.maxTokens else { return config.maxTokens }
+        let perLine = input.utf16.count * 2 + 40  // generous: Chinese takes about a token per character
+        return max(config.maxTokens, min(perLine * lines, 8192))
     }
 
     /// Bump when the wording of `commandSystem` changes (it is part of the cache key).

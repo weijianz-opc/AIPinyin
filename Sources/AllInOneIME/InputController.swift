@@ -91,6 +91,22 @@ final class AllInOneIMEInputController: IMKInputController {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
+    /// ⌘V in a draft: the clipboard's text, or nil to let the app paste as usual (the self-test
+    /// supplies its own and never reads the real clipboard).
+    var readClipboard: () -> String? = { AllInOneIMEInputController.clipboardText(NSPasteboard.general) }
+
+    /// Text on `pasteboard` to take into a draft. Nil for none, for what password managers mark as
+    /// concealed or transient (nspasteboard.org, and the older markers), and when pasting from other
+    /// apps is denied to this one.
+    static func clipboardText(_ pasteboard: NSPasteboard) -> String? {
+        if #available(macOS 15.4, *), pasteboard.accessBehavior == .alwaysDeny { return nil }
+        let types = pasteboard.types ?? []
+        let hidden = ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType", "com.agilebits.onepassword",
+                      "de.petermaurer.TransientPasteboardType", "com.typeit4me.clipping", "Pasteboard generator type",
+                      "net.antelle.keeweb"].map { NSPasteboard.PasteboardType(rawValue: $0) }
+        guard types.contains(.string), hidden.allSatisfy({ !types.contains($0) }) else { return nil }
+        return pasteboard.string(forType: .string)
+    }
     /// The `@open` text last searched as it was typed, and the search in flight for it.
     private var liveSearchQuery: String?
     private var liveSearchTask: Task<Void, Never>?
@@ -132,6 +148,9 @@ final class AllInOneIMEInputController: IMKInputController {
         MainActor.assumeIsolated {
             ensureEngine()
             applySettings()
+            // Terminals paste on ⌘V whatever the input method does: there ⌘V stays theirs.
+            let app = (sender as? IMKTextInput)?.bundleIdentifier()
+            composer.pastesIntoDraft = !(app.map(SecureInput.terminals.contains) ?? false)
         }
     }
 
@@ -312,6 +331,13 @@ final class AllInOneIMEInputController: IMKInputController {
                 }
             case let .copy(text):
                 copyText(text)
+            case let .readClipboard(id):
+                // After the key has been answered: if macOS asks whether this may read the clipboard,
+                // the app isn't left waiting for the key (and doesn't paste on its own meanwhile).
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.perform(self.composer.pasted(self.readClipboard(), id: id), client: nil)
+                }
             case .cancelConversion:
                 conversionTask?.cancel()
                 conversionTask = nil
@@ -641,6 +667,10 @@ final class AllInOneIMEInputController: IMKInputController {
         let how = key != .space ? UIText.name(key)
             : composer.spaceActs ? UIText.name(ActionKey.space) : tr("连按两次空格", "Space twice")
         let input = Language.of(composer.sentText)
+        // A command with nothing after it: the action key takes the clipboard's text.
+        if composer.draftCommand != nil, composer.sentText.isEmpty {
+            return "\(how) → " + tr("用剪贴板里的文字", "use the clipboard text")
+        }
         return "\(how) → " + (composer.draftCommand.map { UIText.action($0, input: input, config: config) }
             ?? UIText.action(input: input, config: config))
     }
@@ -657,19 +687,20 @@ final class AllInOneIMEInputController: IMKInputController {
         if composer.isLevelTwo {
             let choices = composer.choices
             model.rows = choices.map { choice in
+                // Long rows (a pasted paragraph and its versions) are shortened here; the full text goes in.
                 switch choice.kind {
                 case .original:
-                    return CandidateView.Row(label: choice.label, text: choice.text, comment: tr("原文", "original"),
+                    return CandidateView.Row(label: choice.label, text: Self.preview(choice.text), comment: tr("原文", "original"),
                                              style: .original)
                 case .version:
-                    return CandidateView.Row(label: choice.label, text: choice.text, style: .translation,
+                    return CandidateView.Row(label: choice.label, text: Self.preview(choice.text), style: .translation,
                                              isComplete: choice.isComplete)
                 case let .rewrite(style):
                     // A 黑话 line notes what the terms from the user's jargon list in it mean.
                     let note = style == RewriteStyle.jargonName
                         ? JargonLibrary.annotation(for: choice.text, entries: LiveJargon.entries(for: config)) : nil
                     let name = RewriteStyle.named(style).map(UIText.name) ?? style
-                    return CandidateView.Row(label: choice.label, text: choice.text,
+                    return CandidateView.Row(label: choice.label, text: Self.preview(choice.text),
                                              comment: note.map { "\(name) · \($0)" } ?? name,
                                              style: .translation, isComplete: choice.isComplete)
                 case .answer:

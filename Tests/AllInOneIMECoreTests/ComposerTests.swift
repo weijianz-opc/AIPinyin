@@ -1277,11 +1277,13 @@ struct ComposerTests {
         #expect(send("i", "nihao").1.first == .startConversion(input: "你好", id: 1))  // @improve: the default
         let (marked, _) = send("q", "nihao")
         #expect(marked.markedText == "@question 你好" && marked.activeCommand == .question)
-        // Nothing after the command: a hint, no request.
+        // Nothing after the command: the clipboard's text is asked for; without any, a hint, no request.
         let (e, _) = palette("q")
         _ = e.handleKeyDown(tab)
-        #expect(tapOption(e).first == .notice("在命令后面写上内容") && !e.isLevelTwo)
+        #expect(tapOption(e) == [.readClipboard(id: 1)] && !e.isLevelTwo)
+        #expect(e.pasted(nil, id: 1) == [.notice("在命令后面写上内容")] && !e.isLevelTwo)
     }
+
 
     @Test func answersAreInsertedLikeVersions() {
         let (c, _) = palette("q")
