@@ -54,8 +54,7 @@ When `@` isn't followed by a command, as in `@张三` (a name) or `@john`, the `
 people in chat apps still works.
 `@question` and `@improve` send to your own Bedrock only when you press the action key; `@open` searches only on this
 Mac; `@claude` uses the Claude Code installed on your Mac (the `claude` command) and its own account, and it asks you
-first, as usual, before changing files or running commands. Without Claude Code installed, the command list marks it
-"claude not installed", and the action key only says so instead of opening Terminal.
+first, as usual, before changing files or running commands. Without Claude Code installed, `@claude` isn't offered.
 
 ### Your own commands
 
@@ -83,7 +82,7 @@ from the next sentence.
 - `run` and `terminal` type English letters by default (like `@open`; Chinese comes back after), and full-width punctuation becomes ASCII: `print（“牛逼”）` → `print("牛逼")`. Set `"ascii": false` to keep text as typed.
 - Programs run in your home folder with your login shell's PATH (so Homebrew, pyenv and nvm installs are found). `run` stops a program after 10 seconds (`timeoutSeconds`) or when it prints too much; Esc stops it at any time.
 - `summary` is the description in the command list (optional).
-- When the program in `argv` isn't found (say, no `python3`), the command list marks it "not installed", and the action key only says so.
+- When the program in `argv` isn't found (say, no `python3`), the command isn't offered and `@python …` is inserted as text; once it's installed, the command appears in the next text field.
 
 `run` and `terminal` run code on your Mac: only add commands you wrote and trust. They, too, run only when you press the action key, and never during secure input.
 

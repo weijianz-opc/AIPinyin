@@ -555,8 +555,8 @@ enum SelfTest {
         controller.runInTerminal = { terminal.append($0) }
         controller.copyText = { copied.append($0) }
         controller.programInstalled = { _ in true }  // @claude runs here even without Claude Code
-        controller.setCommands(controller.composer.commands, recheck: true)
-        controller.composer.missingPrograms = [:]
+        controller.setCommands(Command.catalog(controller.loadSettings().customCommands), recheck: true)
+        controller.composer.commands = Command.catalog(controller.loadSettings().customCommands)
         defer {
             controller.openItem = { NSWorkspace.shared.open(URL(fileURLWithPath: $0)) }
             controller.runInTerminal = { try TerminalLauncher.claude($0) }

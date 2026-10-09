@@ -98,8 +98,9 @@ final class AllInOneIMEInputController: IMKInputController {
         if program == "claude", TerminalLauncher.claudePath != nil { return true }
         return CommandRunner.resolve(program, path: ShellEnvironment.current["PATH"]) != nil
     }
-    /// The commands whose programs were last checked (`setCommands`).
+    /// The commands whose programs were last checked (`setCommands`), and those whose program is missing.
     private var checkedCommands: [Command] = []
+    private var missingCommands: Set<String> = []
     /// The latest check (an older one that finishes later is ignored).
     private var programCheck = 0
     /// A custom `run` command: runs its program in the background (the self-test supplies its own).
@@ -240,12 +241,13 @@ final class AllInOneIMEInputController: IMKInputController {
         }
     }
 
-    /// Takes over the commands "@" offers, and checks in the background which programs they need are
-    /// missing: when they changed, or with `recheck` (a text field became active: something may have
-    /// been installed meanwhile).
+    /// Takes over the commands "@" offers, without those whose program isn't on this Mac (`@claude`
+    /// without Claude Code, a custom command's missing `argv[0]`): "@claude …" is then just text, like
+    /// "@name". Which are missing is checked in the background when the commands changed, or with
+    /// `recheck` (a text field became active: something may have been installed meanwhile).
     @MainActor
     func setCommands(_ commands: [Command], recheck: Bool = false) {
-        composer.commands = commands
+        composer.commands = commands.filter { !missingCommands.contains($0.name) }
         guard recheck || commands != checkedCommands else { return }
         checkedCommands = commands
         programCheck += 1
@@ -254,12 +256,13 @@ final class AllInOneIMEInputController: IMKInputController {
         let installed = programInstalled
         DispatchQueue.global().async { [weak self] in
             // The first check asks the user's shell for its PATH, which takes a moment.
-            var missing: [String: String] = [:]
-            for (name, program) in needed where !installed(program) { missing[name] = program }
+            let missing = Set(needed.filter { !installed($0.1) }.map(\.0))
             DispatchQueue.main.async {
                 guard let self, self.programCheck == check else { return }
-                if !missing.isEmpty { log.notice("commands without their program: \(missing.count)") }
-                self.composer.missingPrograms = missing
+                if !missing.isEmpty { log.notice("commands hidden, their program isn't installed: \(missing.count)") }
+                self.missingCommands = missing
+                // Not while a command is being written: the draft keeps the commands it started with.
+                if !self.composer.isComposing { self.composer.commands = commands.filter { !missing.contains($0.name) } }
             }
         }
     }
@@ -740,9 +743,6 @@ final class AllInOneIMEInputController: IMKInputController {
         if composer.draftCommand != nil, composer.sentText.isEmpty {
             return "\(how) → " + tr("用剪贴板里的文字", "use the clipboard text")
         }
-        if let command = composer.draftCommand, let program = composer.missingPrograms[command.name] {
-            return UIText.notInstalled(program)
-        }
         return "\(how) → " + (composer.draftCommand.map { UIText.action($0, input: input, config: config) }
             ?? UIText.action(input: input, config: config))
     }
@@ -860,8 +860,7 @@ final class AllInOneIMEInputController: IMKInputController {
             // "@…": the commands that start with what was typed.
             model.rows = composer.paletteMatches.enumerated().map {
                 CandidateView.Row(label: String($0.offset + 1), text: "@" + $0.element.name,
-                                  comment: composer.missingPrograms[$0.element.name].map(UIText.notInstalled)
-                                      ?? UIText.summary($0.element), style: .candidate)
+                                  comment: UIText.summary($0.element), style: .candidate)
             }
             model.highlighted = composer.paletteHighlighted
             model.footer = tr("⏎ / Tab / 空格 选择 · Esc 取消", "⏎ / Tab / Space choose · Esc cancel")
