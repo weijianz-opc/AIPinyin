@@ -1,0 +1,6 @@
+/* The input method's name (Input Sources, the input menu) and the permission prompts. */
+"CFBundleName" = "AllInOneIME";
+"CFBundleDisplayName" = "AllInOneIME";
+"com.aipinyin.inputmethod.AIPinyin" = "AllInOneIME";
+"NSMicrophoneUsageDescription" = "Records while you hold the right ⌥ key to talk. Speech is turned into text on this Mac and never uploaded.";
+"NSSpeechRecognitionUsageDescription" = "Turns speech into text while you hold the right ⌥ key, on this Mac.";

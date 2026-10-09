@@ -3,11 +3,10 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>zh_CN</string>
-	<!-- System-provided UI (file panels, text field menus) follows the user's language, like the
-	     settings window does (UIText). -->
-	<key>CFBundleAllowMixedLocalizations</key>
-	<true/>
+	<string>en</string>
+	<!-- The name and permission prompts are localized in en.lproj and zh-Hans.lproj (InfoPlist.strings),
+	     which also makes system-provided UI follow the user's language. Input Sources shows the name
+	     from there. -->
 	<key>CFBundleExecutable</key>
 	<string>AllInOneIME</string>
 	<!-- Bundle and input source IDs keep the original name: macOS keys the enabled input source,

@@ -59,6 +59,10 @@ app: build Resources/icon.tiff Resources/AppIcon.icns
 	cp "$$(swift build -c $(CONFIG) --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp Resources/Info.plist "$(APP)/Contents/Info.plist"
 	cp Resources/icon.tiff Resources/AppIcon.icns "$(APP)/Contents/Resources/"
+	for lang in en zh-Hans; do \
+		mkdir -p "$(APP)/Contents/Resources/$$lang.lproj" && \
+		cp "Resources/$$lang.lproj/InfoPlist.strings" "$(APP)/Contents/Resources/$$lang.lproj/"; \
+	done
 	printf 'APPL????' > "$(APP)/Contents/PkgInfo"
 	cp $(RIME_LIB) "$(APP)/Contents/Frameworks/"
 	cp -R $(RIME_DIST)/lib/rime-plugins "$(APP)/Contents/Frameworks/"
