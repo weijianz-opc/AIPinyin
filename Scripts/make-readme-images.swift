@@ -2,7 +2,9 @@
 //   swift Scripts/make-readme-images.swift /tmp/allinoneime-selftest docs
 // docs/demo.png      pinyin → translation, side by side, each under a text line with the inline (marked) text
 // docs/english.png   English typed directly → English polish (with 黑话); Chinese as the output language
-// docs/voice.png     dictation (hold right ⌥)
+// docs/voice.png     dictation (hold right ⌥) after a command
+// docs/commands.png  the @ command palette → @question's answer
+// docs/open.png      @open: Spotlight as you type, and a path listing a folder (only macOS's own apps)
 // docs/panel-dark.png, docs/settings.png   copies of the renders
 import AppKit
 
@@ -78,7 +80,9 @@ func composite(_ steps: [Step], to name: String) throws {
             NSColor.controlAccentColor.setFill()
             NSRect(x: field.minX + 12 + (step.marked as NSString).size(withAttributes: [.font: fieldFont]).width + 2,
                    y: field.minY + 9, width: 2, height: 21).fill()
-            step.panel.draw(in: NSRect(x: x, y: field.minY - 6 - size.height, width: size.width, height: size.height))
+            // Source-over: drawn as is (copy), the panel's rounded corners would punch holes in the image.
+            step.panel.draw(in: NSRect(x: x, y: field.minY - 6 - size.height, width: size.width, height: size.height),
+                            from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             x += widths[index] + gap
         }
     }
@@ -100,11 +104,22 @@ try composite([
 ], to: "english.png")
 
 try composite([
-    Step(caption: "按住右 ⌥ 说话，松开后进草稿", marked: "我今天有", panel: load("8-voice.png")),
+    Step(caption: "先打 @improve，再按住右 ⌥ 说话", marked: "@improve 我今天有", panel: load("8-voice.png")),
 ], to: "voice.png")
+
+try composite([
+    Step(caption: "① 开头打 @：命令列表，打字母筛选", marked: "@", panel: load("10-palette.png")),
+    Step(caption: "② @question 加问题，按 ⏎：回答", marked: "@question 什么是量子计算", panel: load("11-question.png")),
+], to: "commands.png")
+
+try composite([
+    Step(caption: "① @open 加名字：边打边找", marked: "@open calculator", panel: load("12-open.png")),
+    Step(caption: "② 以 / 开头是路径：列出文件夹，Tab 补全", marked: "@open /System/Applications/",
+         panel: load("12b-open-path.png")),
+], to: "open.png")
 
 for (from, to) in [("4-final-dark.png", "panel-dark.png"), ("6-settings.png", "settings.png")] {
     try? FileManager.default.removeItem(at: output.appendingPathComponent(to))
     try FileManager.default.copyItem(at: source.appendingPathComponent(from), to: output.appendingPathComponent(to))
 }
-print("wrote \(output.path)/demo.png, english.png, voice.png, panel-dark.png, settings.png")
+print("wrote \(output.path)/demo.png, english.png, voice.png, commands.png, open.png, panel-dark.png, settings.png")

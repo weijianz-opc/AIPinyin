@@ -45,6 +45,9 @@ final class SettingsModel: ObservableObject {
     /// False for previews/screenshots: nothing is ever written.
     private let persists: Bool
     private var testTask: Task<Void, Never>?
+    /// Screenshots only: the name shown for the selected AWS profile. README images are public and a
+    /// profile is often named after its owner; the keys, region and 测试连接 still use the real one.
+    var profileShownAs: String?
 
     init(configURL: URL = Config.defaultURL,
          sentenceMode: Bool = Settings.sentenceMode,
@@ -370,7 +373,9 @@ struct SettingsView: View {
                         .onSubmit { model.save() }
                 }
                 Picker("AWS Profile", selection: $model.config.awsProfile) {
-                    ForEach(model.profiles, id: \.self) { Text($0).tag($0) }
+                    ForEach(model.profiles, id: \.self) { name in
+                        Text(name == model.config.awsProfile ? model.profileShownAs ?? name : name).tag(name)
+                    }
                 }
                 TextField(tr("区域", "Region"), text: regionBinding,
                           prompt: Text(tr("留空用 profile 的区域（\(model.profileRegion)）",
@@ -420,6 +425,13 @@ struct SettingsView: View {
                 if let saveError = model.saveError {
                     Text(saveError).foregroundStyle(.red)
                 }
+            } footer: {
+                // At the very end, out of the way; selectable for bug reports, the same in both languages.
+                if let version = Self.version {
+                    Text("AllInOneIME \(version)")
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
             }
         }
         .formStyle(.grouped)
@@ -442,6 +454,11 @@ struct SettingsView: View {
             model.refreshJargon()  // the list may have been edited in the text editor
         }
         .onDisappear { model.save() }
+    }
+
+    /// The input method's version (Info.plist), shown at the bottom of the window.
+    static var version: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     }
 
     /// The commands, at the top: what this input method does beyond pinyin.

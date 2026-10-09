@@ -181,6 +181,7 @@ func disable() -> Int32 {
 
 func printStatus() -> Int32 {
     typealias R = InputSourceRegistrar
+    print("version:     \(AppVersion.string)")
     print("bundle:      \(Bundle.main.bundlePath)")
     let others = NSWorkspace.shared.runningApplications.filter {
         $0.bundleIdentifier == Bundle.main.bundleIdentifier && $0.processIdentifier != getpid()

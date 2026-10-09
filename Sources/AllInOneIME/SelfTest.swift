@@ -59,7 +59,9 @@ final class FakeTextClient: NSObject, IMKTextInput {
     func overrideKeyboard(withKeyboardNamed keyboardUniqueName: String!) {}
     func selectMode(_ modeIdentifier: String!) {}
     func supportsUnicode() -> Bool { true }
-    func bundleIdentifier() -> String! { Bundle.main.bundleIdentifier ?? "com.aipinyin.selftest" }
+    /// Pretend to be another application (nil: this one).
+    var bundleIDOverride: String?
+    func bundleIdentifier() -> String! { bundleIDOverride ?? Bundle.main.bundleIdentifier ?? "com.aipinyin.selftest" }
     func windowLevel() -> CGWindowLevel { CGWindowLevelForKey(.normalWindow) }
     func supportsProperty(_ property: TSMDocumentPropertyTag) -> Bool { false }
     func uniqueClientIdentifierString() -> String! { "allinoneime-selftest" }
@@ -237,10 +239,11 @@ enum SelfTest {
         func render(_ name: String, chinese: Bool) {
             UIText.choice = chinese ? .chinese : .english
             let preview = SettingsModel(configURL: Config.defaultURL, sentenceMode: false, saveSentenceMode: { _ in }, persists: false)
+            preview.profileShownAs = "default"  // README images are public: not the user's own profile name
             preview.runTest()
             _ = pump(timeout: 20) { preview.testStatus != .running }
             let host = NSHostingView(rootView: SettingsView(model: preview))
-            let size = NSSize(width: 560, height: 1700)
+            var size = NSSize(width: 560, height: 1700)
             let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: size.width, height: size.height),
                                   styleMask: [.titled], backing: .buffered, defer: false)
             window.alphaValue = 0
@@ -248,6 +251,14 @@ enum SelfTest {
             window.contentView = host
             host.layoutSubtreeIfNeeded()
             _ = pump(timeout: 0.5) { false }
+            // The form scrolls in its window: taller than that, the window grows so nothing is cut off.
+            for _ in 0..<3 {
+                guard let height = scrolledHeight(host)?.rounded(.up), height > size.height else { break }
+                size.height = height
+                window.setContentSize(size)
+                host.layoutSubtreeIfNeeded()
+                _ = pump(timeout: 0.3) { false }
+            }
             if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
                 host.cacheDisplay(in: host.bounds, to: rep)
                 if let png = rep.representation(using: .png, properties: [:]) {
@@ -260,6 +271,7 @@ enum SelfTest {
         render("6-settings", chinese: true)  // README
         render("6-settings-en", chinese: false)
         UIText.choice = pickedBefore
+        check(SettingsView.version?.isEmpty == false, "the window ends with the version (AllInOneIME \(SettingsView.version ?? "?"))")
 
         // A config file that doesn't parse is shown as an error and never overwritten.
         try? Data("{ broken".utf8).write(to: url)
@@ -556,12 +568,15 @@ enum SelfTest {
             _ = pump(timeout: 5) { !controller.composer.currentLiveResults.isEmpty }
             return controller.composer.currentLiveResults
         }
+        // Lets a notice from before (中 / 英, 已在终端打开 Claude Code) expire: not in the README images.
+        func settle() { _ = pump(timeout: 6) { controller.panelModel().detail == nil } }
 
+        settle()
         at()
         let commands = controller.panelModel().rows.map(\.text)
         check(client.marked == "@" && commands == ["@improve", "@question", "@claude", "@open"],
               "@ opens the command palette (\(commands))")
-        snapshot("10-palette", in: snapshotDirectory)
+        snapshot("10-palette", in: snapshotDirectory)  // README
         type("q", controller, client)
         _ = enter(controller, client)
         check(client.marked == "@question ", "⏎ picks @question ('\(client.marked)')")
@@ -571,7 +586,7 @@ enum SelfTest {
             let answer = controller.composer.choices.last
             check(answer?.kind == .answer && answer?.text.containsHan == true && controller.composer.choices.first?.text.hasPrefix("什么") == true,
                   "a Chinese answer to the question: \(answer?.text.prefix(50) ?? "")")
-            snapshot("11-question", in: snapshotDirectory)
+            snapshot("11-question", in: snapshotDirectory)  // README
             copy()
             check(copied == [answer?.text ?? ""] && controller.composer.phase == .choosing, "⌘C copies the answer and keeps it up")
             _ = enter(controller, client)
@@ -604,6 +619,7 @@ enum SelfTest {
               "…and starts it once secure input is off (\(terminal))")
         check(TerminalLauncher.shellQuote("it's $HOME `x`") == "'it'\\''s $HOME `x`'", "the prompt is passed as one quoted word")
 
+        settle()
         at()
         type("o", controller, client)
         _ = press(controller, client, "\t", code: VirtualKey.tab)
@@ -612,7 +628,10 @@ enum SelfTest {
         let found = live("calculator")
         check(found.first?.path == "/System/Applications/Calculator.app",
               "@open shows Calculator as you type (\(found.prefix(3).map(\.path)))")
-        snapshot("12-open", in: snapshotDirectory)
+        // README images are public: the panel shows only what ships with macOS, never the user's own files.
+        let shipped = found.filter { $0.path.hasPrefix("/System/Applications/") }
+        controller.perform(controller.composer.receiveLive(shipped, for: controller.composer.liveQuery ?? ""), client: client)
+        snapshot("12-open", in: snapshotDirectory)  // README
         _ = enter(controller, client)
         check(opened == ["/System/Applications/Calculator.app"] && client.marked.isEmpty
               && !controller.composer.engineState.isAsciiMode, "⏎ opens it, inserts nothing, and Chinese is back")
@@ -620,9 +639,16 @@ enum SelfTest {
         at()
         type("o", controller, client)
         _ = press(controller, client, "\t", code: VirtualKey.tab)
-        for ch in "/System/Applications/Util" { press(controller, client, String(ch), code: keyCodes[ch] ?? 0x2C) }
+        func typePath(_ path: String) { for ch in path { press(controller, client, String(ch), code: keyCodes[ch] ?? 0x2C) } }
+        typePath("/System/Applications/")
+        let listed = live("/System/Applications/")
+        check(listed.first?.name == "Utilities" && listed.first?.isFolder == true
+              && listed.dropFirst().allSatisfy { $0.path.hasSuffix(".app") },
+              "a path lists the folder, folders first (\(listed.map(\.name)))")
+        snapshot("12b-open-path", in: snapshotDirectory)  // README; only macOS's own apps in there
+        typePath("Util")
         let folders = live("/System/Applications/Util")
-        check(folders.first?.name == "Utilities" && folders.first?.isFolder == true, "a path lists the folder (\(folders.map(\.name)))")
+        check(folders.first?.name == "Utilities" && folders.first?.isFolder == true, "typing narrows it (\(folders.map(\.name)))")
         _ = press(controller, client, "\t", code: VirtualKey.tab)
         check(controller.composer.draft == "@open /System/Applications/Utilities/", "Tab completes the folder path")
         type("term", controller, client)
@@ -639,6 +665,12 @@ enum SelfTest {
         check(client.inserted.last == "@" && controller.composer.engineState.isComposing, "@z: '@' goes in, z is pinyin")
         _ = escape(controller, client)
         controller.commitComposition(client)
+    }
+
+    /// Height of the content of the outermost scroll view in `view` (what a SwiftUI form scrolls).
+    static func scrolledHeight(_ view: NSView) -> CGFloat? {
+        if let scroll = view as? NSScrollView, let document = scroll.documentView { return document.frame.height }
+        return view.subviews.lazy.compactMap(scrolledHeight).first
     }
 
     static func snapshot(_ name: String, in directory: URL, appearance: NSAppearance.Name = .aqua) {
@@ -699,6 +731,7 @@ enum SelfTest {
         }
         controller.clientOverride = client
         controller.saveSentenceMode = { _ in }  // leave the user's setting alone
+        controller.readClipboard = { nil }  // never the real clipboard; the ⌘V section supplies its text
         // The real config (model, styles, credentials) with the new options pinned to known values;
         // sections below change `settings` and the controller follows (nothing is written to disk).
         settings = (try? Config.load()) ?? .default
@@ -779,6 +812,70 @@ enum SelfTest {
             check(client.inserted.last == first, "⏎ inserts the first version")
         }
         controller.commitComposition(client)
+
+        // ⌘V in the command: the clipboard's text (a fake one here) goes into it, not the document.
+        print("— @improve + ⌘V (live Bedrock)")
+        let clipboard = "这个项目的进度太慢了\n我们需要尽快想办法"
+        controller.readClipboard = { clipboard }
+        press(controller, client, "@", code: 0x13, flags: .shift)
+        type("i", controller, client)
+        _ = enter(controller, client)
+        let insertedBefore = client.inserted.count
+        check(press(controller, client, "v", code: 0x09, flags: .command), "⌘V in the command is the input method's (the app doesn't paste)")
+        _ = pump(timeout: 1) { client.marked != "@improve " }  // the clipboard is read once the key is answered
+        check(client.marked == "@improve 这个项目的进度太慢了我们需要尽快想办法" && client.inserted.count == insertedBefore,
+              "the clipboard's text goes into the command, as one line ('\(client.marked)')")
+        _ = enter(controller, client)
+        if finishConversion(controller, "@improve on pasted text") {
+            check(controller.composer.choices.first?.text == "这个项目的进度太慢了我们需要尽快想办法"
+                  && controller.composer.choices.contains { $0.kind == .version && !$0.text.containsHan },
+                  "the pasted text is improved")
+            _ = enter(controller, client)
+        }
+        controller.readClipboard = { nil }
+        check(!press(controller, client, "v", code: 0x09, flags: .command), "⌘V with nothing pending is the app's")
+        controller.commitComposition(client)
+        // In a terminal (it pastes on ⌘V itself) ⌘V stays the terminal's; ⏎ on the empty command takes
+        // the clipboard instead, shown first, ⏎ again runs it.
+        client.bundleIDOverride = "com.mitchellh.ghostty"
+        controller.activateServer(client)
+        controller.readClipboard = { clipboard }
+        press(controller, client, "@", code: 0x13, flags: .shift)
+        type("i", controller, client)
+        _ = enter(controller, client)
+        check(controller.panelModel().status == .hint("⏎ → 用剪贴板里的文字"), "the hint names the clipboard (\(controller.panelModel().status))")
+        check(!press(controller, client, "v", code: 0x09, flags: .command) && client.inserted.last == "@improve ",
+              "in a terminal ⌘V reaches the terminal (no second copy in the command)")
+        press(controller, client, "@", code: 0x13, flags: .shift)
+        type("i", controller, client)
+        _ = enter(controller, client)
+        check(enter(controller, client) && pump(timeout: 1) { client.marked != "@improve " }
+              && client.marked == "@improve 这个项目的进度太慢了我们需要尽快想办法" && !controller.composer.isLevelTwo,
+              "⏎ on the empty command shows the clipboard's text in it (\(client.marked))")
+        _ = enter(controller, client)
+        _ = pump(timeout: 3) { controller.composer.phase == .choosing }
+        check(controller.composer.phase == .choosing && controller.composer.choices.first?.text == "这个项目的进度太慢了我们需要尽快想办法",
+              "⏎ again improves it")
+        controller.commitComposition(client)
+        client.bundleIDOverride = nil
+        controller.activateServer(client)
+        controller.readClipboard = { nil }
+        // What is taken from a clipboard, on private pasteboards (the real one is never read here).
+        func reads(_ fill: (NSPasteboard) -> Void) -> String? {
+            let board = NSPasteboard.withUniqueName()
+            defer { board.releaseGlobally() }
+            board.clearContents()
+            fill(board)
+            return AllInOneIMEInputController.clipboardText(board)
+        }
+        check(reads { $0.setString("plain text", forType: .string) } == "plain text", "plain text is taken")
+        for marker in ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType", "com.agilebits.onepassword"] {
+            let item = NSPasteboardItem()
+            item.setString("secret", forType: .string)
+            item.setString("", forType: NSPasteboard.PasteboardType(rawValue: marker))
+            check(reads { $0.writeObjects([item]) } == nil, "a password marked \(marker) is not taken")
+        }
+        check(reads { $0.setData(Data([0x49, 0x49, 0x2A, 0]), forType: .tiff) } == nil, "an image is not taken")
 
         // The original flow from here on: every sentence collects into a draft.
         SelfTest.sentenceMode = true

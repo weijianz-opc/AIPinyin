@@ -39,6 +39,10 @@
 
 例：`@q` ⏎，打 `什么是量子计算`，⏎。选好命令后按住右 ⌥ 说话也行。`@open` 会临时切到英文字母，用完回到中文。
 
+![打 @ 弹出命令列表；@question 加问题，按 ⏎ 出答案](docs/commands.png)
+
+![@open 边打边找 App；以 / 开头是路径，列出文件夹，Tab 补全](docs/open.png)
+
 `@` 后面跟的不是命令时，比如 `@张三`、`@john`，`@` 照常上屏，在聊天软件里 @ 人不受影响。
 `@question` 和 `@improve` 只在按执行键时发到你自己的 Bedrock；`@open` 只在本机搜索；`@claude` 用的是你本机装的
 Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前它会照常先问你。
@@ -140,6 +144,8 @@ Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再
 以前装过 AI 拼音（AIPinyin）的话，直接 `make install` 就行：它会删掉旧的 AIPinyin.app 和「AI 拼音设置」，
 输入法列表里那一项会换成新名字，不用重新添加。设置、黑话库和学到的词第一次启动时搬到新目录
 （`~/.config/allinoneime` 等），旧目录留一个指向新目录的链接。
+
+升级前看一下 [更新日志](CHANGELOG.md)，里面有每个版本的变化和升级须知。装的是哪个版本，看 `make status` 的 `version:` 一行。
 
 卸载：`make uninstall`。
 

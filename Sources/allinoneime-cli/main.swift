@@ -19,6 +19,7 @@ let usage = """
       --raw            also print the raw model output
       --bench          convert built-in samples in one process and report latency
       --dump FILE      save the raw event-stream response bytes to FILE (test fixtures)
+      --version        print the version and exit
     """
 
 struct Options {
@@ -58,6 +59,7 @@ func parseOptions() -> Options {
         case "--bench": options.bench = true
         case "--dump": options.dumpPath = value(arg)
         case "-h", "--help": print(usage); exit(0)
+        case "--version": print("allinoneime-cli \(AppVersion.string)"); exit(0)
         default:
             if arg.hasPrefix("--") { fail("unknown option \(arg)") }
             options.words.append(arg)
