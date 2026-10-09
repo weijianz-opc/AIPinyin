@@ -2,6 +2,8 @@
 
 # AllInOneIME
 
+中文 | [English](README.en.md)
+
 一个 macOS 输入法。平时就是普通拼音输入法，在本地运行，基于 Rime + 雾凇拼音。句子开头打 `@` 就是命令，
 写完按 ⏎ 执行：`@improve` 用 Amazon Bedrock 上的大模型给出三种地道的英文说法和几种改写，`@question` 提问，
 `@claude` 在终端里开 Claude Code，`@open` 找文件和 App。也可以按住右 ⌥ 说话。
@@ -9,6 +11,8 @@
 ![两步：@improve 加拼音，再按 ⏎ 出英文和中文改写](docs/demo.png)
 
 ![@improve 加英文：英文润色（含黑话）；输出设成中文：中文润色](docs/english.png)
+
+更详细的说明（每个命令和设置、安装排查、隐私）见 [Wiki](https://github.com/weijianz-opc/AllInOneIME/wiki)。
 
 ## 怎么用
 

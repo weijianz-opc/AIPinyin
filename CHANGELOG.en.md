@@ -1,0 +1,49 @@
+# Changelog
+
+[中文](CHANGELOG.md) | English
+
+## 0.2.0 (2026-10-09)
+
+### Added
+
+- `@` commands: type `@` at the start of a sentence for the command list (type letters to filter), and press the action key (⏎ by default) when done to run the command. When `@` isn't followed by a command (e.g. `@张三`, a name), it's inserted as usual.
+  - `@improve`: translates or polishes, plus a few rewrites (Amazon Bedrock); what every sentence used to get.
+  - `@question`: asks a question. The answer appears in the candidate panel; when inserted, it's joined into one line with control characters removed, so it's safe in a terminal too.
+  - `@claude`: opens Claude Code in Terminal with what you wrote as the first message (needs the `claude` command installed on the Mac).
+  - `@open`: lists matching files, folders and apps as you type (Spotlight); text starting with `~/` or `/` is listed as a path, Tab completes, ⏎ opens.
+- Once the results are up, ⌘C copies the highlighted one (for `@open`, the path).
+- ⌘V in a command (or in a sentence-mode draft) appends the clipboard text, up to 2000 characters at a time; ⏎ after a command with nothing written yet uses the clipboard text (this works in terminals too). Content that password managers mark as concealed isn't read.
+- The version number is shown at the bottom of the settings window, in `make status` and by `allinoneime-cli --version`.
+
+### Changed
+
+- Without `@`, it's a regular pinyin input method: picking a word inserts it, ⏎ is Return, in English mode letters are typed directly, what you say while holding right ⌥ is inserted directly too, and nothing goes online.
+- "Translate key" is now "Action key": ⏎ (the new default), Tap ⌥, ⌥Space or Space; it only applies to `@` commands and sentence mode. ⇧⏎ inserts as typed.
+- The old behavior, where every sentence went into a draft and a key press produced the results, is now "Sentence mode", off by default. Turn it on in the settings, or toggle it with ⇧Space in Chinese mode (⇧Space used to turn the AI on and off).
+
+### Fixed
+
+- AllInOneIME had no name in the input source list in System Settings; it now shows AllInOneIME. The microphone and speech recognition permission prompts also follow the system language (Chinese / English).
+- Ctrl+Space didn't get to AllInOneIME, or it switched back to U.S. after a while: `make install` now adds AllInOneIME to your input sources (only this one; other input sources are left alone), `make uninstall` removes only this one, and the `listed:` line of `make status` shows whether it's in the list.
+
+### Upgrade notes
+
+- To upgrade, run `make install` as usual, without uninstalling first; it adds AllInOneIME to your input sources, so you usually don't need to add it by hand.
+- `translateKey` in the config is no longer read; `actionKey` replaces it, ⏎ by default. If you used Tap ⌥, ⌥Space or Space, choose it again under "Action key" in the settings.
+- The old "AI translation and rewrites" switch (`aiEnabled`) is no longer read, and sentence mode (`sentenceMode`) is off by default: after upgrading, you get no results without `@`. For the old behavior, turn on sentence mode.
+- Upgrading from an AIPinyin (AI 拼音) version: `make install` removes the old AIPinyin.app and "AI 拼音设置"; the added input source and the microphone permission are kept. On first launch, settings, the jargon list and learned words move to `~/.config/allinoneime` and `~/Library/Application Support/AllInOneIME`, logs to `~/Library/Logs/AllInOneIME`, and each old folder is left as a link to the new one.
+
+## 0.1.0
+
+All versions before 0.2.0 are labeled 0.1.0; the app was first called AIPinyin (AI 拼音).
+
+- A local pinyin input method based on librime 1.16.1 and rime-ice (雾凇拼音); typing never goes online.
+- Finish a sentence and press the "Translate key": it goes to Amazon Bedrock in your own AWS account (Claude Haiku 4.5 by default), which gives three English versions and several Chinese rewrites (Polish, Concise, Formal, Casual, Tactful).
+- A settings window, and "AI 拼音设置", a launcher that opens it.
+- Nothing is sent during secure input (password fields and the like).
+- "Default input" (Chinese pinyin / English) and "Output" (English / Chinese): text in the other language is translated, text in the same language is polished, and rewrites are in the language you typed. English typed in English mode also goes into the draft (`englishAI` turns this off).
+- The "Jargon" rewrite style: big-tech jargon in Chinese, Amazon-speak in English. It can use your own term list, and the candidate panel notes what the terms it used mean.
+- Voice input: hold right ⌥ and talk; speech is recognized on the Mac (macOS 26 and later).
+- The "Translate key" (`translateKey`) can be Tap ⌥ (default), ⌥Space or Space (at first, only Space).
+- "Language" (`uiLanguage`): 中文, English or System; the settings window, the candidate panel hints and the input menu all follow it.
+- Renamed to AllInOneIME, with a new icon; the launcher is now "AllInOneIME Settings" ("AllInOneIME 设置" on a Chinese system).
