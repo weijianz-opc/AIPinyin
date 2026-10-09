@@ -8,6 +8,11 @@
 
 - ⌃V in a command (or in a sentence-mode draft) appends the clipboard text after what you've typed, in any app, terminals included. In terminals (Ghostty etc.) and Notes, the app takes ⌘V and pastes it itself; use ⌃V there.
 
+### Fixed
+
+- A very long row in the candidate panel (such as a long `@question` answer) could lose its last line; it is shown in full now.
+- The settings window explains `@improve` more clearly: "Chinese → translate to English / rewrite; English → polish the English / rewrite".
+
 ## 0.2.0 (2026-10-09)
 
 ### Added
