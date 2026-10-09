@@ -127,9 +127,13 @@ make install
 `make install` 会下载 librime 和雾凇拼音词库并校验，编译后安装到 `~/Library/Input Methods`，
 并在 `~/Applications` 放一个「AllInOneIME 设置」（英文系统里叫 AllInOneIME Settings）。
 
-装好后手动添加一次输入法（macOS 不允许程序自动启用第三方输入法）：
+`make install` 会启用 AllInOneIME，并把它加进你的输入法列表，之后用 Ctrl+空格 切换
+（🌐 键要在 系统设置 → 键盘 里把「按下 🌐 键时」设成「更改输入法」才会切换）。
+如果最后提示要手动添加，说明这台 Mac 不让程序启用，就自己加一次：
 系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME。
-之后用 Ctrl+空格 或 🌐 键切换。
+
+Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再运行一次 `make install`，
+它会把 AllInOneIME 加回输入法列表。`make status` 里的 `listed:` 一行显示它在不在列表里。
 
 以前装过 AI 拼音（AIPinyin）的话，直接 `make install` 就行：它会删掉旧的 AIPinyin.app 和「AI 拼音设置」，
 输入法列表里那一项会换成新名字，不用重新添加。设置、黑话库和学到的词第一次启动时搬到新目录

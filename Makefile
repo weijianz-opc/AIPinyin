@@ -130,7 +130,8 @@ settings-app: Resources/AppIcon.icns
 test: deps
 	swift test
 
-# Stops the running IME (macOS relaunches it on next use), replaces the bundle, registers it.
+# Stops the running IME (macOS relaunches it on next use), replaces the bundle, registers it
+# (--register also keeps it in the user's input sources, so Ctrl+Space reaches it).
 # The bundle is moved, not copied: macOS launches input methods by bundle ID, and with a second
 # copy left in build/ it may start that one instead of the installed one. A copy installed under
 # the old name (same bundle ID) is removed for the same reason; the new one takes over its data.

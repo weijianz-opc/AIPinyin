@@ -7,8 +7,9 @@ import InputMethodKit
 
 let usage = """
     AllInOneIME input method. Launched by macOS without arguments; developer commands:
-      --register        register this bundle with Text Input Sources and enable it
-      --disable         disable (remove from the Input menu)
+      --register        register this bundle with Text Input Sources, enable it and add it to
+                        your input sources
+      --disable         disable, and remove it from your input sources
       --status          show registration, process and configuration status
       --settings        run as the input method and open the settings window
       --selftest [DIR]  drive the input controller (real Rime engine, live Bedrock call) with a
@@ -140,6 +141,15 @@ func register() -> Int32 {
         }
     }
     let enabled = InputSourceRegistrar.waitUntilEnabled(timeout: 2)
+    if enabled {
+        // Enabled by a program, it isn't in the user's input sources, which Ctrl+Space goes by:
+        // keep it there as well (see InputSourceList).
+        switch InputSourceRegistrar.updateUserList({ InputSourceList.adding(InputSourceRegistrar.bundleID, to: $0) }) {
+        case .written: print("input list:  added to your input sources (Ctrl+Space reaches it now)")
+        case .failed: printError("could not add it to your input sources (\(InputSourceList.domain))")
+        case .unchanged: break
+        }
+    }
     prepareDictionaries()
     _ = printStatus()
     if !enabled {
@@ -154,12 +164,18 @@ func register() -> Int32 {
 }
 
 func disable() -> Int32 {
-    guard let source = InputSourceRegistrar.source() else {
+    var status: OSStatus = 0
+    if let source = InputSourceRegistrar.source() {
+        status = TISDisableInputSource(source)
+        print(status == 0 ? "disabled \(InputSourceRegistrar.sourceID)" : "TISDisableInputSource failed: \(status)")
+    } else {
         print("not registered")
-        return 0
     }
-    let status = TISDisableInputSource(source)
-    print(status == 0 ? "disabled \(InputSourceRegistrar.sourceID)" : "TISDisableInputSource failed: \(status)")
+    switch InputSourceRegistrar.updateUserList({ InputSourceList.removing(InputSourceRegistrar.bundleID, from: $0) }) {
+    case .written: print("removed from your input sources")
+    case .failed: printError("could not remove it from your input sources (\(InputSourceList.domain))")
+    case .unchanged: break
+    }
     return status == 0 ? 0 : 1
 }
 
@@ -202,6 +218,7 @@ func printStatus() -> Int32 {
         print("languages:   \(languages.joined(separator: ", "))")
     }
     print("enabled:     \(R.bool(source, kTISPropertyInputSourceIsEnabled))")
+    print("listed:      \(R.isInUserList) (in your input sources, which Ctrl+Space goes through)")
     print("selectable:  \(R.bool(source, kTISPropertyInputSourceIsSelectCapable))")
     print("selected:    \(R.bool(source, kTISPropertyInputSourceIsSelected))")
     print("current:     \(R.currentSourceID() ?? "?")")
