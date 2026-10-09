@@ -176,7 +176,9 @@ final class CandidateView: NSView {
             let font = Fonts.text(for: row.style)
             let size = Self.measure(text, minHeight: ceil(font.ascender - font.descender + font.leading))
             widest = max(widest, size.width)
-            let textFrame = NSRect(x: Metrics.textInsetX, y: y + Metrics.rowInsetY, width: size.width, height: size.height)
+            // Drawn at the width it was measured at: laid out only as wide as its longest line, the
+            // text can wrap once more and lose its last line.
+            let textFrame = NSRect(x: Metrics.textInsetX, y: y + Metrics.rowInsetY, width: Metrics.maxTextWidth, height: size.height)
             let labelOrigin = NSPoint(
                 x: p + Metrics.rowInsetX,
                 y: textFrame.minY + (font.ascender - Fonts.label.ascender))
@@ -192,7 +194,7 @@ final class CandidateView: NSView {
         if let status = statusString() {
             let size = Self.measure(status, minHeight: 0)
             widest = max(widest, size.width + statusX - Metrics.textInsetX)
-            statusFrame = NSRect(x: statusX, y: y + Metrics.rowInsetY, width: size.width, height: size.height)
+            statusFrame = NSRect(x: statusX, y: y + Metrics.rowInsetY, width: Metrics.maxTextWidth, height: size.height)
             y += size.height + 2 * Metrics.rowInsetY
         }
 
