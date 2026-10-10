@@ -2,6 +2,12 @@
 
 [中文](CHANGELOG.md) | English
 
+## Unreleased
+
+### Added
+
+- `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
+
 ## 0.4.0 (2026-10-09)
 
 ### Added

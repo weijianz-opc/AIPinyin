@@ -122,7 +122,10 @@ final class AllInOneIMEInputController: IMKInputController {
     var loadSentenceMode: () -> Bool = { Settings.sentenceMode }
     /// `@open`: finds files and apps, and opens the one picked (the self-test opens nothing).
     var searchFiles: (String) async -> [SearchResult] = { await FileSearch.run($0) }
-    var openItem: (String) -> Void = { NSWorkspace.shared.open(URL(fileURLWithPath: $0)) }
+    /// Opens an `@open` result: a web address in the default browser, anything else as a file.
+    var openItem: (String) -> Void = {
+        NSWorkspace.shared.open(SearchResult(name: "", path: $0).webURL ?? URL(fileURLWithPath: $0))
+    }
     /// `@claude`: starts Claude Code in Terminal (the self-test starts nothing).
     var runInTerminal: (String) throws -> Void = { try TerminalLauncher.claude($0) }
     /// A custom `terminal` command: runs its arguments in Terminal (the self-test starts nothing).
@@ -913,6 +916,9 @@ final class AllInOneIMEInputController: IMKInputController {
                     return CandidateView.Row(label: choice.label, text: state.map { String(choice.text.dropFirst($0.0.count)) } ?? choice.text,
                                              comment: preview.count > 60 ? String(preview.prefix(60)) + "…" : preview, style: .candidate,
                                              icon: state.map { CommandIcons.icon(for: $0.1) })
+                case let .file(path) where SearchResult(name: "", path: path).webURL != nil:
+                    return CandidateView.Row(label: choice.label, text: choice.text,
+                                             comment: tr("在浏览器中打开", "open in the browser"), style: .candidate)
                 case let .file(path):
                     let folder = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
                     return CandidateView.Row(label: choice.label, text: choice.text,

@@ -163,4 +163,17 @@ struct CommandTests {
         #expect(Command.palette("o", in: catalog, usage: usage, now: now).map(\.name) == ["open", "python", "improve", "question"])
         #expect(Command.palette("zz", in: catalog, usage: usage, now: now).isEmpty)
     }
+
+    @Test func openWebAddresses() {
+        #expect(SearchResult.web("github.com")?.path == "https://github.com")
+        #expect(SearchResult.web("github.com/weijianz-opc/AllInOneIME")?.name == "github.com/weijianz-opc/AllInOneIME")
+        #expect(SearchResult.web("www.example.app")?.path == "https://www.example.app")
+        #expect(SearchResult.web("http://localhost:8080/a")?.webURL?.port == 8080)
+        #expect(SearchResult.web("baidu.cn")?.webURL?.host == "baidu.cn")
+        // File names, paths and words stay a file search.
+        for query in ["report.pdf", "Safari.app", "notes.md", "~/Downloads", "/Applications/", "微信", "hello world.com", "file:///etc"] {
+            #expect(SearchResult.web(query) == nil, "\(query)")
+        }
+        #expect(SearchResult(name: "", path: "/Users/me/a.txt").webURL == nil)
+    }
 }

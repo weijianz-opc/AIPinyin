@@ -563,7 +563,7 @@ enum SelfTest {
         controller.setCommands(Command.catalog(controller.loadSettings().customCommands), recheck: true)
         controller.composer.commands = Command.catalog(controller.loadSettings().customCommands)
         defer {
-            controller.openItem = { NSWorkspace.shared.open(URL(fileURLWithPath: $0)) }
+            controller.openItem = { NSWorkspace.shared.open(SearchResult(name: "", path: $0).webURL ?? URL(fileURLWithPath: $0)) }
             controller.runInTerminal = { try TerminalLauncher.claude($0) }
             controller.copyText = { text in
                 NSPasteboard.general.clearContents()

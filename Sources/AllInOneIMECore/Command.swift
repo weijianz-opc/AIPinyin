@@ -313,4 +313,29 @@ public struct SearchResult: Equatable, Sendable {
     /// A background task in the list (`@tasks`): its "path" names the session to open.
     public static let agentPrefix = "claude-agent:"
     public var agentID: String? { path.hasPrefix(Self.agentPrefix) ? String(path.dropFirst(Self.agentPrefix.count)) : nil }
+
+    /// A web address in the list (`@open github.com`): opened in the default browser.
+    public var webURL: URL? {
+        guard path.hasPrefix("http://") || path.hasPrefix("https://") else { return nil }
+        return URL(string: path)
+    }
+
+    /// The query as a web address to open, or nil: "https://…" and "www.…" always; a bare
+    /// "name.tld/…" only for common top-level domains, so "report.pdf" or "Safari.app" stay file names.
+    public static func web(_ query: String) -> SearchResult? {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.contains(where: \.isWhitespace), !text.hasPrefix("/"), !text.hasPrefix("~") else { return nil }
+        let lower = text.lowercased()
+        let explicit = lower.hasPrefix("http://") || lower.hasPrefix("https://") || lower.hasPrefix("www.")
+        guard let url = WebReader.url(from: text), let host = url.host?.lowercased() else { return nil }
+        if !explicit {
+            guard let tld = host.split(separator: ".").last, commonDomains.contains(String(tld)) else { return nil }
+        }
+        return SearchResult(name: host + (url.path.count > 1 ? url.path : ""), path: url.absoluteString)
+    }
+
+    static let commonDomains: Set<String> = [
+        "com", "org", "net", "io", "ai", "dev", "co", "me", "gov", "edu", "info", "xyz", "tech", "site", "so", "gg", "tv",
+        "cn", "hk", "tw", "jp", "kr", "sg", "uk", "us", "ca", "au", "de", "fr", "eu", "in", "ru", "br",
+    ]
 }

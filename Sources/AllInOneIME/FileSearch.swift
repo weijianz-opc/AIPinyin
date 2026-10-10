@@ -6,6 +6,15 @@ import Foundation
 enum FileSearch {
     /// The best `limit` matches for `query`, off the main thread.
     static func run(_ query: String, limit: Int = 8) async -> [SearchResult] {
+        // A web address comes first (opened in the browser); "https://…" is nothing else.
+        if let web = SearchResult.web(query) {
+            if query.contains("://") { return [web] }
+            return [web] + (await files(query, limit: limit - 1)).filter { $0.path != web.path }
+        }
+        return await files(query, limit: limit)
+    }
+
+    private static func files(_ query: String, limit: Int) async -> [SearchResult] {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let isPath = query.hasPrefix("/") || query.hasPrefix("~")
