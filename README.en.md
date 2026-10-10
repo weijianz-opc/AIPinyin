@@ -40,7 +40,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 |---|---|
 | `@improve` | Polish / translate: 1–3 are three versions in the output language, 4 onward are rewrites, 0 is the original |
 | `@question` | Ask a question; the answer appears in the candidates, ⏎ or Space inserts it, ⌘C copies it |
-| `@claude` | Hands the task to Claude Code: in the background by default, with a notification when it's done (click it to open the session in Terminal and go on), or see `@tasks`. It uses your own Claude Code (the `claude` command) with its own sign-in and settings. Turn off "@claude runs in the background" in the settings to open it in Terminal as before |
+| `@claude` | Hands the task to Claude Code: in the background by default, with a notification when it's done (click it to open the session in Terminal and go on), or see `@tasks`. It uses your own Claude Code (the `claude` command) with its own sign-in and settings. Turn off "@claude runs in the background" in the settings to open it in Terminal as before. The first time it opens Terminal, macOS asks whether AllInOneIME may control Terminal: click OK |
 | `@tasks` | Lists the background Claude tasks (working / done / waiting for you) with their last replies; ⏎ opens one in Terminal, ⌘C copies the reply |
 | `@settings` | Opens the settings window right away (picking it is enough) |
 | `@open` | Lists matching files, folders and apps as you type (Spotlight). Text starting with `~/` or `/` is a path: Tab completes it and goes into folders; ⏎ opens, ⌘C copies the path |
