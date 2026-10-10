@@ -268,6 +268,7 @@ final class SettingsModel: ObservableObject {
 
     func refreshPlugins() {
         (plugins, skippedPlugins) = PluginStore.load()
+        updateLibraryStatus()
     }
 
     func uninstall(_ plugin: InstalledPlugin) {
@@ -279,12 +280,75 @@ final class SettingsModel: ObservableObject {
             pluginError = tr("无法删除插件：", "Couldn't remove the plugin: ") + error.localizedDescription
         }
         refreshPlugins()
+        _ = LivePlugins.current(rescan: true)  // the command list drops it right away
     }
 
     /// Opens the plugins folder (made first), where a plugin folder can be put by hand.
     func openPluginsFolder() {
         try? FileManager.default.createDirectory(at: PluginStore.directory, withIntermediateDirectories: true)
         NSWorkspace.shared.open(PluginStore.directory)
+    }
+
+    // MARK: Plugin library
+
+    private let library = PluginLibrary()
+    /// What the library offers this app; nil until the user opens it (no network before that).
+    @Published private(set) var libraryEntries: [PluginIndex.Entry]?
+    @Published private(set) var libraryStatus: [String: PluginLibrary.Status] = [:]
+    @Published private(set) var libraryBusy = false
+    /// The plugin being installed or updated.
+    @Published private(set) var installingPlugin: String?
+    @Published private(set) var libraryError: String?
+
+    var libraryHost: String { library.host }
+
+    /// Downloads the index (Browse / Refresh). Off the main thread; only when asked.
+    func refreshLibrary() {
+        guard !libraryBusy else { return }
+        libraryBusy = true
+        libraryError = nil
+        let library = self.library
+        Task { [weak self] in
+            do {
+                let entries = library.available(try await library.fetchIndex())
+                self?.libraryEntries = entries
+                self?.updateLibraryStatus()
+            } catch {
+                self?.libraryError = tr("无法打开插件库：", "Couldn't open the plugin library: ") + UIText.describe(error)
+            }
+            self?.libraryBusy = false
+        }
+    }
+
+    /// Install / Update / Installed / local, for each plugin the library offers.
+    func updateLibraryStatus() {
+        guard let entries = libraryEntries else { return }
+        libraryStatus = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, library.status(of: $0)) })
+    }
+
+    /// The library's newer version of an installed library plugin (known once the library was opened).
+    func libraryUpdate(for plugin: InstalledPlugin) -> PluginIndex.Entry? {
+        guard case .update = libraryStatus[plugin.name] else { return nil }
+        return libraryEntries?.first { $0.name == plugin.name }
+    }
+
+    /// Installs or updates `entry` (downloads and checks off the main thread), then has the command
+    /// list pick it up.
+    func install(_ entry: PluginIndex.Entry) {
+        guard persists, installingPlugin == nil else { return }
+        installingPlugin = entry.name
+        libraryError = nil
+        let library = self.library
+        Task { [weak self] in
+            do {
+                try await library.install(entry)
+            } catch {
+                self?.libraryError = tr("无法安装 @\(entry.name)：", "Couldn't install @\(entry.name): ") + UIText.describe(error)
+            }
+            self?.installingPlugin = nil
+            self?.refreshPlugins()
+            _ = LivePlugins.current(rescan: true)
+        }
     }
 
     // MARK: Account
@@ -430,6 +494,8 @@ struct SettingsView: View {
     @State private var customModel = false
     @State private var customProviderModel = false
     @State private var pluginToRemove: InstalledPlugin?
+    /// The library plugin about to be installed or updated (the confirmation shows what it contacts).
+    @State private var pluginToInstall: PluginIndex.Entry?
     /// The custom command being added or edited (the editor sheet), and the one about to be deleted.
     @State private var commandEdit: CommandEdit?
     @State private var commandToDelete: Int?
@@ -558,6 +624,9 @@ struct SettingsView: View {
                             Text("@" + plugin.name).font(.body.monospaced())
                             Text(plugin.manifest.summary?.text(chinese: UIText.chinese) ?? "").foregroundStyle(.secondary).lineLimit(1)
                             Spacer()
+                            if let update = model.libraryUpdate(for: plugin) {
+                                Button(tr("更新到 \(update.version)", "Update to \(update.version)")) { pluginToInstall = update }
+                            }
                             Button(tr("删除", "Remove")) { pluginToRemove = plugin }
                         }
                         Text(pluginDetail(plugin)).font(.caption).foregroundStyle(.secondary)
@@ -578,6 +647,7 @@ struct SettingsView: View {
                     Button(tr("刷新", "Refresh")) { model.refreshPlugins() }
                 }
                 if let error = model.pluginError { Text(error).foregroundStyle(.red) }
+                pluginLibrary
             }
             .disabled(!model.canSave)
 
@@ -975,6 +1045,93 @@ struct SettingsView: View {
                 settings.model = choice
                 model.setProviderSettings(settings, for: provider)
             })
+    }
+
+    /// The plugin library: a "Browse" button until opened (no network before), then what it offers with
+    /// Install / Update / Installed, and a confirmation naming what a plugin contacts.
+    @ViewBuilder private var pluginLibrary: some View {
+        if let entries = model.libraryEntries {
+            HStack {
+                Text(tr("插件库", "Plugin Library")).font(.headline)
+                Spacer()
+                if model.libraryBusy { ProgressView().controlSize(.small) }
+                Button(tr("刷新插件库", "Refresh Library")) { model.refreshLibrary() }.disabled(model.libraryBusy)
+            }
+            // On the header, which is there whenever an Install or Update button is.
+            .confirmationDialog(pluginToInstall.map { tr("安装 @\($0.name) \($0.version)？", "Install @\($0.name) \($0.version)?") } ?? "",
+                                isPresented: Binding(get: { pluginToInstall != nil }, set: { if !$0 { pluginToInstall = nil } })) {
+                Button(tr("安装", "Install")) {
+                    if let entry = pluginToInstall { model.install(entry) }
+                    pluginToInstall = nil
+                }
+            } message: {
+                if let entry = pluginToInstall {
+                    Text(libraryContacts(entry) + "\n" + tr("从 \(model.libraryHost) 下载，逐个文件核对签名的索引。",
+                                                            "Downloaded from \(model.libraryHost), every file checked against the signed index."))
+                }
+            }
+            ForEach(entries) { entry in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: entry.icon ?? "puzzlepiece.extension.fill")
+                        .foregroundStyle(.white).frame(width: 22, height: 22)
+                        .background(Color(nsColor: CommandIcons.color(entry.color) ?? .systemPink), in: RoundedRectangle(cornerRadius: 5))
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("@" + entry.name).font(.body.monospaced())
+                            Text(entry.version).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text(entry.summary?.text(chinese: UIText.chinese) ?? "").foregroundStyle(.secondary).lineLimit(2)
+                        Text(libraryContacts(entry)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    libraryButton(entry)
+                }
+            }
+            if entries.isEmpty {
+                Text(tr("插件库里暂时没有这个版本能用的插件。", "The library has no plugins for this version yet."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } else {
+            HStack {
+                Button(tr("浏览插件库…", "Browse Library…")) { model.refreshLibrary() }.disabled(model.libraryBusy)
+                if model.libraryBusy { ProgressView().controlSize(.small) }
+            }
+            Text(tr("插件库里的插件都经过审核和签名；打开时才会联网（\(model.libraryHost)）。",
+                    "Library plugins are reviewed and signed; the library is fetched only when you open it (\(model.libraryHost))."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        if let error = model.libraryError { Text(error).foregroundStyle(.red) }
+    }
+
+    @ViewBuilder private func libraryButton(_ entry: PluginIndex.Entry) -> some View {
+        if model.installingPlugin == entry.name {
+            ProgressView().controlSize(.small)
+        } else {
+            switch model.libraryStatus[entry.name] ?? .notInstalled {
+            case .notInstalled:
+                Button(tr("安装", "Install")) { pluginToInstall = entry }.disabled(model.installingPlugin != nil)
+            case let .update(from):
+                Button(tr("更新（当前 \(from)）", "Update (from \(from))")) { pluginToInstall = entry }.disabled(model.installingPlugin != nil)
+            case .installed:
+                Text(tr("已安装", "Installed")).foregroundStyle(.secondary)
+            case .local:
+                Text(tr("已有同名本地插件", "Local plugin installed")).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// What a library plugin contacts: "what you type after @stock goes to query1.finance.yahoo.com".
+    private func libraryContacts(_ entry: PluginIndex.Entry) -> String {
+        let hosts = entry.hosts.joined(separator: ", ")
+        switch entry.type {
+        case "prompt": return tr("AI 指令，发给你选的 AI 服务", "An AI instruction, sent to your AI provider")
+        case "link":
+            let target = entry.url.flatMap { URL(string: $0)?.host } ?? hosts
+            return tr("@\(entry.name) 后面的内容会在浏览器里打开 \(target)", "Opens what you type after @\(entry.name) at \(target) in the browser")
+        default:
+            return hosts.isEmpty ? tr("不联网", "No network")
+                : tr("@\(entry.name) 后面输入的内容会发到 \(hosts)", "What you type after @\(entry.name) goes to \(hosts)")
+        }
     }
 
     /// "1.0.0 · sends what you type after @stock to query1.finance.yahoo.com · local".

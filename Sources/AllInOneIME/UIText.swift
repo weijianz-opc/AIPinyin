@@ -185,6 +185,23 @@ enum UIText {
                           "No requests left today: subscribe, or add your own API key in the settings")
             }
         }
+        if chinese, let error = error as? PluginLibraryError {
+            switch error {
+            case let .unreachable(host): return "连不上 \(host)"
+            case let .http(status, file): return "插件库返回 HTTP \(status)（\(file)）"
+            case let .tooLarge(file): return "\(file) 太大"
+            case .missingSignature: return "插件库的索引没有签名"
+            case .badSignature: return "插件库的索引没有通过签名验证（可能正在更新，过几分钟再试）"
+            case let .unsupportedSchema(schema): return "插件库需要更新版本的 AllInOneIME（索引格式 \(schema)）"
+            case .malformedIndex: return "读不懂插件库的索引"
+            case let .invalidName(name): return "插件名字不合规：\(name)"
+            case let .invalidFile(file): return "插件里有不合规的文件：\(file)"
+            case let .hashMismatch(file): return "\(file) 和签名的索引对不上；什么都没有改"
+            case let .invalidManifest(detail): return "插件的 plugin.json 有问题：\(detail)"
+            case let .incompatible(problem): return "这个插件不能用：\(problem)"
+            case let .localPlugin(name): return "已经有一个叫 \(name) 的本地插件；先删除它才能装插件库里的"
+            }
+        }
         guard !chinese else { return AllInOneIMEInputController.describe(error) }
         switch error {
         case let error as URLError:
