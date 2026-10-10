@@ -1,0 +1,12 @@
+{
+  "name": "weibo",
+  "version": "1.0.0",
+  "api": 1,
+  "minAppVersion": "0.5.0",
+  "type": "link",
+  "url": "https://service.weibo.com/share/share.php?title={input}",
+  "summary": {"en": "Post to Weibo: opens the share page with your text", "zh": "发微博：打开分享页，文字已填好"},
+  "author": "weijianz-opc",
+  "icon": "eye.fill",
+  "color": "#E6162D"
+}

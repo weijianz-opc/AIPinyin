@@ -61,6 +61,8 @@ public final class Composer {
         case search(query: String, id: Int)
         /// Open a file or app (an `@open` result was picked).
         case open(path: String)
+        /// Open a `link` command's web address, with the text in it, in the default browser.
+        case openLink(URL)
         /// Start a Claude Code session in a terminal window with `prompt` as its first message (`@claude`).
         case runInTerminal(prompt: String)
         /// Run `argv` in a new terminal window (a custom `terminal` command).
@@ -179,6 +181,8 @@ public final class Composer {
         public var reminderWithoutTitle: String
         /// ⌘V in an `@note` draft with more on the clipboard than `Composer.maxNoteLength`.
         public var noteTooLong: String
+        /// A `link` command's text is longer than `LinkTemplate.maxInputLength`.
+        public var linkTooLong: String
 
         public static let chinese = Messages(
             notReady: "词库准备中，稍候可用", holdToTalk: "按住右 ⌥ 说话", didNotHear: "没听清，再说一次",
@@ -192,7 +196,8 @@ public final class Composer {
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
             nothingToPaste: "剪贴板里没有能用的文字",
             reminderWithoutTitle: "写上要提醒的事，比如「明天下午3点给张三打电话」",
-            noteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxNoteLength) 字")
+            noteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxNoteLength) 字",
+            linkTooLong: "文字太长，放不进链接：最多 \(LinkTemplate.maxInputLength) 字")
         public static let english = Messages(
             notReady: "Loading the dictionaries, one moment", holdToTalk: "Hold right ⌥ to talk",
             didNotHear: "Didn't catch that, try again", chineseMode: "Chinese", englishMode: "English",
@@ -206,7 +211,8 @@ public final class Composer {
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
             nothingToPaste: "No text on the clipboard to use",
             reminderWithoutTitle: "Write what to be reminded of, e.g. “call Bob tomorrow at 3pm”",
-            noteTooLong: "The clipboard text is too long: \(Composer.maxNoteLength) characters at most")
+            noteTooLong: "The clipboard text is too long: \(Composer.maxNoteLength) characters at most",
+            linkTooLong: "Too long for a link: \(LinkTemplate.maxInputLength) characters at most")
     }
     /// The command of the request in level two (nil otherwise).
     public private(set) var activeCommand: Command?
@@ -384,7 +390,7 @@ public final class Composer {
             }
         case .reminder?:
             return pendingReminder.map { [Choice(label: "1", kind: .reminder($0), text: $0.title, isComplete: true)] } ?? []
-        case .generate?, .run?:
+        case .generate?, .run?, .link?:
             var out = [Choice(label: "0", kind: .original, text: sentText, isComplete: true)]
             if let line = result.versions.first {
                 out.append(Choice(label: "1", kind: .answer, text: line.text, isComplete: line.isComplete))
@@ -718,6 +724,17 @@ public final class Composer {
     public func receive(_ newResult: ConversionResult, isFinal: Bool, id: Int) -> [Effect] {
         guard phase == .translating(id: id) else { return [] }
         result = newResult
+        if isFinal, activeCommand?.kind == .link {
+            // The commands inside a link's text have run: open it with their outputs.
+            let text = result.versions.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // Counted when it started (with the commands inside).
+            switch link(activeCommand!, text, counted: true) {
+            case let .opened(effects): return effects
+            case let .refused(message):
+                phase = .failed(message)
+                return [.showPanel]
+            }
+        }
         if isFinal {
             // Versions that only repeat the original are hidden, but the answer still counts.
             let answered = !result.versions.isEmpty || choices.contains { $0.kind != .original && !$0.text.isEmpty }
@@ -1336,6 +1353,18 @@ public final class Composer {
             let usage = used(command)
             return .consumed(finish(committing: "") + [.saveNote(text: input), usage])
         }
+        // Commands inside the text (`@stock AAPL`) run first; not inside a search's text, nor a reminder's
+        // (it stays on this Mac).
+        let local = parsed?.command.kind == .search || parsed?.command.kind == .reminder
+        let plan = local ? nil : CommandPlan.make(input, commands: commands)
+        if let command = parsed?.command, command.kind == .link, plan?.isEmpty != false {
+            // A password field's text must not end up in an address (and the browser's history).
+            guard !secureInputActive() else { return .consumed([.updateMarkedText, .notice(messages.secureInputCommand)]) }
+            switch link(command, input) {
+            case let .opened(effects): return .consumed(effects)
+            case let .refused(message): return .consumed([.updateMarkedText, .notice(message)])  // the draft stays
+            }
+        }
         requestCounter += 1
         phase = .translating(id: requestCounter)
         result = .empty
@@ -1344,10 +1373,6 @@ public final class Composer {
         highlightOverride = nil
         activeCommand = parsed?.command
         let start: Effect
-        // Commands inside the text (`@stock AAPL`) run first; not inside a search's text, nor a reminder's
-        // (it stays on this Mac).
-        let local = parsed?.command.kind == .search || parsed?.command.kind == .reminder
-        let plan = local ? nil : CommandPlan.make(input, commands: commands)
         switch parsed?.command {
         case _ where plan?.isEmpty == false:
             start = .startPlan(outer: parsed?.command, plan: plan!, id: requestCounter)
@@ -1360,6 +1385,21 @@ public final class Composer {
         }
         let usage = ((parsed.map { [$0.command] } ?? []) + (plan?.inner.map(\.command) ?? [])).map(used)
         return .consumed([start, .updateMarkedText, .showPanel] + usage)
+    }
+
+    /// Opens a `link` command's address with `text` in it: the composition ends with nothing inserted,
+    /// as when `@open` opens something. A failure is a message (the text is too long for an address).
+    private func link(_ command: Command, _ text: String, counted: Bool = false) -> LinkOutcome {
+        guard text.count <= LinkTemplate.maxInputLength else { return .refused(messages.linkTooLong) }
+        guard let template = command.linkTemplate, let url = LinkTemplate.url(template, input: text) else {
+            return .refused(messages.noResult)  // not reached: the catalog only has valid templates
+        }
+        return .opened(finish(committing: "") + [.openLink(url)] + (counted ? [] : [used(command)]))
+    }
+
+    private enum LinkOutcome {
+        case opened([Effect])
+        case refused(String)
     }
 
     /// The app took the text being typed into the document on its own (`MarkedTextWatch`): start over
