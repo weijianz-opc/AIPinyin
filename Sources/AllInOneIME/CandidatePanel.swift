@@ -83,6 +83,14 @@ final class CandidateView: NSView {
         var comment: String = ""
         var style: Style
         var isComplete: Bool = true
+        /// A symbol in a colored rounded square before the text, like the icons of iOS Settings.
+        var icon: Icon? = nil
+    }
+
+    /// An SF Symbol, drawn white on `color`.
+    struct Icon: Equatable {
+        var symbol: String
+        var color: NSColor
     }
 
     enum Status: Equatable {
@@ -111,6 +119,8 @@ final class CandidateView: NSView {
         static let rowRadius: CGFloat = 6
         static let footerGap: CGFloat = 6
         static let labelWidth: CGFloat = ceil(("0" as NSString).size(withAttributes: [.font: Fonts.label]).width)
+        static let iconSize: CGFloat = 20
+        static let iconGap: CGFloat = 8
         /// Distance from the panel's left edge to where candidate text starts.
         static let textInsetX: CGFloat = padding + rowInsetX + labelWidth + labelGap
     }
@@ -142,6 +152,7 @@ final class CandidateView: NSView {
         var frame: NSRect
         var textFrame: NSRect
         var labelOrigin: NSPoint
+        var iconFrame: NSRect?
     }
 
     var model = Model() {
@@ -171,20 +182,29 @@ final class CandidateView: NSView {
         var y = p
         var widest: CGFloat = 0
         rowLayouts = []
+        // A column for the icons when any row has one: the text moves right by it.
+        let iconColumn = model.rows.contains { $0.icon != nil } ? Metrics.iconSize + Metrics.iconGap : 0
         for row in model.rows {
             let (_, text) = strings(for: row, highlighted: false)
             let font = Fonts.text(for: row.style)
-            let size = Self.measure(text, minHeight: ceil(font.ascender - font.descender + font.leading))
-            widest = max(widest, size.width)
+            let size = Self.measure(text, minHeight: max(ceil(font.ascender - font.descender + font.leading),
+                                                          iconColumn > 0 ? Metrics.iconSize : 0))
+            widest = max(widest, size.width + iconColumn)
             // Drawn at the width it was measured at: laid out only as wide as its longest line, the
             // text can wrap once more and lose its last line.
-            let textFrame = NSRect(x: Metrics.textInsetX, y: y + Metrics.rowInsetY, width: Metrics.maxTextWidth, height: size.height)
+            // One line next to an icon is centered on it.
+            let lineHeight = ceil(font.ascender - font.descender + font.leading)
+            let textY = y + Metrics.rowInsetY + (iconColumn > 0 && size.height <= Metrics.iconSize ? (Metrics.iconSize - lineHeight) / 2 : 0)
+            let textFrame = NSRect(x: Metrics.textInsetX + iconColumn, y: textY, width: Metrics.maxTextWidth, height: size.height)
             let labelOrigin = NSPoint(
                 x: p + Metrics.rowInsetX,
                 y: textFrame.minY + (font.ascender - Fonts.label.ascender))
+            let iconFrame = row.icon.map { _ in
+                NSRect(x: Metrics.textInsetX, y: y + Metrics.rowInsetY, width: Metrics.iconSize, height: Metrics.iconSize)
+            }
             rowLayouts.append(RowLayout(
                 frame: NSRect(x: p, y: y, width: 0, height: size.height + 2 * Metrics.rowInsetY),
-                textFrame: textFrame, labelOrigin: labelOrigin))
+                textFrame: textFrame, labelOrigin: labelOrigin, iconFrame: iconFrame))
             y += size.height + 2 * Metrics.rowInsetY
         }
 
@@ -287,6 +307,7 @@ final class CandidateView: NSView {
             }
             let (label, text) = strings(for: model.rows[index], highlighted: highlighted)
             label.draw(at: layout.labelOrigin)
+            if let icon = model.rows[index].icon, let frame = layout.iconFrame { Self.draw(icon, in: frame) }
             text.draw(with: layout.textFrame, options: [.usesLineFragmentOrigin, .usesFontLeading])
         }
 
@@ -305,6 +326,21 @@ final class CandidateView: NSView {
                 right.draw(at: NSPoint(x: bounds.width - inset - right.size().width, y: textY))
             }
         }
+    }
+
+    /// A white symbol on a colored rounded square (a missing symbol: a generic one).
+    static func draw(_ icon: Icon, in frame: NSRect) {
+        icon.color.setFill()
+        NSBezierPath(roundedRect: frame, xRadius: frame.width * 0.24, yRadius: frame.height * 0.24).fill()
+        let configuration = NSImage.SymbolConfiguration(pointSize: frame.height * 0.55, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+        guard let image = (NSImage(systemSymbolName: icon.symbol, accessibilityDescription: nil)
+                           ?? NSImage(systemSymbolName: "command", accessibilityDescription: nil))?
+            .withSymbolConfiguration(configuration) else { return }
+        let size = image.size
+        let origin = NSPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2)
+        image.draw(in: NSRect(origin: origin, size: size), from: .zero, operation: .sourceOver, fraction: 1,
+                   respectFlipped: true, hints: nil)
     }
 
     // MARK: - Mouse

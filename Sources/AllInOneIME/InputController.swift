@@ -901,8 +901,12 @@ final class AllInOneIMEInputController: IMKInputController {
                     // A background task: its last reply, shortened.
                     let reply = composer.searchResults.first { $0.path == path }?.detail ?? ""
                     let preview = reply.replacingOccurrences(of: "\n", with: " ")
-                    return CandidateView.Row(label: choice.label, text: choice.text,
-                                             comment: preview.count > 60 ? String(preview.prefix(60)) + "…" : preview, style: .candidate)
+                    // Its state as an icon instead of the mark before its name.
+                    let marks: [(String, AgentSession.Progress)] = [("✓ ", .done), ("⚠︎ ", .needsYou), ("… ", .working)]
+                    let state = marks.first { choice.text.hasPrefix($0.0) }
+                    return CandidateView.Row(label: choice.label, text: state.map { String(choice.text.dropFirst($0.0.count)) } ?? choice.text,
+                                             comment: preview.count > 60 ? String(preview.prefix(60)) + "…" : preview, style: .candidate,
+                                             icon: state.map { CommandIcons.icon(for: $0.1) })
                 case let .file(path):
                     let folder = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
                     return CandidateView.Row(label: choice.label, text: choice.text,
@@ -986,7 +990,8 @@ final class AllInOneIMEInputController: IMKInputController {
             // "@…": the commands that start with what was typed.
             model.rows = composer.paletteMatches.enumerated().map {
                 CandidateView.Row(label: String($0.offset + 1), text: "@" + $0.element.name,
-                                  comment: UIText.summary($0.element), style: .candidate)
+                                  comment: UIText.summary($0.element), style: .candidate,
+                                  icon: CommandIcons.icon(for: $0.element))
             }
             model.highlighted = composer.paletteHighlighted
             model.footer = tr("⏎ / Tab / 空格 选择 · Esc 取消", "⏎ / Tab / Space choose · Esc cancel")

@@ -6,6 +6,7 @@
 
 ### Added
 
+- Icons in the command list: a colored square with an SF Symbol for each command (like iOS Settings), and in `@tasks` for done / working / waiting for you. Custom commands and plugins can set their own with `icon` (an SF Symbol name) and `color`.
 - `@claude` runs in the background by default (a Claude Code background session) instead of opening Terminal, with a notification when it's done; click it to open the session in Terminal. The new `@tasks` shows the background tasks' progress and replies. The settings switch it back to Terminal.
 - An installer: download `AllInOneIME-<version>.dmg` from [Releases](https://github.com/weijianz-opc/AllInOneIME/releases) and double-click "Install AllInOneIME" in it to install, update or uninstall; no more building with Xcode. Universal: it works on Macs with Apple silicon and Intel. It installs for the current user only, with no administrator password. The installer isn't notarized by Apple yet: the first time, click Open Anyway in System Settings → Privacy & Security; download it only from Releases.
 - `@read <address>`: a web page's title and text (web pages, plain text, PDFs) as context for the AI inside a sentence, e.g. `@question 用一句话总结 @read https://…`.

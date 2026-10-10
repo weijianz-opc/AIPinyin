@@ -143,9 +143,14 @@ public struct CustomCommand: Codable, Hashable, Sendable {
     public var ascii: Bool?
     /// `run`: the program is stopped after this many seconds (default 10).
     public var timeoutSeconds: Double?
+    /// Its icon in the command list: an SF Symbol name ("chart.bar"), and a color (a system color's
+    /// name, "blue", or "#RRGGBB"); unset, one for its type.
+    public var icon: String?
+    public var color: String?
 
     public init(name: String, type: CommandType, summary: String? = nil, prompt: String? = nil,
-                argv: [String]? = nil, stdin: String? = nil, ascii: Bool? = nil, timeoutSeconds: Double? = nil) {
+                argv: [String]? = nil, stdin: String? = nil, ascii: Bool? = nil, timeoutSeconds: Double? = nil,
+                icon: String? = nil, color: String? = nil) {
         self.name = name
         self.type = type
         self.summary = summary
@@ -154,6 +159,8 @@ public struct CustomCommand: Codable, Hashable, Sendable {
         self.stdin = stdin
         self.ascii = ascii
         self.timeoutSeconds = timeoutSeconds
+        self.icon = icon
+        self.color = color
     }
 
     public static let placeholder = "{input}"

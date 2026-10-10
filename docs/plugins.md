@@ -15,9 +15,11 @@ A folder in `~/.config/allinoneime/plugins/<name>/`:
     "summary": {"en": "Stock quotes: @stock AAPL 600519 700", "zh": "股票行情：@stock AAPL 600519 700"},
     "script": "main.js", "hosts": ["query1.finance.yahoo.com"],
     "timeoutSeconds": 10, "ascii": true,
-    "author": "weijianz-opc", "homepage": "https://github.com/weijianz-opc/AllInOneIME-plugins" }
+    "author": "weijianz-opc", "homepage": "https://github.com/weijianz-opc/AllInOneIME-plugins",
+    "icon": "chart.line.uptrend.xyaxis", "color": "green" }
   ```
   `type` is `script` (JavaScript, below) or `prompt` (an AI instruction in `prompt`, like a custom command).
+  `icon` (an SF Symbol name) and `color` (`blue`, `green`, … or `#RRGGBB`) draw it in the command list.
 - `main.js` for a script plugin: `function run(input) { return "one line" }`. A `throw` is the error shown.
 - `install.json`, written when installed from the library: `{version, files: {name: sha256}, source: "registry"}`.
   A folder without it is a **local** plugin (an author's, not reviewed).
