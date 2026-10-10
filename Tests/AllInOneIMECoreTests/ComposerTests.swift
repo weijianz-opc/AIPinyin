@@ -909,7 +909,7 @@ struct ComposerTests {
         type("q", c)
         _ = c.handleKeyDown(enterKey)  // picks @question
         type("nihao", c)
-        #expect(c.markedText == "@question nihao")
+        #expect(c.markedText == "question › nihao" && c.draft == "@question ")  // shown without its "@"; nihao is pinyin
         #expect(c.handleKeyDown(enterKey).effects.first == .startCommand(.question, input: "你好", id: 1))
         _ = c.receive(ConversionResult(versions: [CandidateLine("你好是问候语。")]), isFinal: true, id: 1)
         #expect(commits(c.handleKeyDown(enterKey)) == ["你好是问候语。"])
@@ -1201,7 +1201,7 @@ struct ComposerTests {
         #expect(c.draft == "@" && c.markedText == "@" && c.paletteQuery == "" && c.wantsPanel)
         #expect(c.paletteMatches == [.improve, .question, .claude, .open, .read])
         type("q", c)
-        #expect(c.paletteMatches == [.question] && c.markedText == "@q")
+        #expect(c.paletteMatches == [.question] && c.markedText == "q" && c.draft == "@q")
         #expect(c.handleKeyDown(tab).effects == [.updateMarkedText, .showPanel])
         #expect(c.draft == "@question " && c.paletteQuery == nil && c.draftCommand == .question)
         // Space, a digit or the action key pick too; ↑↓ move the highlight.
@@ -1276,7 +1276,7 @@ struct ComposerTests {
         #expect(open.engineState.isAsciiMode)
         #expect(send("i", "nihao").1.first == .startConversion(input: "你好", id: 1))  // @improve: the default
         let (marked, _) = send("q", "nihao")
-        #expect(marked.markedText == "@question 你好" && marked.activeCommand == .question)
+        #expect(marked.markedText == "question › 你好" && marked.activeCommand == .question)
         // Nothing after the command: the clipboard's text is asked for; without any, a hint, no request.
         let (e, _) = palette("q")
         _ = e.handleKeyDown(tab)
@@ -1410,6 +1410,70 @@ struct ComposerTests {
         #expect(h.draft == "你好@" && h.paletteQuery == nil)
     }
 
+    /// Slack turns an "@…" being typed into a mention and takes the composition: the text shown while
+    /// typing has no command "@", and a taken composition starts over instead of showing up twice.
+    @Test func noAtForSlackToTurnIntoAMention() {
+        let catalog = Command.catalog([CustomCommand(name: "stock", type: .run, argv: ["stock", "{input}"])])
+        let (c, _) = composer(ai: false, key: .enter)
+        c.commands = catalog
+        _ = c.handleKeyDown(at)
+        #expect(c.markedText == "@")  // alone it may be a mention
+        type("imp", c)
+        #expect(c.markedText == "imp" && c.markedCursor == 3)  // picking a command
+        _ = c.handleKeyDown(tab)
+        #expect(c.markedText == "improve › " && c.markedCursor == 10)
+        _ = c.handleKeyDown(backspaceKey)  // back to the name: still no "@"
+        #expect(c.draft == "@improve" && c.markedText == "improve")
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        #expect(c.markedText == "improve › nihao")
+        _ = c.handleKeyDown(spaceKey)
+        // A command inside the text, and a mention there (full-width: no mention list, sent as typed).
+        _ = c.handleKeyDown(at)
+        type("st", c)
+        #expect(c.markedText == "improve › 你好st")
+        _ = c.handleKeyDown(tab)
+        type("AAPL", c)
+        _ = c.handleKeyDown(spaceKey)
+        _ = c.handleKeyDown(at)
+        type("bob", c)  // pinyin again after the symbol
+        #expect(c.draft == "@improve 你好@stock AAPL @")
+        #expect(c.markedText == "improve › 你好stock › AAPL ＠bob")
+        // A sentence-mode draft is shown in the app too: its "@" full-width, inserted as typed.
+        let (m, _) = composer(ai: true, key: .enter)
+        type("nihao", m)
+        _ = m.handleKeyDown(spaceKey)
+        _ = m.handleKeyDown(at)
+        #expect(m.draft == "你好@" && m.markedText == "你好＠")
+        #expect(commits(m.handleKeyDown(KeyEvent(keyCode: VirtualKey.returnKey, characters: "\r", modifiers: .shift))) == ["你好@"])
+    }
+
+    @Test func aTakenCompositionStartsOver() {
+        // An app that reports its marked text: taken when it reports none while a draft is pending.
+        var watch = MarkedTextWatch()
+        #expect(!watch.appTookText(expected: "improve › 你好", reportedLength: nil))  // never seen it report: unknown
+        watch.didSet(expected: "improve › 你好", reportedLength: 12)
+        #expect(watch.appReportsMarkedText)
+        #expect(!watch.appTookText(expected: "improve › 你好", reportedLength: 12))
+        #expect(watch.appTookText(expected: "improve › 你好", reportedLength: 0))
+        #expect(watch.appTookText(expected: "improve › 你好", reportedLength: nil))
+        #expect(!watch.appTookText(expected: "", reportedLength: nil))  // nothing pending
+        watch.reset()
+        #expect(!watch.appTookText(expected: "x", reportedLength: nil))
+        // The composer then forgets the draft: nothing inserted, nothing sent, the panel hidden.
+        let (c, e) = composer(ai: false, key: .enter)
+        _ = c.handleKeyDown(at)
+        type("q", c)
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        let effects = c.appTookMarkedText()
+        #expect(effects == [.hidePanel] && commits(effects).isEmpty)
+        #expect(c.draft.isEmpty && c.markedText.isEmpty && c.phase == .idle && e.input.isEmpty)
+        // During a request it is cancelled.
+        let (t, _) = translating()
+        #expect(t.appTookMarkedText() == [.cancelConversion, .hidePanel] && t.phase == .idle)
+    }
+
     @Test func claudeIsNotStartedWhileSecureInputIsOn() {
         let (c, _) = palette("c")
         _ = c.handleKeyDown(tab)
@@ -1419,7 +1483,7 @@ struct ComposerTests {
         let refused = tapOption(c, at: 5)
         #expect(refused.contains(.notice("系统安全输入已开启（密码框或锁屏），没有打开 Claude Code")))
         #expect(refused.contains(.updateMarkedText) && !refused.contains(.runInTerminal(prompt: "你好")))
-        #expect(c.markedText == "@claude 你好" && !c.isLevelTwo)
+        #expect(c.markedText == "claude › 你好" && c.draft == "@claude 你好" && !c.isLevelTwo)
         c.secureInputActive = { false }
         #expect(tapOption(c, at: 7).contains(.runInTerminal(prompt: "你好")))
     }

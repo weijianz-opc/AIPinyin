@@ -294,15 +294,56 @@ public final class Composer {
 
     /// Inline text: the draft followed by the engine's composition and any speech being recognized.
     public var markedText: String {
-        if isLevelTwo { return draft }
-        return draft + (engineState.isComposing ? engineState.preedit : "") + appendix(voice.text)
+        if isLevelTwo { return shownDraft }
+        return shownDraft + (engineState.isComposing ? engineState.preedit : "") + appendix(voice.text)
     }
 
     /// Caret position in `markedText`, in Characters.
     public var markedCursor: Int {
         if voice != .off { return markedText.count }
-        guard !isLevelTwo, engineState.isComposing else { return draft.count }
-        return draft.count + min(max(engineState.cursor, 0), engineState.preedit.count)
+        guard !isLevelTwo, engineState.isComposing else { return shownDraft.count }
+        return shownDraft.count + min(max(engineState.cursor, 0), engineState.preedit.count)
+    }
+
+    /// The draft as the app shows it while it is typed: commands without their "@" (`improve › 你好` for
+    /// "@improve 你好", `imp` while "@imp" picks a command) and any other "@" in the draft full-width
+    /// ("＠bob"). Apps like Slack turn an "@…" being typed into a mention and take the text
+    /// out of the composition. A lone "@" (maybe a mention) stays; what runs and what is inserted are
+    /// the draft as typed.
+    public var shownDraft: String {
+        guard draft.contains("@") else { return draft }
+        let chars = Array(draft)
+        let names = Set(commands.map(\.name))
+        let paletteAt = palette.map { draft.distance(from: draft.startIndex, to: $0.at) }
+        let pickingCommand = palette.map { !$0.query.isEmpty && !paletteMatches.isEmpty } ?? false
+        let inCommand = draftCommand != nil
+        var out = ""
+        var i = 0
+        while i < chars.count {
+            guard chars[i] == "@" else {
+                out.append(chars[i])
+                i += 1
+                continue
+            }
+            var j = i + 1
+            while j < chars.count, chars[j].isASCII, chars[j].isLetter { j += 1 }
+            let name = String(chars[(i + 1)..<j]).lowercased()
+            let afterWord = i > 0 && chars[i - 1].isASCII && (chars[i - 1].isLetter || chars[i - 1].isNumber)
+            if !afterWord, names.contains(name), j < chars.count, chars[j] == " " || "「“\"".contains(chars[j]) {
+                out += String(chars[(i + 1)..<j]) + " › "  // a chosen command
+                i = chars[j] == " " ? j + 1 : j
+            } else if i == paletteAt, pickingCommand {
+                out += String(chars[(i + 1)..<j])  // its name being typed
+                i = j
+            } else if chars.count == 1 || !inCommand && i == 0 {
+                out.append("@")
+                i += 1
+            } else {
+                out.append("＠")
+                i += 1
+            }
+        }
+        return out
     }
 
     /// Level-two rows: "0" the sentence as typed, "1"–"3" the versions in the output language, then
@@ -1229,6 +1270,23 @@ public final class Composer {
         }
         let usage = ((parsed.map { [$0.command] } ?? []) + (plan?.inner.map(\.command) ?? [])).map(used)
         return .consumed([start, .updateMarkedText, .showPanel] + usage)
+    }
+
+    /// The app took the text being typed into the document on its own (`MarkedTextWatch`): start over
+    /// with nothing pending, without inserting anything or sending a request.
+    public func appTookMarkedText() -> [Effect] {
+        let wasRequesting = isLevelTwo
+        let recording = voice.id
+        draft = ""
+        engine?.clearComposition()
+        engineState = engine?.snapshot() ?? .empty
+        voice = .off
+        actsAfterVoice = false
+        pendingPaste = nil
+        highlightOverride = nil
+        paletteHighlight = 0
+        setLevelOnePhase()
+        return (wasRequesting ? [.cancelConversion] : []) + (recording.map { [.cancelVoice(id: $0)] } ?? []) + [.hidePanel]
     }
 
     /// Counts a run of `command` for the order of the command list.

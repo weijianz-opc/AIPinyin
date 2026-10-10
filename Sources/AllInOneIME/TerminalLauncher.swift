@@ -13,7 +13,8 @@ enum TerminalLauncher {
     /// Opens a new Terminal window in the home folder that runs `claude <prompt>`. The script deletes
     /// itself when it starts; the prompt is passed as one quoted argument, never as shell code.
     static func claude(_ prompt: String) throws {
-        try launch([claudePath ?? "claude", prompt], name: "claude")
+        // "--": the prompt is the prompt, even when it starts with "-" (`--dangerously-skip-permissions`).
+        try launch([claudePath ?? "claude", "--", prompt], name: "claude")
     }
 
     /// Opens a new Terminal window in the home folder that runs `argv` (a custom `terminal` command),

@@ -31,7 +31,7 @@ extension ComposerTests {
         // The key is answered at once (the app doesn't paste); the text follows.
         #expect(c.handleKeyDown(pasteKey) == .consumed([.updateMarkedText, .showPanel, .readClipboard(id: 1)]))
         #expect(c.pasted("这个方案我觉得还不够好，需要再改一下", id: 1) == [.updateMarkedText, .showPanel])
-        #expect(c.draft == "@improve 这个方案我觉得还不够好，需要再改一下" && c.markedText == c.draft)
+        #expect(c.draft == "@improve 这个方案我觉得还不够好，需要再改一下" && c.markedText == "improve › 这个方案我觉得还不够好，需要再改一下")
         #expect(c.handleKeyDown(enterKey).effects.first == .startConversion(input: "这个方案我觉得还不够好，需要再改一下", id: 1))
         // Other commands take it too; @open searches for it as you type.
         let (q, _) = composer(ai: false, key: .enter)

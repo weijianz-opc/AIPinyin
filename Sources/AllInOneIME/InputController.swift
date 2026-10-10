@@ -94,6 +94,8 @@ final class AllInOneIMEInputController: IMKInputController {
         return composer
     }()
     private var session: RimeSession?
+    /// Whether the app still has the text being typed (Slack may take it into a mention on its own).
+    private var markedWatch = MarkedTextWatch()
     private var conversionTask: Task<Void, Never>?
     private var lastElapsed: TimeInterval?
     private var lastFromCache = false
@@ -199,6 +201,7 @@ final class AllInOneIMEInputController: IMKInputController {
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
         MainActor.assumeIsolated {
+            markedWatch.reset()  // another text field, maybe another app
             ensureEngine()
             applySettings()
             // Terminals paste on ⌘V whatever the input method does: there ⌘V stays theirs.
@@ -323,6 +326,14 @@ final class AllInOneIMEInputController: IMKInputController {
             return false
         }
         secureNoticeShown = false
+        // The app took the text being typed without saying so (Slack, on an "@…"): start over rather than
+        // show the draft again, doubled. This key is dropped, so ⏎ doesn't send half a sentence.
+        if composer.isComposing, let target,
+           markedWatch.appTookText(expected: composer.markedText, reportedLength: Self.markedLength(target)) {
+            log.notice("the app took the marked text: starting over")
+            perform(composer.appTookMarkedText(), client: client)
+            return true
+        }
         ensureEngine()
         // Commands added to the config apply from the next sentence on (the file is re-read only when it changed).
         if !composer.isComposing {
@@ -612,6 +623,13 @@ final class AllInOneIMEInputController: IMKInputController {
         let cursor = String(text.prefix(composer.markedCursor)).utf16.count
         client.setMarkedText(
             attributed, selectionRange: NSRange(location: cursor, length: 0), replacementRange: Self.notFound)
+        markedWatch.didSet(expected: text, reportedLength: Self.markedLength(client))
+    }
+
+    /// The length of the app's marked text, or nil when it reports none.
+    static func markedLength(_ client: IMKTextInput) -> Int? {
+        let range = client.markedRange()
+        return range.location == NSNotFound ? nil : range.length
     }
 
     private func markAttributes(style: Int, range: NSRange) -> [NSAttributedString.Key: Any] {

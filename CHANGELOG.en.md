@@ -23,6 +23,8 @@
 
 ### Fixed
 
+- In Slack and similar apps, an @ command being typed ("@improve …") was taken into a mention and then shown again, doubled. Commands being typed are now shown without their `@` (`improve › 你好`; any other `@` in a draft full-width), and a composition the app takes starts over instead of doubling; what runs and what is inserted are unchanged.
+- An `@claude` prompt starting with `-` (like `--dangerously-skip-permissions`) was read by Claude Code as an option; it's always the first message now.
 - A very long row in the candidate panel (such as a long `@question` answer) could lose its last line; it is shown in full now.
 - The settings window explains `@improve` more clearly: "Chinese → translate to English / rewrite; English → polish the English / rewrite".
 
