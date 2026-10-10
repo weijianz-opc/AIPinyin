@@ -1,0 +1,21 @@
+{
+  "type": "ErrorResponse",
+  "error": {
+    "id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+    "status": 422,
+    "code": "VALIDATION",
+    "detail": "Unable to validate request parameter(s)",
+    "meta": {
+      "errors": [
+        {
+          "type": "literal_error",
+          "loc": ["header", "cache-control"],
+          "msg": "Input should be 'no-cache'",
+          "input": "max-stale=0",
+          "ctx": {"expected": "'no-cache'"}
+        }
+      ]
+    }
+  },
+  "time": 1791590400
+}

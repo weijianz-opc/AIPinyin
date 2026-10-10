@@ -88,7 +88,7 @@ struct InlineCodeTests {
         typeKeys("nihao", c)
         _ = c.handleKeyDown(spaceKey)
         _ = c.handleKeyDown(at)
-        #expect(c.paletteMatches.map(\.name) == ["read", "calc", "py", "js"])  // the commands that run inside a text
+        #expect(c.paletteMatches.map(\.name) == ["read", "calc", "py", "js", "search"])  // the commands that run inside a text
         typeKeys("p", c)
         _ = c.handleKeyDown(tab)
         #expect(c.draft == "@reply 你好@py " && engine.ascii)

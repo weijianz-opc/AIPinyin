@@ -217,9 +217,11 @@ public enum ShellEnvironment {
         return env
     }()
 
-    /// The variables the input method reads from the user's shell: PATH, and the providers' API keys
-    /// (`Provider.keyVariables`), for a key that is set there instead of in the keychain.
-    public static let login: [String: String] = loginValues(["PATH"] + Provider.allCases.flatMap(\.keyVariables))
+    /// The variables the input method reads from the user's shell: PATH, the providers' API keys
+    /// (`Provider.keyVariables`) and the web search key (`WebSearch.backend`), for a key that is set
+    /// there instead of in the keychain.
+    public static let login: [String: String] = loginValues(["PATH"] + Provider.allCases.flatMap(\.keyVariables)
+                                                                + WebSearch.backend.keyVariables)
 
     /// `names` as the user's interactive login shell sets them up (unset ones are left out); empty if
     /// the shell couldn't be read in 3 seconds.

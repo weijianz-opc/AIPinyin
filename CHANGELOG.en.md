@@ -13,6 +13,7 @@
 - The plugin library: "Browse Library…" under Plugins in the settings lists the plugins of the [plugin library](https://github.com/weijianz-opc/AllInOneIME-plugins) (icon, summary, version, the websites each contacts) and installs them in one click. The library's index is signed (Ed25519, the public key built into the app) and read only once the signature checks out; a plugin is installed only when every file matches its sha256, downloaded to a temporary folder first, so a failure changes nothing. A newer version shows "Update", updated by hand; the network is used only when the library is opened or refreshed. Local plugins in the plugins folder are never overwritten.
 - `@calc <expression>`: calculates on this Mac and offers the result to insert, e.g. `@calc 23*17` → `391`. `+ - * /` (also `× ÷`), `^` or `**` for powers, parentheses, `50%`, the functions `sqrt`, `abs`, `round`, `floor`, `ceil`, `ln`, `log`, `exp`, `sin`, `cos`, `tan`, `min`, `max` and `pow`, the constants `pi` (`π`) and `e`, and full-width digits and signs; arithmetic is exact in decimal (`0.1+0.2` is `0.3`). It also works inside a sentence: `@reply 总价是 @calc 23*17 元`. Nothing goes online and no other program runs.
 - `@py` and `@js`: run a line of Python or JavaScript and insert the result. When the code ends with an expression, its value is inserted (`@py 2**100`, `@js [1, 2, 3].map(x => x * 2)`), otherwise what it printed; on an error, the error's first line is shown. The code runs in a separate process (10-second timeout, Esc stops it), only when you press the action key and only as you typed or pasted it; it works inside a sentence too: `@reply 答案是 @py 2**100`. `@py` uses the Mac's `python3` and isn't offered without one (without Xcode's command line tools, `/usr/bin/python3` only offers to install them, so it doesn't count; the same goes for `python3`, `git` and the like in custom commands); `@js` uses macOS's built-in JavaScriptCore and can't read files, reach the network or run other programs.
+- `@search <query>`: searches the web with Brave Search, using your own API key (entered under "Web Search" in the settings and kept in the keychain, or `BRAVE_API_KEY` from your shell). On its own it lists the top 5 results, one "title — URL" per line (one line in a terminal); inside a sentence, the titles, snippets and addresses it finds are context for the AI, e.g. `@question 用一句话总结 @search 苹果发布会`. Only the query is sent to Brave.
 
 ### Removed
 
@@ -21,7 +22,7 @@
 ### Upgrading
 
 - Sentence mode is gone: without `@`, ⏎ is a plain Return and picked words go straight in; to translate or polish, start the sentence with `@improve` (`@i` ⏎). If you had sentence mode on, there's nothing to do: the setting is cleared.
-- A custom command or plugin named `calc`, `py` or `js` (such as `@calc` or `@py` added from the examples in the settings) is now hidden by the new built-in one; to keep a custom command, rename it in the settings.
+- A custom command or plugin named `calc`, `py`, `js` or `search` (such as `@calc` or `@py` added from the examples in the settings) is now hidden by the new built-in one; to keep a custom command, rename it in the settings.
 
 ## 0.4.0 (2026-10-09)
 

@@ -1,0 +1,11 @@
+{
+  "type": "ErrorResponse",
+  "error": {
+    "id": "0f3b9d1e-2c4a-4b6e-9d8f-1a2b3c4d5e6f",
+    "status": 429,
+    "code": "USAGE_LIMIT_EXCEEDED",
+    "detail": "The usage limit set for this subscription has been reached.",
+    "meta": {"component": "usage_limiter"}
+  },
+  "time": 1791590400
+}

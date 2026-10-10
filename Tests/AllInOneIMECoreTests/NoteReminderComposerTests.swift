@@ -42,7 +42,7 @@ extension ComposerTests {
         #expect(palette("n").0.paletteMatches == [.note, .question, .open, .reminder, .settings])  // then names containing "n"
         #expect(palette("no").0.paletteMatches == [.note])
         #expect(palette("rem").0.paletteMatches == [.reminder])
-        #expect(palette("r").0.paletteMatches == [.read, .reminder, .improve])  // starting with "r" first
+        #expect(palette("r").0.paletteMatches == [.read, .reminder, .improve, .webSearch])  // starting with "r" first
         #expect(command("n").draft == "@note " && command("rem").draft == "@reminder ")
         #expect(!command("n").engineState.isAsciiMode && !command("rem").engineState.isAsciiMode)  // Chinese, as typed
     }

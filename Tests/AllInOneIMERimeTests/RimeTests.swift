@@ -188,8 +188,8 @@ struct RimeEngineTests {
         _ = composer.handleKeyDown(space)
         _ = composer.handleKeyDown(at)
         #expect(composer.draft == "@question 你好@")
-        #expect(composer.paletteMatches.map(\.name) == ["read", "calc", "py", "js", "stock"])
-        _ = composer.handleKeyDown(key("s"))
+        #expect(composer.paletteMatches.map(\.name) == ["read", "calc", "py", "js", "search", "stock"])
+        for ch in "st" { _ = composer.handleKeyDown(key(ch)) }
         _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.tab, characters: "\t"))
         #expect(composer.draft == "@question 你好@stock " && composer.engineState.isAsciiMode)
         for ch in "AAPL" { _ = composer.handleKeyDown(KeyEvent(keyCode: 0, characters: String(ch), modifiers: .shift)) }

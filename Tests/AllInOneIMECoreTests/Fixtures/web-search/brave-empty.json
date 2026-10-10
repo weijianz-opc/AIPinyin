@@ -1,0 +1,19 @@
+{
+  "query": {
+    "original": "zzqxv kkwpl",
+    "show_strict_warning": false,
+    "is_navigational": false,
+    "is_news_breaking": false,
+    "spellcheck_off": false,
+    "country": "us",
+    "bad_results": false,
+    "should_fallback": false,
+    "postal_code": "",
+    "city": "",
+    "header_country": "",
+    "more_results_available": false,
+    "state": ""
+  },
+  "mixed": {"type": "mixed", "main": [], "top": [], "side": []},
+  "type": "search"
+}

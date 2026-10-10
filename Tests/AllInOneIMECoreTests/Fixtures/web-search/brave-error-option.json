@@ -1,0 +1,11 @@
+{
+  "type": "ErrorResponse",
+  "error": {
+    "id": "c2d4e6f8-1a3b-4c5d-8e7f-9a0b1c2d3e4f",
+    "status": 422,
+    "code": "OPTION_NOT_IN_PLAN",
+    "detail": "The option extra_snippets is not available in your plan.",
+    "meta": {"option": "extra_snippets", "component": "options"}
+  },
+  "time": 1791590400
+}

@@ -218,8 +218,8 @@ struct CalculatorTests {
         let custom = CustomCommand(name: "calc", type: .run, argv: ["bc", "-l"], stdin: "{input}\n")
         #expect(Command.catalog([custom]).filter { $0.name == "calc" } == [.calc])
         #expect(custom.problem(among: []) == .nameTaken)
-        // In the list: "@c" offers it after @claude, "@ca" only it.
-        #expect(Command.palette("c", in: Command.builtins, usage: CommandUsage()).map(\.name) == ["claude", "calc"])
+        // In the list: "@c" offers it after @claude (then @search, which contains a c), "@ca" only it.
+        #expect(Command.palette("c", in: Command.builtins, usage: CommandUsage()).map(\.name) == ["claude", "calc", "search"])
         #expect(Command.palette("ca", in: Command.builtins, usage: CommandUsage()) == [.calc])
     }
 
@@ -307,7 +307,7 @@ struct CalculatorTests {
         let c = Composer(engine: FakeEngine())
         c.setInputMode(.english)
         typeKeys("@question 总价是 @", c)
-        #expect(c.paletteMatches.map(\.name) == ["read", "calc", "py", "js"])  // what runs inside a text
+        #expect(c.paletteMatches.map(\.name) == ["read", "calc", "py", "js", "search"])  // what runs inside a text
         typeKeys("calc 23*17 元", c)
         #expect(c.draft == "@question 总价是 @calc 23*17 元")
         let effects = c.handleKeyDown(enterKey).effects

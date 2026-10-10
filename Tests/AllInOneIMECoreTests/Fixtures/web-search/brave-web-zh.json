@@ -1,0 +1,156 @@
+{
+  "query": {
+    "original": "苹果发布会",
+    "show_strict_warning": false,
+    "is_navigational": false,
+    "is_news_breaking": false,
+    "spellcheck_off": true,
+    "country": "all",
+    "bad_results": false,
+    "should_fallback": false,
+    "postal_code": "",
+    "city": "",
+    "header_country": "",
+    "more_results_available": true,
+    "state": ""
+  },
+  "mixed": {
+    "type": "mixed",
+    "main": [
+      {"type": "web", "index": 0, "all": false},
+      {"type": "web", "index": 1, "all": false},
+      {"type": "web", "index": 2, "all": false},
+      {"type": "web", "index": 3, "all": false},
+      {"type": "web", "index": 4, "all": false},
+      {"type": "web", "index": 5, "all": false},
+      {"type": "web", "index": 6, "all": false}
+    ],
+    "top": [],
+    "side": []
+  },
+  "type": "search",
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "title": "苹果秋季发布会：iPhone 18 系列与 Apple Watch 新品一览",
+        "url": "https://news.example.cn/2026/09/10/apple-event",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "苹果在 9 月 9 日的秋季发布会上推出了 iPhone 18 系列、Apple Watch Series 12 和新款 AirPods，起售价与去年持平。",
+        "page_age": "2026-09-10T02:15:00",
+        "profile": {
+          "name": "Example News",
+          "url": "https://news.example.cn",
+          "long_name": "news.example.cn",
+          "img": "https://imgs.search.brave.com/example/news.png"
+        },
+        "language": "zh-hans",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "generic",
+        "is_live": false,
+        "meta_url": {
+          "scheme": "https",
+          "netloc": "news.example.cn",
+          "hostname": "news.example.cn",
+          "favicon": "https://imgs.search.brave.com/example/favicon.png",
+          "path": "› 2026 › 09 › 10 › apple-event"
+        },
+        "age": "2026年9月10日",
+        "extra_snippets": [
+          "苹果在 9 月 9 日的秋季发布会上推出了 iPhone 18 系列、Apple Watch Series 12 和新款 AirPods，起售价与去年持平。",
+          "iPhone 18 Pro 首次采用 2 纳米的 A20 芯片，续航提升约 20%。",
+          "新品 9 月 12 日开始预购，9 月 19 日正式发售。"
+        ]
+      },
+      {
+        "title": "Apple 活动 - 官方网站\u0007\n直播回放",
+        "url": "https://www.example.com/cn/apple-events/",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "观看 Apple 特别活动的回放，了解 iPhone、Apple Watch 和 AirPods 的最新消息。主题是 &quot;Awe dropping&quot;。",
+        "page_age": "2026-09-09T17:00:00",
+        "profile": {"name": "Example", "url": "https://www.example.com", "long_name": "example.com", "img": "https://imgs.search.brave.com/example/apple.png"},
+        "language": "zh-hans",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "generic",
+        "is_live": false,
+        "meta_url": {"scheme": "https", "netloc": "example.com", "hostname": "www.example.com", "favicon": "https://imgs.search.brave.com/example/favicon.png", "path": "› cn › apple-events"},
+        "age": "2026年9月9日"
+      },
+      {
+        "title": "\u202e苹果发布会全程回顾\u202c｜科技 Daily",
+        "url": "https://tech.example.org/apple-2026",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "从 A20 芯片到 Apple Intelligence 的中文支持，\t一文看懂这次发布会的 10 个重点。",
+        "page_age": "2026-09-09T20:30:00",
+        "profile": {"name": "科技 Daily", "url": "https://tech.example.org", "long_name": "tech.example.org", "img": "https://imgs.search.brave.com/example/tech.png"},
+        "language": "zh-hans",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "article",
+        "is_live": false,
+        "meta_url": {"scheme": "https", "netloc": "tech.example.org", "hostname": "tech.example.org", "favicon": "https://imgs.search.brave.com/example/favicon.png", "path": "› apple-2026"},
+        "age": "2026年9月9日"
+      },
+      {
+        "title": "点击领取 iPhone 18",
+        "url": "javascript:alert(document.cookie)",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "这一条没有网址，不会出现。",
+        "language": "zh-hans",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "generic",
+        "is_live": false,
+        "meta_url": {"scheme": "javascript", "netloc": "", "hostname": "", "favicon": "", "path": ""}
+      },
+      {
+        "title": "",
+        "url": "https://forum.example.net/t/apple-event-2026/12345",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "网友讨论：今年的发布会有什么亮点？",
+        "page_age": "2026-09-11T08:00:00",
+        "language": "zh-hans",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "qa",
+        "is_live": false,
+        "meta_url": {"scheme": "https", "netloc": "forum.example.net", "hostname": "forum.example.net", "favicon": "https://imgs.search.brave.com/example/favicon.png", "path": "› t › apple-event-2026 › 12345"},
+        "age": "2026年9月11日"
+      },
+      {
+        "title": "苹果发布会 - 百科 &amp; 历史",
+        "url": "https://zh.example.org/wiki/苹果发布会",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "苹果公司的<strong>发布会</strong>通常在每年 9 月举行&hellip;",
+        "language": "zh-hans",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "generic",
+        "is_live": false,
+        "meta_url": {"scheme": "https", "netloc": "example.org", "hostname": "zh.example.org", "favicon": "https://imgs.search.brave.com/example/favicon.png", "path": "› wiki › 苹果发布会"}
+      },
+      {
+        "title": "第七条结果",
+        "url": "https://seventh.example.com/",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "超过 5 条以后的结果不保留。",
+        "language": "zh-hans",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "generic",
+        "is_live": false,
+        "meta_url": {"scheme": "https", "netloc": "example.com", "hostname": "seventh.example.com", "favicon": "", "path": ""}
+      }
+    ],
+    "family_friendly": true
+  }
+}

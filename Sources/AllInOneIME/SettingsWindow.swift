@@ -172,6 +172,70 @@ final class SettingsModel: ObservableObject {
         save()
     }
 
+    // MARK: Web search (@search)
+
+    /// Where the web search key comes from (nil until looked up), the last save's error, and the test.
+    @Published private(set) var searchKeySource: APIKeys.Source?
+    @Published private(set) var searchKeyError: String?
+    @Published private(set) var searchTestStatus: TestStatus = .idle
+    private var searchTestTask: Task<Void, Never>?
+
+    func refreshSearchKey() {
+        // A preview (the self-test's README images) shows no key and never asks the user's keychain.
+        guard persists else {
+            searchKeySource = APIKeys.Source.none
+            return
+        }
+        Task.detached {
+            // The first look asks the user's shell for its variables (BRAVE_API_KEY): not on the main thread.
+            let source = WebSearch.keySource()
+            await MainActor.run { [weak self] in self?.searchKeySource = source }
+        }
+    }
+
+    /// Stores (or with an empty key removes) the web search key in the keychain; never in the config.
+    func saveSearchKey(_ key: String) {
+        guard persists else { return }
+        do {
+            try WebSearch.saveKey(key)
+            searchKeyError = nil
+        } catch {
+            searchKeyError = tr("无法保存到钥匙串：", "Couldn't save to the keychain: ") + UIText.describe(error)
+        }
+        searchTestStatus = .idle
+        refreshSearchKey()
+    }
+
+    var searchKeyStatus: String {
+        switch searchKeySource {
+        case .keychain?: return tr("已保存在钥匙串里", "Saved in the keychain")
+        case let .environment(name)?: return tr("使用 shell 里的 \(name)", "Using \(name) from your shell")
+        case .none?: return tr("还没有 API key", "No API key yet")
+        case nil: return ""
+        }
+    }
+
+    /// One search with the key as it is kept, to see that it works.
+    func testSearch() {
+        searchTestTask?.cancel()
+        searchTestStatus = .running
+        let query = tr("输入法", "input method")
+        searchTestTask = Task { [weak self] in
+            let started = Date()
+            do {
+                let key = await Task.detached { WebSearch.loadKey() }.value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !key.isEmpty else {
+                    throw WebSearch.SearchError.missingKey(variable: WebSearch.backend.keyVariables.first ?? "")
+                }
+                let first = try await WebSearch.search(query, key: key).first
+                let shown = first.map { $0.title.isEmpty ? $0.url : $0.title } ?? ""
+                self?.searchTestStatus = .passed(String(format: tr("%.1f 秒：%@", "%.1f s: %@"), Date().timeIntervalSince(started), shown))
+            } catch {
+                self?.searchTestStatus = .failed(UIText.describe(error))
+            }
+        }
+    }
+
     // MARK: AllInOneIME Cloud (the hosted provider)
 
     @Published private(set) var account: HostedAccount?
@@ -489,6 +553,8 @@ struct SettingsView: View {
     @State private var commandToDelete: Int?
     /// The API key being typed (a saved key is never shown again: it stays in the keychain).
     @State private var newKey = ""
+    /// The web search key being typed (likewise).
+    @State private var newSearchKey = ""
 
     var body: some View {
         Form {
@@ -683,6 +749,38 @@ struct SettingsView: View {
             }
             .disabled(!model.canSave)
 
+            // The key lives in the keychain, not in the config file: this works even when the file is broken.
+            Section(tr("网页搜索", "Web Search")) {
+                HStack {
+                    SecureField("API key", text: $newSearchKey,
+                                prompt: Text(tr("粘贴 Brave Search 的 API key", "Paste a Brave Search API key")))
+                        .onSubmit { saveSearchKey() }
+                    Button(tr("保存", "Save")) { saveSearchKey() }.disabled(newSearchKey.isEmpty)
+                    if model.searchKeySource == .keychain {
+                        Button(tr("删除", "Remove")) { model.saveSearchKey("") }
+                    }
+                }
+                Text(model.searchKeyStatus).font(.caption).foregroundStyle(.secondary)
+                if let error = model.searchKeyError { Text(error).foregroundStyle(.red) }
+                HStack {
+                    Button(tr("测试", "Test")) { model.testSearch() }
+                        .disabled(model.searchTestStatus == .running || model.searchKeySource == APIKeys.Source.none)
+                    Button(tr("获取 API key…", "Get an API Key…")) { NSWorkspace.shared.open(WebSearch.backend.keyPage) }
+                    switch model.searchTestStatus {
+                    case .idle: EmptyView()
+                    case .running: ProgressView().controlSize(.small)
+                    case let .passed(text): Text("✓ \(text)").foregroundStyle(.green).textSelection(.enabled)
+                    case let .failed(text): Text("✗ \(text)").foregroundStyle(.red).textSelection(.enabled)
+                    }
+                }
+                Text(tr("@search 用 Brave Search 搜网页，用你自己的 API key：Brave 每月送一些免费额度（目前约 1000 次搜索），注册时要绑信用卡。"
+                            + "要搜的内容会发给 Brave。key 存在钥匙串里；也可以在 shell 里设置 BRAVE_API_KEY。",
+                        "@search searches the web with Brave Search, using your own API key: Brave gives some free credit each month "
+                            + "(about 1,000 searches for now); signing up needs a credit card. What you search for is sent to Brave. "
+                            + "The key is kept in the keychain; you can also set BRAVE_API_KEY in your shell."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section(tr("高级", "Advanced")) {
                 Stepper(value: $model.config.maxTokens, in: 200...4000, step: 100) {
                     Text(tr("最多输出 \(model.config.maxTokens) tokens", "Up to \(model.config.maxTokens) output tokens"))
@@ -777,6 +875,7 @@ struct SettingsView: View {
         .onAppear {
             model.refreshPlugins()
             model.refreshKeys()
+            model.refreshSearchKey()
             model.refreshAccount()
             model.refreshVoice()
             model.refreshJargon()
@@ -978,6 +1077,11 @@ struct SettingsView: View {
     private func saveKey(_ provider: Provider) {
         model.saveKey(newKey, for: provider)
         newKey = ""
+    }
+
+    private func saveSearchKey() {
+        model.saveSearchKey(newSearchKey)
+        newSearchKey = ""
     }
 
     static func modelExample(_ provider: Provider) -> String {

@@ -47,6 +47,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | `@calc` | Calculates on this Mac; the result appears in the candidates, ⏎ or Space inserts it: `@calc 23*17` → `391`. It also works inside a sentence: `@reply 总价是 @calc 23*17 元` ("the total is … yuan") |
 | `@py` | Runs a line of Python (the Mac's `python3`) and inserts the result: the value of the code's last expression, e.g. `@py 2**100`, `@py import math; math.sqrt(2)`, or else what it printed. Not offered without `python3` (Xcode's command line tools have it) |
 | `@js` | Runs a line of JavaScript and inserts the same: the value of the last expression or what `console.log` printed, e.g. `@js [1, 2, 3].map(x => x * 2)`. It uses macOS's built-in JavaScriptCore, so there's nothing to install; it can't read files, reach the network or run other programs |
+| `@search` | Searches the web (Brave Search, with your own API key; see "Web search" below). On its own, the candidate is the top 5 results, one "title — URL" per line, inserted with ⏎ or Space; inside a sentence, the titles, snippets and addresses it finds are context for the AI: `@question 用一句话总结 @search 苹果发布会` (sum up the Apple event in one sentence) |
 
 Example: `@q` ⏎, type `什么是量子计算` ("what is quantum computing"), ⏎. Once the command is chosen, you can also hold right ⌥
 and talk. `@open` and `@calc` switch to English letters for the moment and go back to Chinese when you're done.
@@ -71,6 +72,20 @@ first, as usual, before changing files or running commands. Without Claude Code 
 radians, `round(x, 2)` keeps two decimals) and the constants `pi` (`π`) and `e`. Full-width digits and signs work too
 (`（１＋２）×３`). Arithmetic is exact in decimal, so `0.1+0.2` is `0.3`; results have at most 15 significant digits, and
 whole numbers of up to 38 digits are written out in full (`2^100` → `1267650600228229401496703205376`).
+
+### Web search
+
+`@search` searches the web with the [Brave Search API](https://brave.com/search/api/): with your own API key, sent from your Mac straight to Brave, never through the developer's server.
+Brave gives $5 of free credit each month (about 1,000 searches), then charges $5 per 1,000, billed to your Brave account; signing up needs a credit card (for the free credit too, to verify who you are).
+Prices as of October 2026; Brave's site has the current ones.
+
+1. Sign up on Brave's site, subscribe to the Search plan and create an API key.
+2. In the settings, under "Web Search", paste the key, click "Save", then "Test". The key is kept in the system keychain, never in the config file; without one there, `BRAVE_API_KEY` (or `BRAVE_SEARCH_API_KEY`) from your shell is used.
+
+- On its own: `@search 苹果发布会` ("Apple event") ⏎; the candidate is the top 5 results, one "title — URL" per line, inserted with ⏎ or Space. In a terminal they go in as one line (a terminal runs every line it's given).
+- Inside a sentence: it searches first, and the titles, dates, addresses and snippets it finds go to the outer command, e.g. `@question 用一句话总结 @search 苹果发布会`; for a command that opens a web page (`link`), they go in as one line of "title — URL".
+  The query is what follows `@search` up to the end of the sentence: ，。？！；, a line break or the next command (and ? ! ; followed by a space); quotes mark it exactly: `@question what changed? @search "swift 6.3 release notes"`.
+- Without a key, `@search` is still offered; running it says where to add one. A query is at most 400 characters and 50 words.
 
 ### Your own commands
 
@@ -284,6 +299,7 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 ## Privacy
 
 - Pinyin typing and `@calc` calculations are entirely local. Only when you press the action key on `@improve` or `@question` is that sentence sent to the AI provider you chose (your own Bedrock, or the service whose key you added). With "Jargon" checked and a jargon list set, the list is sent along with it.
+- `@search` sends what you search for (inside a sentence, only the part after `@search`) to Brave Search with your own key, only when you press the action key and never through the developer's server; the results aren't stored. Inside another command, the titles, snippets and addresses it finds go to your AI provider along with the sentence.
 - With AllInOneIME Cloud, the sentence goes through the developer's server to a model provider (currently through OpenRouter): the server keeps counts only, never the text. Signing in keeps only your email address.
 - Voice is recorded only while you hold right ⌥ and is recognized on the Mac; the recognized text is sent only in the commands above, when you press the action key.
 - The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.

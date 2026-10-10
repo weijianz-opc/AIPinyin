@@ -105,6 +105,7 @@ enum UIText {
         case .calc: return tr("在本机计算算式，结果可以直接上屏", "Calculate on this Mac; insert the result")
         case .py: return tr("运行 Python，结果可以直接上屏", "Run Python; insert the result")
         case .js: return tr("运行 JavaScript，结果可以直接上屏", "Run JavaScript; insert the result")
+        case .webSearch: return tr("搜索网页，可放在句中给 AI 当上下文", "Search the web; inside a sentence, context for the AI")
         default: return ""
         }
     }
@@ -143,6 +144,7 @@ enum UIText {
         case .calc: return tr("计算", "calculate")
         case .py: return tr("运行 Python", "run Python")
         case .js: return tr("运行 JavaScript", "run JavaScript")
+        case .webSearch: return tr("搜索网页", "search the web")
         default: return ""
         }
     }
@@ -156,6 +158,7 @@ enum UIText {
 
     /// The row comment of an answer: "回答" / "answer", "Claude".
     static func answerLabel(_ command: Command?) -> String {
+        if command == .webSearch { return tr("搜索结果", "results") }
         if command?.kind == .run { return command?.plugin.map { "@" + $0.name } ?? tr("输出", "output") }
         return command == .claude ? "Claude" : tr("回答", "answer")
     }
@@ -172,8 +175,9 @@ enum UIText {
             case .tooLarge: return tr("网页太大（超过 2 MB）", "The page is larger than 2 MB")
             }
         }
+        if let error = error as? WebSearch.SearchError { return describe(error) }
         if let error = error as? CommandPipelineError, case let .inner(name, underlying) = error,
-           [Command.read, .py, .js].contains(where: { $0.name == name }) {
+           [Command.read, .py, .js, .webSearch].contains(where: { $0.name == name }) {
             return "@" + name + tr("：", ": ") + underlying
         }
         if let error = error as? NotesBridge.NotesError {
@@ -288,6 +292,33 @@ enum UIText {
             }
         default:
             return (error as? LocalizedError)?.errorDescription ?? "\(error)"
+        }
+    }
+
+    /// A web search error (`@search`): where to add the key, what the service said.
+    static func describe(_ error: WebSearch.SearchError) -> String {
+        switch error {
+        case let .missingKey(variable):
+            return tr("网页搜索还没有 API key：在设置 → 网页搜索里添上（或在 shell 里设置 \(variable)）",
+                      "No API key for web search: add one in Settings → Web Search (or set \(variable) in your shell)")
+        case .emptyQuery: return tr("在 @search 后面写上要搜的内容", "Type what to search for after @search")
+        case .queryTooLong:
+            return tr("要搜的内容太长：最多 \(WebSearch.maxQueryLength) 个字、\(WebSearch.maxQueryWords) 个词",
+                      "The search is too long: \(WebSearch.maxQueryLength) characters and \(WebSearch.maxQueryWords) words at most")
+        case let .rejectedKey(service):
+            return tr("\(service) 不接受这个 API key：在设置 → 网页搜索里检查一下",
+                      "\(service) didn't accept the API key: check it in Settings → Web Search")
+        case let .rateLimited(service):
+            return tr("\(service) 搜索太频繁，稍后再试", "Too many searches at once for \(service): try again in a moment")
+        case let .quotaExceeded(service):
+            return tr("\(service) 的额度用完了：在它的控制台里看看用量和上限",
+                      "No \(service) credit left: see the usage and limits in its dashboard")
+        case let .notInPlan(service): return tr("你的 \(service) 套餐不支持这种搜索", "Your \(service) plan doesn't include this search")
+        case let .unreachable(service): return tr("无法连接 \(service)", "Can't reach \(service)")
+        case let .http(service, status, detail): return "\(service) HTTP \(status)" + (detail.map { tr("：", ": ") + $0 } ?? "")
+        case let .invalidResponse(service): return tr("\(service) 的响应无法解析", "Couldn't read the \(service) response")
+        case let .tooLarge(service): return tr("\(service) 的响应太大", "The \(service) response is too large")
+        case .noResults: return tr("网页搜索没有找到结果", "No web results for this search")
         }
     }
 }

@@ -74,6 +74,11 @@ public struct Command: Hashable, Sendable {
     /// app's own child process (no files, programs or network).
     public static let js = Command(name: "js", kind: .run)
 
+    /// `@search`: a web search with the user's own key (`WebSearch`). On its own, a list of the top
+    /// results to insert; inside another command's text, their titles, snippets and addresses as context:
+    /// `@question 用一句话总结 @search 苹果发布会`.
+    public static let webSearch = Command(name: "search", kind: .run)
+
     /// The background tasks `@claude` started: how they're doing and what they replied.
     public static let tasks = Command(name: "tasks", kind: .agents)
 
@@ -81,7 +86,7 @@ public struct Command: Hashable, Sendable {
     public static let settings = Command(name: "settings", kind: .settings)
 
     public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .note, .reminder, .calc,
-                                             .py, .js, .tasks, .settings]
+                                             .py, .js, .webSearch, .tasks, .settings]
 
     /// `@py`, `@js`: the text is code to run (`InlineCode`), used exactly as typed: other commands in it
     /// don't run, so nothing they return (a web page, a program's output) is ever executed.

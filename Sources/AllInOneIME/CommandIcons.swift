@@ -31,6 +31,7 @@ enum CommandIcons {
         case .calc: return CandidateView.Icon(symbol: "plus.forwardslash.minus", color: .systemOrange)
         case .py: return CandidateView.Icon(symbol: "chevron.left.forwardslash.chevron.right", color: .systemBlue)
         case .js: return CandidateView.Icon(symbol: "curlybraces", color: .systemYellow)
+        case .webSearch: return CandidateView.Icon(symbol: "globe", color: .systemCyan)
         case .tasks: return CandidateView.Icon(symbol: "checklist", color: .systemGreen)
         case .settings: return CandidateView.Icon(symbol: "gearshape.fill", color: .systemGray)
         default: return CandidateView.Icon(symbol: "command", color: .systemGray)

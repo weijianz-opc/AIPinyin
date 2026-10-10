@@ -1,0 +1,82 @@
+{
+  "query": {
+    "original": "swift concurrency",
+    "show_strict_warning": false,
+    "is_navigational": false,
+    "is_news_breaking": false,
+    "spellcheck_off": false,
+    "country": "us",
+    "bad_results": false,
+    "should_fallback": false,
+    "postal_code": "",
+    "city": "",
+    "header_country": "",
+    "more_results_available": true,
+    "state": ""
+  },
+  "mixed": {
+    "type": "mixed",
+    "main": [
+      {"type": "web", "index": 0, "all": false},
+      {"type": "web", "index": 1, "all": false},
+      {"type": "web", "index": 2, "all": false}
+    ],
+    "top": [],
+    "side": []
+  },
+  "type": "search",
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "title": "Concurrency | Documentation",
+        "url": "https://docs.example.com/swift/concurrency",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "Perform asynchronous operations with async/await, tasks and actors.",
+        "page_age": "2026-06-08T00:00:00",
+        "profile": {"name": "Example Docs", "url": "https://docs.example.com", "long_name": "docs.example.com", "img": "https://imgs.search.brave.com/example/docs.png"},
+        "language": "en",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "generic",
+        "is_live": false,
+        "meta_url": {"scheme": "https", "netloc": "docs.example.com", "hostname": "docs.example.com", "favicon": "https://imgs.search.brave.com/example/favicon.png", "path": "› swift › concurrency"},
+        "age": "June 8, 2026",
+        "extra_snippets": [
+          "Swift has built-in support for writing asynchronous and parallel code in a structured way.",
+          "Actors protect their mutable state from data races."
+        ]
+      },
+      {
+        "title": "What&#x27;s new in Swift 6.3",
+        "url": "https://blog.example.org/swift-6-3",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "Typed throws, isolated conformances and faster builds.",
+        "profile": {"name": "Example Blog", "url": "https://blog.example.org", "long_name": "blog.example.org", "img": "https://imgs.search.brave.com/example/blog.png"},
+        "language": "en",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "article",
+        "is_live": false,
+        "meta_url": {"scheme": "https", "netloc": "example.org", "hostname": "blog.example.org", "favicon": "https://imgs.search.brave.com/example/favicon.png", "path": "› swift-6-3"},
+        "age": "3 weeks ago"
+      },
+      {
+        "title": "Swift Concurrency by Example",
+        "url": "http://examples.example.net/swift/concurrency?page=1&lang=en",
+        "is_source_local": false,
+        "is_source_both": false,
+        "description": "Short examples for every concurrency feature.",
+        "language": "en",
+        "family_friendly": true,
+        "type": "search_result",
+        "subtype": "generic",
+        "is_live": false,
+        "meta_url": {"scheme": "http", "netloc": "example.net", "hostname": "examples.example.net", "favicon": "", "path": "› swift › concurrency"}
+      }
+    ],
+    "family_friendly": true
+  }
+}
