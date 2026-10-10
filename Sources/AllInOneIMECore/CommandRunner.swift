@@ -48,6 +48,15 @@ public enum CommandRunner {
         return nil
     }
 
+    /// Whether `program` would run here: it is found (`resolve`), and if it is one of the stand-ins macOS
+    /// keeps in /usr/bin for the developer tools (`python3`, `git`, …), Xcode or the command line tools
+    /// are installed (without them, the stand-in only offers to install them).
+    public static func isInstalled(_ program: String, path: String?,
+                                   developerFolders: [String] = DeveloperTools.folders) -> Bool {
+        guard let url = resolve(program, path: path) else { return false }
+        return !DeveloperTools.isStandIn(url) || DeveloperTools.installed(in: developerFolders)
+    }
+
     /// What the program printed, as inserted: control characters (colors, bells) removed, line
     /// breaks and tabs kept, trailing blank lines dropped.
     static func cleanOutput(_ data: Data) -> String {
@@ -243,5 +252,33 @@ public enum ShellEnvironment {
             if !value.isEmpty { values[String(part[..<eq])] = value }
         }
         return values
+    }
+}
+
+/// The stand-ins macOS keeps in /usr/bin for the developer tools: `python3`, `git`, `make`, `swift` and
+/// the others are one small program (hard links of one file) that runs the real tool from Xcode or the
+/// command line tools, and without those only offers to install them.
+public enum DeveloperTools {
+    /// Where Xcode or the command line tools may be: the folder chosen with `xcode-select -s`, then the
+    /// default places.
+    public static var folders: [String] {
+        let chosen = try? FileManager.default.destinationOfSymbolicLink(atPath: "/var/db/xcode_select_link")
+        return (chosen.map { [$0] } ?? []) + ["/Applications/Xcode.app/Contents/Developer", "/Library/Developer/CommandLineTools"]
+    }
+
+    /// Whether one of `folders` has the tools.
+    static func installed(in folders: [String]) -> Bool {
+        folders.contains { folder in
+            var isFolder: ObjCBool = false
+            return FileManager.default.fileExists(atPath: folder + "/usr/bin", isDirectory: &isFolder) && isFolder.boolValue
+        }
+    }
+
+    /// Whether `url` (after symbolic links) is the same file as `standIn`: /usr/bin/python3 has been one
+    /// of the stand-ins on every macOS since 10.15.
+    static func isStandIn(_ url: URL, standIn: String = "/usr/bin/python3") -> Bool {
+        var file = stat(), known = stat()
+        guard stat(url.path, &file) == 0, stat(standIn, &known) == 0 else { return false }
+        return file.st_dev == known.st_dev && file.st_ino == known.st_ino
     }
 }

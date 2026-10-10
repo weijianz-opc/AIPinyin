@@ -45,9 +45,16 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | `@open` | Lists matching files, folders and apps as you type (Spotlight). Text starting with `~/` or `/` is a path: Tab completes it and goes into folders; ⏎ opens, ⌘C copies the path |
 | `@read` | Reads a web page's title and text (up to 6000 characters; web pages, plain text and PDFs). Mostly inside a sentence as context for the AI: `@question summarize @read https://…` in one line |
 | `@calc` | Calculates on this Mac; the result appears in the candidates, ⏎ or Space inserts it: `@calc 23*17` → `391`. It also works inside a sentence: `@reply 总价是 @calc 23*17 元` ("the total is … yuan") |
+| `@py` | Runs a line of Python (the Mac's `python3`) and inserts the result: the value of the code's last expression, e.g. `@py 2**100`, `@py import math; math.sqrt(2)`, or else what it printed. Not offered without `python3` (Xcode's command line tools have it) |
+| `@js` | Runs a line of JavaScript and inserts the same: the value of the last expression or what `console.log` printed, e.g. `@js [1, 2, 3].map(x => x * 2)`. It uses macOS's built-in JavaScriptCore, so there's nothing to install; it can't read files, reach the network or run other programs |
 
 Example: `@q` ⏎, type `什么是量子计算` ("what is quantum computing"), ⏎. Once the command is chosen, you can also hold right ⌥
 and talk. `@open` and `@calc` switch to English letters for the moment and go back to Chinese when you're done.
+
+The code for `@py` and `@js` is typed in English letters too, and full-width punctuation becomes ASCII (`print（“牛逼”）` → `print("牛逼")`); write it on one line, with `;` between statements.
+It runs in a separate process, stopped after 10 seconds or with Esc at any time; on an error, the error's first line is shown, e.g. `ZeroDivisionError: division by zero`.
+Both also work inside another command's sentence: `@reply 答案是 @py 2**100` ("the answer is …"); put code with spaces in 「」 or quotes: `@question explain @py「sum(x * x for x in range(10))」`.
+Not the other way round: the code of `@py` and `@js` always runs exactly as you typed it, and `@commands` in it don't run first.
 
 ![Typing @ opens the command list; @question plus a question, then ⏎ for the answer](docs/en/commands.png)
 
@@ -281,6 +288,7 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 - Voice is recorded only while you hold right ⌥ and is recognized on the Mac; the recognized text is sent only in the commands above, when you press the action key.
 - The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.
 - In password fields (secure input) it doesn't compose text and can't record. Whenever the system is in secure input (password fields, Terminal's Secure Keyboard Entry, etc.), nothing is sent to the AI.
+- `@py` and `@js` run only when you press the action key, and only code you typed or pasted yourself: the AI's answers, web pages (`@read`) and other commands' output are never run as code. `@py` uses your Mac's `python3`, which can read and write files and go online as it does in Terminal; `@js` runs in a separate process that can't read files, reach the network or run other programs. Neither runs during secure input.
 - Logs don't record what you type. For every third-party input method, macOS warns "The developer can access anything you type with this input source"; it's a generic system warning.
 
 ## Development

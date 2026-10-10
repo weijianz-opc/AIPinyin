@@ -247,6 +247,10 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 if arguments.first == "--run-plugin" {
     exit(arguments.count > 1 ? PluginHost.run(directory: arguments[1]) : 2)
 }
+// The same for `@js` code (`InlineCode`): the code on standard input, what it prints on standard output.
+if arguments.first == InlineCode.javaScriptHostOption {
+    exit(InlineCode.runJavaScriptHost())
+}
 
 // Data from the AIPinyin days moves to the AllInOneIME folders before anything reads it.
 for (path, outcome) in LegacyData.migrate() where outcome != .nothingToMove {

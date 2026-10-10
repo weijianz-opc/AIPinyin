@@ -188,7 +188,7 @@ struct CommandEditor: View {
             missingProgram = nil
             return
         }
-        let found = await Task.detached { CommandRunner.resolve(program, path: ShellEnvironment.current["PATH"]) != nil }.value
+        let found = await Task.detached { CommandRunner.isInstalled(program, path: ShellEnvironment.current["PATH"]) }.value
         missingProgram = found ? nil : program
     }
 
@@ -215,7 +215,8 @@ struct CommandEditor: View {
                           prompt: "Write a short, polite reply to the user's message, in the language of the message."),
             CustomCommand(name: "ja", type: .prompt, summary: tr("翻译成日语", "Translate to Japanese"),
                           prompt: "Translate the user's text into natural Japanese. Reply with the translation only."),
-            CustomCommand(name: "py", type: .run, summary: tr("运行 Python", "Run Python"), argv: ["python3", "-c", CustomCommand.placeholder]),
+            // Python and sandboxed JavaScript are built in (@py, @js); Node.js with its files and modules isn't.
+            CustomCommand(name: "node", type: .run, summary: tr("运行 Node.js", "Run Node.js"), argv: ["node", "-p", CustomCommand.placeholder]),
             CustomCommand(name: "bc", type: .run, summary: tr("用 bc 计算", "Calculate with bc"), argv: ["bc", "-l"],
                           stdin: CustomCommand.placeholder + "\n"),
             CustomCommand(name: "google", type: .link, summary: tr("用 Google 搜索", "Search with Google"),

@@ -183,6 +183,8 @@ public final class Composer {
         public var noteTooLong: String
         /// A `link` command's text is longer than `LinkTemplate.maxInputLength`.
         public var linkTooLong: String
+        /// `@py` / `@js` code that printed nothing and ended without a value.
+        public var noOutput: String
 
         public static let chinese = Messages(
             notReady: "词库准备中，稍候可用", holdToTalk: "按住右 ⌥ 说话", didNotHear: "没听清，再说一次",
@@ -197,7 +199,8 @@ public final class Composer {
             nothingToPaste: "剪贴板里没有能用的文字",
             reminderWithoutTitle: "写上要提醒的事，比如「明天下午3点给张三打电话」",
             noteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxNoteLength) 字",
-            linkTooLong: "文字太长，放不进链接：最多 \(LinkTemplate.maxInputLength) 字")
+            linkTooLong: "文字太长，放不进链接：最多 \(LinkTemplate.maxInputLength) 字",
+            noOutput: "代码没有输出：最后写一个表达式，或者把结果打印出来")
         public static let english = Messages(
             notReady: "Loading the dictionaries, one moment", holdToTalk: "Hold right ⌥ to talk",
             didNotHear: "Didn't catch that, try again", chineseMode: "Chinese", englishMode: "English",
@@ -212,7 +215,8 @@ public final class Composer {
             nothingToPaste: "No text on the clipboard to use",
             reminderWithoutTitle: "Write what to be reminded of, e.g. “call Bob tomorrow at 3pm”",
             noteTooLong: "The clipboard text is too long: \(Composer.maxNoteLength) characters at most",
-            linkTooLong: "Too long for a link: \(LinkTemplate.maxInputLength) characters at most")
+            linkTooLong: "Too long for a link: \(LinkTemplate.maxInputLength) characters at most",
+            noOutput: "The code printed nothing: end it with an expression, or print the result")
     }
     /// The command of the request in level two (nil otherwise).
     public private(set) var activeCommand: Command?
@@ -345,6 +349,8 @@ public final class Composer {
         let paletteAt = palette.map { draft.distance(from: draft.startIndex, to: $0.at) }
         let pickingCommand = palette.map { !$0.query.isEmpty && !paletteMatches.isEmpty } ?? false
         let inCommand = draftCommand != nil
+        // In code nothing after the command is a command (`@py x = "@stock AAPL"`).
+        let inCode = draftCommand?.isCode == true
         var out = ""
         var i = 0
         while i < chars.count {
@@ -358,7 +364,7 @@ public final class Composer {
             while j < chars.count, chars[j].isASCII, chars[j].isLetter { j += 1 }
             let name = String(chars[(i + 1)..<j]).lowercased()
             let afterWord = i > 0 && chars[i - 1].isASCII && (chars[i - 1].isLetter || chars[i - 1].isNumber)
-            if !afterWord, names.contains(name), j < chars.count, chars[j] == " " || "「“\"".contains(chars[j]) {
+            if !afterWord, i == 0 || !inCode, names.contains(name), j < chars.count, chars[j] == " " || "「“\"".contains(chars[j]) {
                 out += String(chars[(i + 1)..<j]) + " › "  // a chosen command
                 i = chars[j] == " " ? j + 1 : j
             } else if i == paletteAt, pickingCommand {
@@ -443,14 +449,14 @@ public final class Composer {
     public var paletteQuery: String? { palette?.query }
 
     /// The "@letters" being typed: at the start of the draft, or (`nested`) inside a command's text
-    /// (`@reply 告诉他 @st`, not inside a word), where the commands that can run inside a text are offered.
+    /// (`@reply 告诉他 @st`, not inside a word, nor in code), where the commands that can run inside a text are offered.
     private var palette: (query: String, nested: Bool, at: String.Index)? {
         guard !isLevelTwo, voice == .off, !engineState.isComposing, let at = draft.lastIndex(of: "@") else { return nil }
         let query = draft[draft.index(after: at)...]
         guard query.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
         if at == draft.startIndex { return (String(query), false, at) }
         let before = draft[draft.index(before: at)]
-        guard draftCommand != nil, !(before.isASCII && (before.isLetter || before.isNumber)) else { return nil }
+        guard let command = draftCommand, !command.isCode, !(before.isASCII && (before.isLetter || before.isNumber)) else { return nil }
         return (String(query), true, at)
     }
 
@@ -738,7 +744,7 @@ public final class Composer {
         if isFinal {
             // Versions that only repeat the original are hidden, but the answer still counts.
             let answered = !result.versions.isEmpty || choices.contains { $0.kind != .original && !$0.text.isEmpty }
-            phase = answered ? .choosing : .failed(messages.noResult)
+            phase = answered ? .choosing : .failed(activeCommand?.isCode == true ? messages.noOutput : messages.noResult)
         }
         return [.showPanel]
     }
@@ -1354,9 +1360,10 @@ public final class Composer {
             return .consumed(finish(committing: "") + [.saveNote(text: input), usage])
         }
         // Commands inside the text (`@stock AAPL`) run first; not inside a search's text, nor a reminder's
-        // (it stays on this Mac).
+        // (it stays on this Mac), and never inside code: it runs exactly as typed, so no command's output (a
+        // web page, a program's) is executed.
         let local = parsed?.command.kind == .search || parsed?.command.kind == .reminder
-        let plan = local ? nil : CommandPlan.make(input, commands: commands)
+        let plan = local || parsed?.command.isCode == true ? nil : CommandPlan.make(input, commands: commands)
         if let command = parsed?.command, command.kind == .link, plan?.isEmpty != false {
             // A password field's text must not end up in an address (and the browser's history).
             guard !secureInputActive() else { return .consumed([.updateMarkedText, .notice(messages.secureInputCommand)]) }

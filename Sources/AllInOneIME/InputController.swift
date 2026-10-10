@@ -138,7 +138,7 @@ final class AllInOneIMEInputController: IMKInputController {
     /// Whether a command's program is on this Mac (the self-test supplies its own). Called off the main thread.
     var programInstalled: @Sendable (String) -> Bool = { program in
         if program == "claude", TerminalLauncher.claudePath != nil { return true }
-        return CommandRunner.resolve(program, path: ShellEnvironment.current["PATH"]) != nil
+        return CommandRunner.isInstalled(program, path: ShellEnvironment.current["PATH"])
     }
     /// The commands whose programs were last checked (`setCommands`), and those whose program is missing.
     private var checkedCommands: [Command] = []
@@ -876,6 +876,8 @@ final class AllInOneIMEInputController: IMKInputController {
         let streamFor: @Sendable (Command?, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { command, input in
             if command == .read { return WebReader.stream(input) }
             if command == .calc { return Calculator.stream(input) }
+            // @py, @js: the code runs in a child process, like a custom program (never in this one).
+            if let command, let code = InlineCode.definition(for: command) { return runProgram(code, input) }
             // A link opens once the commands inside its text have run: their outputs go in it as they are.
             if let command, command.kind == .link { return LinkTemplate.passThrough(input) }
             if let command, command.kind == .run, let plugin = command.plugin { return runPlugin(plugin, input) }

@@ -307,7 +307,7 @@ struct CalculatorTests {
         let c = Composer(engine: FakeEngine())
         c.setInputMode(.english)
         typeKeys("@question 总价是 @", c)
-        #expect(c.paletteMatches.map(\.name) == ["read", "calc"])  // what runs inside a text
+        #expect(c.paletteMatches.map(\.name) == ["read", "calc", "py", "js"])  // what runs inside a text
         typeKeys("calc 23*17 元", c)
         #expect(c.draft == "@question 总价是 @calc 23*17 元")
         let effects = c.handleKeyDown(enterKey).effects

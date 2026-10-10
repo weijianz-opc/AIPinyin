@@ -103,6 +103,8 @@ enum UIText {
         case .note: return tr("存到备忘录", "Save to Notes")
         case .reminder: return tr("加到提醒事项，时间直接写在里面", "Add to Reminders; write the time in it")
         case .calc: return tr("在本机计算算式，结果可以直接上屏", "Calculate on this Mac; insert the result")
+        case .py: return tr("运行 Python，结果可以直接上屏", "Run Python; insert the result")
+        case .js: return tr("运行 JavaScript，结果可以直接上屏", "Run JavaScript; insert the result")
         default: return ""
         }
     }
@@ -139,6 +141,8 @@ enum UIText {
         case .note: return tr("存到备忘录", "save to Notes")
         case .reminder: return tr("看一下再加到提醒事项", "check, then add to Reminders")
         case .calc: return tr("计算", "calculate")
+        case .py: return tr("运行 Python", "run Python")
+        case .js: return tr("运行 JavaScript", "run JavaScript")
         default: return ""
         }
     }
@@ -168,8 +172,9 @@ enum UIText {
             case .tooLarge: return tr("网页太大（超过 2 MB）", "The page is larger than 2 MB")
             }
         }
-        if let error = error as? CommandPipelineError, case let .inner(name, underlying) = error, name == "read" {
-            return "@read" + tr("：", ": ") + underlying
+        if let error = error as? CommandPipelineError, case let .inner(name, underlying) = error,
+           [Command.read, .py, .js].contains(where: { $0.name == name }) {
+            return "@" + name + tr("：", ": ") + underlying
         }
         if let error = error as? NotesBridge.NotesError {
             switch error {
