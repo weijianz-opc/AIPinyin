@@ -7,6 +7,7 @@
 ### Added
 
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
+- The plugin library: "Browse Library…" under Plugins in the settings lists the plugins of the [plugin library](https://github.com/weijianz-opc/AllInOneIME-plugins) (icon, summary, version, the websites each contacts) and installs them in one click. The library's index is signed (Ed25519, the public key built into the app) and read only once the signature checks out; a plugin is installed only when every file matches its sha256, downloaded to a temporary folder first, so a failure changes nothing. A newer version shows "Update", updated by hand; the network is used only when the library is opened or refreshed. Local plugins in the plugins folder are never overwritten.
 
 ## 0.4.0 (2026-10-09)
 

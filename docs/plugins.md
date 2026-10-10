@@ -43,24 +43,52 @@ fetch([url, …], {headers}) → [{status, ok, text, json()} | {ok: false, error
 - No file system, processes, environment, timers or clipboard: a bare `JSContext` has none of them.
 - Secure input (password fields) refuses plugins like any command.
 
-## The library (milestone 2)
+## The library (milestone 2, done)
 
-A public repo `weijianz-opc/AllInOneIME-plugins`, served from raw.githubusercontent.com:
+A public repo [`weijianz-opc/AllInOneIME-plugins`](https://github.com/weijianz-opc/AllInOneIME-plugins), served from
+`https://raw.githubusercontent.com/weijianz-opc/AllInOneIME-plugins/main/` (`PluginLibrary.defaultBaseURL`):
 
-- `index.json`: `{schema, generated, plugins: [{name, version, api, minAppVersion, summary, hosts, base, files: {name: sha256}}]}`
-- `index.json.sig`: Ed25519 signature of the exact bytes; the public key is built into the app (CryptoKit).
-  Hashes alone aren't enough: whoever can push to the repo could change files and hashes together.
-- Version folders (`plugins/stock/1.0.0/`) never change once published.
-- Installing shows the hosts the plugin contacts ("what you type after @stock goes to query1.finance.yahoo.com"),
-  downloads to `<name>.tmp/`, checks every hash, then renames into place. Updates are manual (a badge in Settings).
-- Only the maintainer merges; CI checks the schema, hashes and hosts and refuses `eval` / `Function(`.
+- `plugins/<name>/<version>/`: `plugin.json` and its files. A version folder never changes once published (CI
+  refuses a pull request that modifies one); an update is a new folder.
+- `index.json`, every version (newest first):
+  ```json
+  { "schema": 1, "generated": "2026-10-10T12:00:00Z",
+    "plugins": [{ "name": "stock", "version": "1.0.0", "api": 1, "minAppVersion": "0.2.0", "type": "script",
+                  "summary": {"en": "…", "zh": "…"}, "hosts": ["query1.finance.yahoo.com"],
+                  "author": "…", "homepage": "…", "icon": "…", "color": "green",
+                  "base": "plugins/stock/1.0.0/", "files": {"main.js": "<sha256>", "plugin.json": "<sha256>"} }] }
+  ```
+  A `link` plugin's entry also carries its `url`.
+- `index.json.sig`: the Ed25519 signature (base64) of the exact bytes of `index.json`. The public key is built into
+  the app (`PluginLibrary.publicKey`); the private key lives only in the maintainer's login keychain. Hashes alone
+  aren't enough: whoever can push to the repo could change files and hashes together.
+- `scripts/build-index` (a Swift script, CryptoKit) validates every plugin (schema, name = folder, https host names,
+  sizes, plain file names, no `eval(` / `Function(` / `new Function`), writes `index.json` and signs it with the key
+  from the keychain. CI runs it with `--validate` on pull requests and `--check` on main (the index matches the
+  plugins, the signature is valid); CI can't sign. Only the maintainer merges.
+
+In the app (`PluginLibrary`, Settings → Plugins → "Browse Library…"):
+
+- Network only when the user opens or refreshes the library, or installs: no background polling.
+- The signature is verified **before** the index is parsed; an unknown `schema` is refused. Offered is, per plugin,
+  the newest version whose `api`, `minAppVersion` and `type` this app supports.
+- Installing first shows what the plugin contacts ("what you type after @stock goes to query1.finance.yahoo.com").
+  Then: names must be 1–24 lowercase letters, file names plain (no `/`, `..`, leading `.`, `install.json`), `base`
+  a plain relative path under the library. Every file is downloaded into `<name>.tmp/` and checked against its sha256;
+  `plugin.json` must match the entry (name, version, hosts) and be usable; `install.json` is written; then the folder
+  is swapped into place in one step (`renamex_np` with `RENAME_SWAP`). Any failure removes the temporary folder and
+  leaves the installed version as it was.
+- A library plugin with a newer version in the index gets an "Update" button (in the library list and next to the
+  installed plugin); updates are manual. A local plugin (no `install.json`) of the same name is never overwritten:
+  the library shows it as local.
+- Installing or removing a plugin rescans the plugins folder, so the command list has it at the next keystroke.
 
 ## Milestones
 
 1. **@stock end to end, installed by hand** (this branch): manifest and store, the JavaScript host with
    `fetch`, the child-process runner, plugins in the command list, a Plugins section in Settings (installed
    plugins, uninstall, open the folder), tests with recorded Yahoo responses.
-2. **Library**: signed index, browse / install / update in Settings, the registry repo with CI and a signing script.
+2. **Library** (done): signed index, browse / install / update in Settings, the registry repo with CI and a signing script.
 3. **More**: prompt plugins in the library, update all, author documentation.
 
 ## Commands inside a text (nested @)

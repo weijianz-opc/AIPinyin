@@ -95,8 +95,11 @@ They're kept in `customCommands` in the config file (`~/.config/allinoneime/conf
 Plugins are ready-made `@` commands for things not everyone needs, like `@stock AAPL 600519 700` for stock quotes.
 Installed, they work like any command; "Plugins" in the settings shows what's installed and where each sends your text,
 and removes them. Plugins are JavaScript run in a separate process: they can reach only the websites they declare
-(HTTPS), and can't read files or run other programs. The plugin library is on its way; for now a plugin folder goes in
-`~/.config/allinoneime/plugins/` ("Open Plugins Folder" in the settings). Writing one: [docs/plugins.md](docs/plugins.md).
+(HTTPS), and can't read files or run other programs. "Browse Library…" under Plugins in the settings installs them
+from the [plugin library](https://github.com/weijianz-opc/AllInOneIME-plugins): it shows which websites a plugin
+contacts before installing; the library's index is signed and every file must match it. A newer version shows an
+"Update" button; nothing updates by itself. Your own plugins go in `~/.config/allinoneime/plugins/` ("Open Plugins
+Folder"): local plugins, never overwritten by the library. Writing one: [docs/plugins.md](docs/plugins.md).
 
 Commands that fetch something (plugins and programs) also work inside a sentence: `@reply 告诉他 @stock AAPL 现在多少钱`.
 The inner ones run first, their output takes their place, and the outer command works on the result. The argument is
