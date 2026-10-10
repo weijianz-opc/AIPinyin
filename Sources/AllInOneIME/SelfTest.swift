@@ -688,6 +688,19 @@ enum SelfTest {
         _ = enter(controller, client)
         check(opened.last == "/System/Applications/Utilities/Terminal.app", "⏎ opens it")
 
+        // A web address: "https://…" is only the browser's row; ⏎ opens it there, and it isn't kept in
+        // the @open history (what that history ranks are files).
+        at()
+        type("o", controller, client)
+        _ = press(controller, client, "\t", code: VirtualKey.tab)
+        typePath("https://example.com")
+        let web = live("https://example.com")
+        check(web.map(\.path) == ["https://example.com"] && controller.panelModel().rows.first?.comment == "在浏览器中打开",
+              "a web address is the only row, to open in the browser (\(web.map(\.path)))")
+        _ = enter(controller, client)
+        check(opened.last == "https://example.com" && !controller.loadOpenHistory().entries.contains { $0.path.hasPrefix("https:") },
+              "⏎ opens it in the browser, not kept in the history")
+
         // Apps by their Chinese names (Spotlight knows them by the system language's only), several keywords
         // across those names too; an app found, so no full-text search adds the user's documents. ⌃V puts
         // the Chinese into the draft (a stand-in clipboard).
@@ -1110,6 +1123,7 @@ enum SelfTest {
         settings.voiceInput = true
         settings.actionKey = .enter  // the default; the action key section tries the others
         settings.uiLanguage = .chinese  // README images; the interface language section tries English
+        settings.claudeInBackground = false  // @claude records a Terminal launch; nothing starts in the background
         controller.loadSettings = { SelfTest.settings }
         controller.ensureEngine()
         controller.applySettings()
