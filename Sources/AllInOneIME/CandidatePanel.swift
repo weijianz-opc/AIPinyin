@@ -13,6 +13,12 @@ final class CandidatePanel: NSPanel {
         set { view.onSelect = newValue }
     }
 
+    /// The scroll wheel or trackpad over the panel: rows to move (down is positive).
+    var onScroll: ((Int) -> Void)? {
+        get { view.onScroll }
+        set { view.onScroll = newValue }
+    }
+
     init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
@@ -160,6 +166,9 @@ final class CandidateView: NSView {
     }
 
     var onSelect: ((Int) -> Void)?
+    var onScroll: ((Int) -> Void)?
+    /// Scrolling not yet a whole row (a trackpad's small steps add up).
+    private var pendingScroll: CGFloat = 0
     private(set) var contentSize = NSSize(width: Metrics.minWidth, height: 40)
     private var rowLayouts: [RowLayout] = []
     private var statusFrame: NSRect?
@@ -344,6 +353,16 @@ final class CandidateView: NSView {
     }
 
     // MARK: - Mouse
+
+    override func scrollWheel(with event: NSEvent) {
+        // A row per notch of a wheel; a trackpad adds up its small steps (about a row per 24 points).
+        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 24 : event.scrollingDeltaY
+        pendingScroll -= delta  // content up = further down the list
+        let rows = Int(pendingScroll.rounded(.towardZero))
+        guard rows != 0 else { return }
+        pendingScroll -= CGFloat(rows)
+        onScroll?(rows)
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)

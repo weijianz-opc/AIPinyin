@@ -22,7 +22,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | Key | What it does |
 |---|---|
 | Type pinyin, Space / digits | Pick words, as in any pinyin input method |
-| `@` (at the start of a sentence) | Opens the command list: at most 5, the most used lately first; type letters for the others (names starting with them first, then names containing them). ⏎, Tab, Space or a digit chooses |
+| `@` (at the start of a sentence) | Opens the command list: the most used lately first, 5 at a time, scrolled with ↑↓, the wheel or the trackpad; or type letters to find one (names starting with them first, then names containing them). ⏎, Tab, Space or a digit chooses |
 | ⏎ | Runs the command. Works even if the pinyin isn't picked yet: it's picked first, as with Space |
 | Space, ⏎ / digits | Once the results are up: insert the highlighted / numbered one; 0 is the original |
 | ⌘C | Copies the highlighted result (for `@open`, the path); the candidate panel stays open |

@@ -10,6 +10,10 @@
 - Icons in the command list: a colored square with an SF Symbol for each command (like iOS Settings), and in `@tasks` for done / working / waiting for you. Custom commands and plugins can set their own with `icon` (an SF Symbol name) and `color`.
 - `@settings` opens the settings window.
 
+### Changed
+
+- The command list has every command, 5 shown at a time: ↑↓, the wheel or the trackpad scroll it (the position shows on the right), digits pick among the rows shown, and a click picks one.
+
 ### Fixed
 
 - Opening Claude Code or a command in Terminal did nothing when the login shell starts a wrapper first (such as the Kiro CLI's `kiro-cli-term`): the command was dropped, leaving an empty prompt. The command is now typed once the shell is ready (asking once for permission to control Terminal).

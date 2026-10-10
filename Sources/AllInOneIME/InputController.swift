@@ -800,6 +800,10 @@ final class AllInOneIMEInputController: IMKInputController {
             guard let self else { return }
             self.perform(self.composer.choose(index: index), client: nil)
         }
+        panel.onScroll = { [weak self] steps in
+            guard let self else { return }
+            self.perform(self.composer.scrollPalette(by: steps), client: nil)
+        }
         panel.show(panelModel(), anchor: anchor(client))
     }
 
@@ -990,12 +994,15 @@ final class AllInOneIMEInputController: IMKInputController {
             }
         } else if composer.paletteQuery != nil {
             // "@…": the commands that start with what was typed.
-            model.rows = composer.paletteMatches.enumerated().map {
+            // Five at a time; the rest scroll into view (the position on the right).
+            let first = composer.paletteFirstVisible, total = composer.paletteMatches.count
+            model.rows = composer.paletteVisible.enumerated().map {
                 CandidateView.Row(label: String($0.offset + 1), text: "@" + $0.element.name,
                                   comment: UIText.summary($0.element), style: .candidate,
                                   icon: CommandIcons.icon(for: $0.element))
             }
-            model.highlighted = composer.paletteHighlighted
+            model.highlighted = composer.paletteHighlighted - first
+            if total > Composer.paletteRows { model.detail = "\(first + 1)–\(first + model.rows.count) / \(total)" }
             model.footer = tr("⏎ / Tab / 空格 选择 · Esc 取消", "⏎ / Tab / Space choose · Esc cancel")
         } else if !composer.currentLiveResults.isEmpty {
             // "@open …" as you type: what matches now.

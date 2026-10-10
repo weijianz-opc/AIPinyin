@@ -218,7 +218,13 @@ public final class Composer {
     /// Chinese comes back at the first space after it.
     private var nestedLatinFrom: Int?
     /// Highlighted row of the command palette.
-    private var paletteHighlight = 0
+    private var paletteHighlight = 0 {
+        didSet { if paletteHighlight == 0 { paletteTop = 0 } }
+    }
+    /// The first command the list shows; it scrolls to keep the highlight in view.
+    private var paletteTop = 0
+    /// How many commands the list shows at once (the rest scroll into view).
+    public static let paletteRows = 5
     /// The ⌘V whose clipboard text the draft is waiting for (`pasted`), and the last one's id.
     private var pendingPaste: Int?
     private var pasteCounter = 0
@@ -441,11 +447,44 @@ public final class Composer {
     }
 
     /// Commands offered for `paletteQuery`, and the highlighted one.
-    /// At most `Command.paletteLimit`: the most used, or what matches the letters (`Command.palette`).
+    /// All of them, the most used first, or what matches the letters (`Command.palette`); the list shows
+    /// `paletteRows` at a time from `paletteFirstVisible`.
     public var paletteMatches: [Command] {
-        paletteQuery.map { Command.palette($0, in: paletteCommands, usage: commandUsage) } ?? []
+        paletteQuery.map { Command.palette($0, in: paletteCommands, usage: commandUsage, limit: .max) } ?? []
     }
     public var paletteHighlighted: Int { min(paletteHighlight, max(paletteMatches.count - 1, 0)) }
+
+    /// The first row shown: where the list was scrolled to, moved just enough to show the highlight.
+    public var paletteFirstVisible: Int {
+        let count = paletteMatches.count, highlight = paletteHighlighted, rows = Self.paletteRows
+        var top = min(paletteTop, max(count - rows, 0))
+        if highlight < top { top = highlight } else if highlight >= top + rows { top = highlight - rows + 1 }
+        return max(top, 0)
+    }
+
+    /// The commands shown now (digits 1–5 pick them).
+    public var paletteVisible: ArraySlice<Command> {
+        let all = paletteMatches, first = paletteFirstVisible
+        return all[first..<min(first + Self.paletteRows, all.count)]
+    }
+
+    /// Moves the highlight by `steps` (arrows, the scroll wheel), around the ends, scrolling with it.
+    private func movePaletteHighlight(by steps: Int) {
+        let count = paletteMatches.count
+        guard count > 0 else { return }
+        paletteHighlight = ((paletteHighlighted + steps) % count + count) % count
+        paletteTop = paletteFirstVisible
+    }
+
+    /// The scroll wheel over the list: the highlight moves (the list scrolls with it).
+    public func scrollPalette(by steps: Int) -> [Effect] {
+        guard paletteQuery != nil, steps != 0, !paletteMatches.isEmpty else { return [] }
+        let count = paletteMatches.count
+        // Not around the ends: the wheel stops at the first and the last.
+        let target = min(max(paletteHighlighted + steps, 0), count - 1)
+        movePaletteHighlight(by: target - paletteHighlighted)
+        return [.showPanel]
+    }
 
     /// The `@open` text while it is typed, for results as you type (`receiveLive`).
     public var liveQuery: String? {
@@ -650,6 +689,11 @@ public final class Composer {
     /// A candidate clicked in the panel.
     public func choose(index: Int) -> [Effect] {
         if isLevelTwo { return commitChoice(at: index) }
+        // A command in the list (`index` among the rows shown).
+        if paletteQuery != nil {
+            let matches = paletteMatches
+            return matches.indices.contains(paletteFirstVisible + index) ? complete(matches, at: paletteFirstVisible + index) : []
+        }
         guard let engine, engineState.isComposing, engine.selectCandidate(onPage: index) else { return [] }
         return afterEngineChange(engine, effects: [], picked: true)
     }
@@ -945,7 +989,7 @@ public final class Composer {
             return .consumed([.updateMarkedText, draft.isEmpty ? .hidePanel : .showPanel])
         case VirtualKey.up, VirtualKey.down:
             guard !matches.isEmpty else { return .consumed() }
-            paletteHighlight = (paletteHighlighted + (event.keyCode == VirtualKey.up ? -1 : 1) + matches.count) % matches.count
+            movePaletteHighlight(by: event.keyCode == VirtualKey.up ? -1 : 1)
             return .consumed([.showPanel])
         default:
             break
@@ -956,8 +1000,9 @@ public final class Composer {
                 paletteHighlight = 0
                 return .consumed([.updateMarkedText, .showPanel])
             }
-            if let n = c.wholeNumberValue, matches.indices.contains(n - 1) {
-                return .consumed(complete(matches, at: n - 1))
+            // Digits pick from the rows shown.
+            if let n = c.wholeNumberValue, n >= 1, matches.indices.contains(paletteFirstVisible + n - 1) {
+                return .consumed(complete(matches, at: paletteFirstVisible + n - 1))
             }
         }
         return leave()
