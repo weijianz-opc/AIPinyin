@@ -447,7 +447,8 @@ final class AllInOneIMEInputController: IMKInputController {
                 }
                 log.notice("opening an @open result")
                 openItem(path)
-                recordOpen(path)  // listed first by the next searches
+                // Listed first by the next searches (files only: a web address is typed again).
+                if SearchResult(name: "", path: path).webURL == nil { recordOpen(path) }
             case let .startBackgroundAgent(prompt):
                 Task { @MainActor [weak self] in
                     do {
@@ -1028,6 +1029,7 @@ final class AllInOneIMEInputController: IMKInputController {
     /// Chinese one), and where it is: 「应用」, or its folder (a folder's ends in "/"), after 「内容 · 」 when it
     /// was found by what is in it.
     static func openRow(_ result: SearchResult) -> (text: String, comment: String) {
+        if result.webURL != nil { return (result.name, tr("在浏览器中打开", "open in the browser")) }
         let folder = ((result.path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
         let place = result.path.hasSuffix(".app") ? tr("应用", "app")
             : result.isFolder && !folder.hasSuffix("/") ? folder + "/" : folder

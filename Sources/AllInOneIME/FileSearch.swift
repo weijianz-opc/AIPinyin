@@ -13,6 +13,16 @@ enum FileSearch {
     /// The best `limit` matches for `query`, off the main thread; what `@open` opened (`history`) first.
     /// Cancelling the task stops the search and the mdfind processes it started; it then returns nothing.
     static func run(_ query: String, history: OpenHistory, limit: Int = 8) async -> [SearchResult] {
+        // A web address comes first (opened in the browser); "https://…" is nothing else.
+        if let web = SearchResult.web(query) {
+            if query.contains("://") { return [web] }
+            return [web] + (await files(query, history: history, limit: limit - 1)).filter { $0.path != web.path }
+        }
+        return await files(query, history: history, limit: limit)
+    }
+
+    /// Files, folders and apps for `query` (`run` without the web address).
+    private static func files(_ query: String, history: OpenHistory, limit: Int) async -> [SearchResult] {
         let spotlight = Spotlight(until: .now() + timeLimit)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
