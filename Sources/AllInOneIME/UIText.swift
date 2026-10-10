@@ -97,6 +97,7 @@ enum UIText {
         case .question: return tr("提问，答案可以直接上屏", "Ask a question; insert the answer")
         case .claude: return tr("在终端里开 Claude Code，接着聊", "Start Claude Code in Terminal")
         case .open: return tr("找文件、文件夹或 App 并打开", "Find a file, folder or app and open it")
+        case .read: return tr("读网页正文，可放在句中给 AI 当上下文", "Read a web page; inside a sentence, context for the AI")
         default: return ""
         }
     }
@@ -124,6 +125,7 @@ enum UIText {
         case .question: return tr("提问", "ask")
         case .claude: return tr("在终端打开 Claude Code", "open Claude Code in Terminal")
         case .open: return tr("搜索并打开", "search and open")
+        case .read: return tr("读网页", "read the page")
         default: return ""
         }
     }
@@ -136,6 +138,19 @@ enum UIText {
 
     /// An error as the settings window shows it.
     static func describe(_ error: Error) -> String {
+        if let error = error as? WebReader.ReadError {
+            switch error {
+            case let .invalidURL(text): return tr("不是网址：\(text)", "Not a web address: \(text)")
+            case let .http(status): return tr("网页返回 HTTP \(status)", "The page answered HTTP \(status)")
+            case let .unsupported(type): return tr("读不了这种内容（\(type)）", "Can't read this kind of content (\(type))")
+            case .empty: return tr("网页上没有找到文字（要靠 JavaScript 显示的网页读不了）",
+                                   "No text found on the page (pages that need JavaScript can't be read)")
+            case .tooLarge: return tr("网页太大（超过 2 MB）", "The page is larger than 2 MB")
+            }
+        }
+        if let error = error as? CommandPipelineError, case let .inner(name, underlying) = error, name == "read" {
+            return "@read" + tr("：", ": ") + underlying
+        }
         if let error = error as? CommandRunner.RunError {
             switch error {
             case let .notFound(program): return tr("找不到程序 \(program)", "Program not found: \(program)")

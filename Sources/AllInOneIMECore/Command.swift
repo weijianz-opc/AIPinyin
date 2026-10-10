@@ -42,11 +42,15 @@ public struct Command: Hashable, Sendable {
     /// Find files and apps by name (Spotlight) or path, as you type, and open the one picked.
     public static let open = Command(name: "open", kind: .search)
 
-    public static let builtins: [Command] = [.improve, .question, .claude, .open]
+    /// A web page's title and text (`WebReader`), mostly inside another command's text as context:
+    /// `@question 总结一下 @read https://…`.
+    public static let read = Command(name: "read", kind: .run)
+
+    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read]
 
     /// The text after the command is typed as Latin letters (file names, paths, code): picking the
     /// command switches the engine to English, and Chinese comes back when the command is done.
-    public var typesLatin: Bool { self == .open || custom?.typesLatin == true || plugin?.manifest.typesLatin == true }
+    public var typesLatin: Bool { self == .open || self == .read || custom?.typesLatin == true || plugin?.manifest.typesLatin == true }
 
     /// The program this command needs on the Mac: `claude` for `@claude`, `argv[0]` for a custom
     /// `run` or `terminal` command; nil when it needs none.

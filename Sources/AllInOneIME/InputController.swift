@@ -660,6 +660,7 @@ final class AllInOneIMEInputController: IMKInputController {
         let (runPlugin, runProgram, converter) = (self.runPlugin, self.runProgram, self.converter)
         // Not tied to the main actor: the pipeline calls it from its own task.
         let streamFor: @Sendable (Command?, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { command, input in
+            if command == .read { return WebReader.stream(input) }
             if let command, command.kind == .run, let plugin = command.plugin { return runPlugin(plugin, input) }
             if let command, command.kind == .run, let custom = command.custom { return runProgram(custom, input) }
             return command.map { converter.generate($0, input: input) } ?? converter.convert(input)

@@ -42,6 +42,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | `@question` | Ask a question; the answer appears in the candidates, ⏎ or Space inserts it, ⌘C copies it |
 | `@claude` | Opens Claude Code in Terminal with what you wrote as the first message; then keep talking to it in Terminal and have it do the work. Nothing is inserted |
 | `@open` | Lists matching files, folders and apps as you type (Spotlight). Text starting with `~/` or `/` is a path: Tab completes it and goes into folders; ⏎ opens, ⌘C copies the path |
+| `@read` | Reads a web page's title and text (up to 6000 characters; web pages, plain text and PDFs). Mostly inside a sentence as context for the AI: `@question summarize @read https://…` in one line |
 
 Example: `@q` ⏎, type `什么是量子计算` ("what is quantum computing"), ⏎. Once the command is chosen, you can also hold right ⌥
 and talk. `@open` switches to English letters for the moment and goes back to Chinese when you're done.

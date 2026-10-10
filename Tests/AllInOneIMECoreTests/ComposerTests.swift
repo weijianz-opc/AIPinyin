@@ -1199,7 +1199,7 @@ struct ComposerTests {
         let (c, _) = composer(key: .optionTap)
         #expect(c.handleKeyDown(at) == .consumed([.updateMarkedText, .showPanel]))
         #expect(c.draft == "@" && c.markedText == "@" && c.paletteQuery == "" && c.wantsPanel)
-        #expect(c.paletteMatches == [.improve, .question, .claude, .open])
+        #expect(c.paletteMatches == [.improve, .question, .claude, .open, .read])
         type("q", c)
         #expect(c.paletteMatches == [.question] && c.markedText == "@q")
         #expect(c.handleKeyDown(tab).effects == [.updateMarkedText, .showPanel])
@@ -1219,9 +1219,9 @@ struct ComposerTests {
         #expect(a.paletteHighlighted == 1)
         _ = a.handleKeyDown(upKey)
         _ = a.handleKeyDown(upKey)
-        #expect(a.paletteHighlighted == 3)
+        #expect(a.paletteHighlighted == 4)  // wraps around to the last
         _ = a.handleKeyDown(tab)
-        #expect(a.draft == "@open ")
+        #expect(a.draft == "@read ")
     }
 
     @Test func atMentionsStillReachTheApp() {
@@ -1302,21 +1302,21 @@ struct ComposerTests {
         p.commands = catalog
         _ = p.handleKeyDown(at)
         // At most five: the built-in four and the first custom one (nothing used yet).
-        #expect(p.paletteMatches.map(\.name) == ["improve", "question", "claude", "open", "python"])
+        #expect(p.paletteMatches.map(\.name) == ["improve", "question", "claude", "open", "read"])
         // @python: code is typed as letters, the program runs, and Chinese comes back after.
         let py = start("py")
         #expect(py.draft == "@python " && py.engineState.isAsciiMode)
         type("print(1)", py)
         let run = tapOption(py, at: 5)
-        #expect(run.first == .startRun(catalog[4], input: "print(1)", id: 1) && py.activeCommand?.kind == .run)
+        #expect(run.first == .startRun(catalog.first { $0.name == "python" }!, input: "print(1)", id: 1) && py.activeCommand?.kind == .run)
         #expect(py.receive(ConversionResult(versions: [CandidateLine("1")]), isFinal: true, id: 1) == [.showPanel])
         #expect(py.choices.map(\.kind) == [.original, .answer] && py.highlighted == 1)
         #expect(commits(py.handleKeyDown(spaceKey)) == ["1"] && !py.engineState.isAsciiMode)
         // A prompt command goes to the model like @question, typed in pinyin.
-        let r = start("r")
+        let r = start("rep")  // "r" alone is @read first
         #expect(!r.engineState.isAsciiMode)
         type("nihao", r)
-        #expect(tapOption(r, at: 5).first == .startCommand(catalog[5], input: "你好", id: 1))
+        #expect(tapOption(r, at: 5).first == .startCommand(catalog.first { $0.name == "reply" }!, input: "你好", id: 1))
         // A terminal command starts its window with the text as one argument; nothing is inserted.
         let t = start("s")
         type("ls", t)
@@ -1331,7 +1331,7 @@ struct ComposerTests {
     @Test func commandsKnowTheirProgram() {
         let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
         let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
-        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, "python3", nil])
+        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, nil, "python3", nil])
     }
 
     @Test func theListPutsWhatIsRunMostFirst() {
@@ -1380,7 +1380,7 @@ struct ComposerTests {
         }
         let (c, e) = started()
         #expect(c.draft == "@reply 你好@" && c.paletteQuery == "")
-        #expect(c.paletteMatches.map(\.name) == ["stock"])  // only what runs inside a text
+        #expect(c.paletteMatches.map(\.name) == ["read", "stock"])  // only what runs inside a text
         type("s", c)
         #expect(c.draft == "@reply 你好@s" && c.paletteMatches.map(\.name) == ["stock"])
         _ = c.handleKeyDown(tab)

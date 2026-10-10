@@ -7,6 +7,7 @@
 ### 新增
 
 - 安装包：从 [Releases](https://github.com/weijianz-opc/AllInOneIME/releases) 下载 `AllInOneIME-<版本>.dmg`，双击里面的「安装 AllInOneIME」就能安装、更新或卸载，不用再装 Xcode 编译。通用版，Apple 芯片和 Intel 的 Mac 都能用。只装给当前用户，不需要管理员密码。安装包还没有经过 Apple 公证，第一次打开要在 系统设置 → 隐私与安全性 里点「仍要打开」；只从 Releases 下载。
+- `@read 网址`：读网页的标题和正文（网页、纯文本、PDF），放在句子中间给 AI 当上下文，比如 `@question 用一句话总结 @read https://…`。
 - 句子中间也能用查数据的命令：`@reply 告诉他 @stock AAPL 现在多少钱`，里面的先运行，结果替换回原文，再交给外面的命令。
 - 插件：别人写好的 `@` 命令（JavaScript，在单独的进程里运行，只能访问它声明的网站），第一个是 `@stock` 查股价。设置里有「插件」一栏。
 - 命令列表最多显示 5 个，最近常用的排在前面；其他命令打字母找。
