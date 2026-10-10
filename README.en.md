@@ -45,6 +45,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | `@settings` | Opens the settings window right away (picking it is enough) |
 | `@open` | Lists matching files, folders and apps as you type (Spotlight). Text starting with `~/` or `/` is a path: Tab completes it and goes into folders; ⏎ opens, ⌘C copies the path |
 | `@read` | Reads a web page's title and text (up to 6000 characters; web pages, plain text and PDFs). Mostly inside a sentence as context for the AI: `@question summarize @read https://…` in one line |
+| `@imessage` | Sends an iMessage: type a name, its pinyin (in full or the initials, like `zs`), a phone number or an email and pick the recipient in the candidate panel (the ones you messaged lately come first; a full number or address works too), then write the message (commands inside it such as `@stock AAPL` run first). ⏎ shows "Send to 张三 (…): message" in the panel, ⏎ again sends it, Esc goes back to editing; nothing is typed into the text field. The first time, macOS asks whether AllInOneIME may access Contacts and control Messages: click OK for both |
 
 Example: `@q` ⏎, type `什么是量子计算` ("what is quantum computing"), ⏎. Once the command is chosen, you can also hold right ⌥
 and talk. `@open` switches to English letters for the moment and goes back to Chinese when you're done.
@@ -58,6 +59,8 @@ people in chat apps still works.
 `@question` and `@improve` send to your own Bedrock only when you press the action key; `@open` searches only on this
 Mac; `@claude` uses the Claude Code installed on your Mac (the `claude` command) and its own account, and it asks you
 first, as usual, before changing files or running commands. Without Claude Code installed, `@claude` isn't offered.
+`@imessage` reads Contacts on this Mac only (names, phone numbers, emails), never goes through the AI, and Messages sends
+the message; without the Messages app it isn't offered.
 
 ### Your own commands
 

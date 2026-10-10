@@ -7,8 +7,12 @@
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 	<!-- @claude and "run in Terminal" commands: Terminal is asked (Apple events) to open a window and
-	     run the command once its shell is ready. -->
+	     run the command once its shell is ready. @imessage: Messages is asked to send a confirmed message. -->
 	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<!-- @imessage: finds recipients in Contacts (names, phone numbers, emails; asked the first time
+	     @imessage is typed). -->
+	<key>com.apple.security.personal-information.addressbook</key>
 	<true/>
 </dict>
 </plist>

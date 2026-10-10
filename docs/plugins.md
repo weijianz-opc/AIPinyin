@@ -133,6 +133,8 @@ outer command. An AI command inside a text (`@question …` after `@reply`) stay
 the order: whoever needs that much opens a session (`@claude`) or Terminal. This keeps every command quick,
 predictable and one request's worth of cost.
 
-Next: commands that **send** something (`@slack 张三`): they run last, on the final text, only after the user
-confirms in the candidate panel; plugins get stored credentials (keychain) and a way to pick a target (person,
-thread) from the candidates.
+Commands that **send** something run last, on the final text, only after the user confirms in the candidate panel.
+The first one is built in: `@imessage` picks the recipient from Contacts in the panel, runs the commands inside the
+message, shows "Send to 张三 (…): …" and sends only on a second ⏎ (Esc goes back to editing); nothing is inserted.
+The recipient model and the sender (`Recipient`, `MessageSender`) are meant for more of them. Next: plugins that send
+(`@slack 张三`), with stored credentials (keychain) and their own targets (person, thread) to pick from the candidates.

@@ -69,6 +69,23 @@ final class FakeTextClient: NSObject, IMKTextInput {
     func firstRect(forCharacterRange aRange: NSRange, actualRange: NSRangePointer!) -> NSRect { caretRect }
 }
 
+/// Records what `@imessage` would send; sends nothing.
+final class StandInSender: MessageSender, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _sent: [(text: String, to: Recipient)] = []
+    private var _error: Error?
+    var sent: [(text: String, to: Recipient)] { lock.withLock { _sent } }
+    var error: Error? {
+        get { lock.withLock { _error } }
+        set { lock.withLock { _error = newValue } }
+    }
+
+    func send(_ text: String, to recipient: Recipient) async throws {
+        if let error { throw error }
+        lock.withLock { _sent.append((text, recipient)) }
+    }
+}
+
 /// End-to-end check of the input controller without the system text input server.
 @MainActor
 enum SelfTest {
@@ -675,6 +692,110 @@ enum SelfTest {
         controller.commitComposition(client)
     }
 
+    /// `@imessage` with stand-ins for Contacts and Messages: nothing is read from the address book and
+    /// nothing is sent.
+    static func testIMessage(_ controller: AllInOneIMEInputController, _ client: FakeTextClient) {
+        print("— @imessage (stand-in contacts and sender)")
+        let sender = StandInSender()
+        var recent: [String] = []
+        var contacts: [Contact]? = [Contact(name: "张三", handles: ["+1 555 0100", "zhangsan@example.com"]),
+                                    Contact(name: "李四", handles: ["+86 139 0000 2222"])]
+        controller.loadContacts = { contacts }
+        controller.messageSender = sender
+        controller.loadRecentHandles = { recent }
+        controller.saveRecentHandles = { recent = $0 }
+        controller.programInstalled = { _ in true }
+        controller.setCommands(Command.catalog([]), recheck: true)
+        controller.composer.commands = Command.catalog([])
+        defer {
+            controller.loadContacts = { [] }
+            controller.messageSender = StandInSender()
+            controller.loadRecentHandles = { [] }
+            controller.saveRecentHandles = { _ in }
+        }
+        func at() { _ = press(controller, client, "@", code: 0x13, flags: .shift) }
+        func start() {
+            at()
+            type("ime", controller, client)
+            _ = press(controller, client, "\t", code: VirtualKey.tab)
+        }
+        func found() -> [Recipient] {
+            _ = pump(timeout: 3) { !controller.composer.currentRecipients.isEmpty || controller.composer.recipientNote != nil }
+            return controller.composer.currentRecipients
+        }
+        let insertedBefore = client.inserted
+
+        start()
+        check(client.marked == "imessage › " && controller.composer.engineState.isAsciiMode, "@imessage: the recipient is typed as letters ('\(client.marked)')")
+        type("zs", controller, client)
+        let rows = found()
+        check(rows.map(\.handle) == ["+1 555 0100", "zhangsan@example.com"]
+              && controller.panelModel().rows.first?.text == "张三" && controller.panelModel().rows.first?.comment == "+1 555 0100",
+              "zs finds 张三, one row per handle (\(controller.panelModel().rows.map(\.text)))")
+        _ = enter(controller, client)
+        check(client.marked == "imessage › 张三 › " && !controller.composer.engineState.isAsciiMode && sender.sent.isEmpty,
+              "⏎ picks the recipient, Chinese is back, nothing sent ('\(client.marked)')")
+        type("nihao", controller, client)
+        _ = space(controller, client)
+        _ = enter(controller, client)
+        let confirm = controller.panelModel()
+        check(controller.composer.phase == .choosing && confirm.rows.first?.text == "发给 张三（+1 555 0100）：你好" && sender.sent.isEmpty,
+              "⏎ shows the message to confirm (\(confirm.rows.first?.text ?? "-"))")
+        _ = space(controller, client)
+        check(sender.sent.isEmpty && controller.composer.phase == .choosing, "Space doesn't send it")
+        _ = escape(controller, client)
+        check(controller.composer.phase == .drafting && client.marked == "imessage › 张三 › 你好", "Esc goes back to editing")
+        _ = enter(controller, client)
+        _ = enter(controller, client)
+        _ = pump(timeout: 3) { !sender.sent.isEmpty && controller.panelModel().detail != nil }
+        check(sender.sent.map(\.text) == ["你好"] && sender.sent.first?.to.handle == "+1 555 0100", "⏎ again sends it (stand-in)")
+        check(client.inserted == insertedBefore && client.marked.isEmpty && !controller.composer.isComposing,
+              "nothing is inserted, the draft is gone")
+        check(recent == ["+1 555 0100"], "the handle is remembered for next time")
+        _ = pump(timeout: 6) { controller.panelModel().detail == nil }
+
+        // The recent one comes first with nothing typed.
+        start()
+        check(found() == [Recipient(name: "张三", handle: "+1 555 0100")], "the recent recipient is offered at once")
+        // A number typed in full, without Contacts access.
+        contacts = nil
+        type("+15550199", controller, client)
+        let typed = found()
+        check(typed == [Recipient(name: "", handle: "+15550199")]
+              && controller.panelModel().status == .hint(tr("没有通讯录权限：系统设置 → 隐私与安全性 → 通讯录 → 打开 AllInOneIME；也可以直接输入手机号或邮箱",
+                                                         "No access to Contacts: System Settings → Privacy & Security → Contacts → turn on AllInOneIME; or type a phone number or email")),
+              "without Contacts: says so, a typed number still works (\(typed.map(\.handle)))")
+        _ = enter(controller, client)
+        // Not allowed to control Messages: the notice says where to allow it.
+        sender.error = MessageSendError.notPermitted
+        type("hi", controller, client)
+        _ = space(controller, client)
+        _ = enter(controller, client)
+        _ = enter(controller, client)
+        _ = pump(timeout: 3) { controller.panelModel().detail?.contains("自动化") == true }
+        check(controller.panelModel().detail?.contains("自动化") == true && sender.sent.count == 1,
+              "-1743: tells how to allow controlling Messages (\(controller.panelModel().detail ?? "-"))")
+        sender.error = nil
+        _ = pump(timeout: 8) { controller.panelModel().detail == nil }
+
+        // Secure input: not sent.
+        contacts = []
+        let secureInput = controller.secureInputActive
+        controller.secureInputActive = { true }
+        start()
+        type("+15550199", controller, client)
+        _ = found()
+        _ = enter(controller, client)
+        type("hi", controller, client)
+        _ = space(controller, client)
+        _ = enter(controller, client)
+        check(controller.composer.phase == .drafting && sender.sent.count == 1, "nothing is sent while secure input is on")
+        controller.secureInputActive = secureInput
+        _ = escape(controller, client)
+        controller.commitComposition(client)
+        check(client.inserted == insertedBefore, "nothing went into the text field")
+    }
+
     /// Height of the content of the outermost scroll view in `view` (what a SwiftUI form scrolls).
     static func scrolledHeight(_ view: NSView) -> CGFloat? {
         if let scroll = view as? NSScrollView, let document = scroll.documentView { return document.frame.height }
@@ -769,6 +890,11 @@ enum SelfTest {
         controller.loadCommandUsage = { CommandUsage() }  // and the order of their command list
         controller.saveCommandUsage = { _ in }
         controller.readClipboard = { nil }  // never the real clipboard; the ⌘V section supplies its text
+        // Never the real Contacts or Messages, nor the user's recent recipients (the @imessage section has its own).
+        controller.loadContacts = { [] }
+        controller.messageSender = StandInSender()
+        controller.loadRecentHandles = { [] }
+        controller.saveRecentHandles = { _ in }
         // The real config (model, styles, credentials) with the new options pinned to known values;
         // sections below change `settings` and the controller follows (nothing is written to disk).
         settings = (try? Config.load()) ?? .default
@@ -1135,6 +1261,7 @@ enum SelfTest {
         SelfTest.sentenceMode = false  // @ commands in the default regular input method
         controller.applySettings()
         testCommands(controller, client, snapshotDirectory: snapshotDirectory)
+        testIMessage(controller, client)
         SelfTest.sentenceMode = true
         controller.applySettings()
 
