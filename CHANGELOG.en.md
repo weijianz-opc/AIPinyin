@@ -6,6 +6,9 @@
 
 ### Added
 
+- `@note` saves the text to the Notes app, in a folder named AllInOneIME (made when missing); nothing is inserted. Pasted text keeps its line breaks, up to 20000 characters.
+- `@reminder` adds a reminder to the Reminders app, in a list named AllInOneIME, with the time written in the text and read on the Mac (`明天下午3点`, `明晚7点`, `3点半`, `30分钟后`, `下周一 9:30`, `15号`, `tomorrow at 3pm`, `in 2 hours`). A row shows what was read; ⏎ or Space adds it, with an alarm at its time, or all day for a date alone. Neither `@note` nor `@reminder` goes to the AI; when a save fails, the text comes back into the command (onto the clipboard if you've moved to another text field), so nothing is lost.
+- `@open` searches by keywords: several words, separated by spaces; apps by their Chinese names too (计算器, 系统设置), shown that way in a Chinese interface; what you opened with `@open` and recently used files first; and when the names find hardly anything, the contents of the files in your home folder, marked "content".
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
 - A new plugin type, `link`: no code; the text after the command goes into a web address that opens in the default browser, and nothing is inserted. Commands inside the text (`@stock …`) run first and their output goes in; it doesn't run during secure input; 4000 characters at most.
 - Custom commands can open a web page too (`"type": "link"` with a `url` containing `{input}`), say `@google` to search.
@@ -19,6 +22,8 @@
 ### Upgrading
 
 - Sentence mode is gone: without `@`, ⏎ is a plain Return and picked words go straight in; to translate or polish, start the sentence with `@improve` (`@i` ⏎). If you had sentence mode on, there's nothing to do: the setting is cleared.
+- The first time, `@note` makes macOS ask whether AllInOneIME may control Notes, and `@reminder` whether it may access Reminders: allow them. If you didn't, allow AllInOneIME in System Settings → Privacy & Security → Automation, or → Reminders.
+- If you added a command of your own named `note` or `reminder`, the built-in one now has that name and yours no longer shows up: rename it under "Custom @ Commands" in the settings to keep using it.
 
 ## 0.4.0 (2026-10-09)
 
