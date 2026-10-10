@@ -1056,6 +1056,101 @@ enum SelfTest {
         CandidatePanel.shared.show(controller.panelModel(), anchor: client.caretRect)
     }
 
+    /// @calc, @py, @js and @search through the controller, with ⏎ as the action key: results come back as
+    /// candidates (@py and @js from their child processes), and @search without a key says where to add one
+    /// (nothing is sent). The search key is a stand-in: the user's keychain is never read here.
+    static func testToolCommands(_ controller: AllInOneIMEInputController, _ client: FakeTextClient,
+                                 snapshotDirectory: URL) {
+        print("— @calc, @py, @js, @search")
+        // These commands run nothing while secure input is on, and a locked screen holds it. Nothing typed
+        // here is secret, and the secure input refusal has its own checks, so this section runs without it.
+        let (secureInput, installed, commands, searchKey) =
+            (controller.secureInputActive, controller.programInstalled, controller.composer.commands, controller.loadSearchKey)
+        controller.secureInputActive = { false }
+        controller.programInstalled = { CommandRunner.isInstalled($0, path: ShellEnvironment.current["PATH"]) }
+        controller.loadSearchKey = { nil }
+        defer {
+            controller.secureInputActive = secureInput
+            controller.programInstalled = installed
+            controller.loadSearchKey = searchKey
+            controller.setCommands(commands)
+        }
+        // Only the built-in commands, so the user's own can't come first in the list.
+        controller.setCommands(Command.catalog([]), recheck: true)
+        let python = CommandRunner.isInstalled("python3", path: ShellEnvironment.current["PATH"])
+        check(pump(timeout: 10) { controller.composer.commands.contains(.py) == python },
+              "@py is offered only with python3 installed (python3: \(python))")
+
+        // Symbols with their US-layout keys (`type` sends key code 0 for anything not in `keyCodes`).
+        let symbols: [Character: (UInt16, NSEvent.ModifierFlags)] = [
+            "*": (0x1C, .shift), "/": (0x2C, []), "+": (0x18, .shift), ".": (0x2F, []),
+        ]
+        func start(_ name: String) -> Bool {
+            press(controller, client, "@", code: 0x13, flags: .shift)  // ⇧2
+            type(name, controller, client)
+            press(controller, client, "\t", code: VirtualKey.tab)
+            return client.marked == name + " › "
+        }
+        func typeText(_ text: String) {
+            for ch in text {
+                let (code, flags) = symbols[ch] ?? (keyCodes[ch] ?? 0, [])
+                press(controller, client, String(ch), code: code, flags: flags)
+            }
+        }
+        func waitForEnd() {
+            _ = pump(timeout: 20) { if case .translating = controller.composer.phase { return false } else { return true } }
+        }
+        func failure() -> String? {
+            if case let .failed(message) = controller.composer.phase { return message } else { return nil }
+        }
+        func clear() {
+            for _ in 0..<4 where controller.composer.isComposing { _ = escape(controller, client) }
+        }
+        /// Runs `@name text` and inserts its result; true if `expected` was inserted.
+        func insertsResult(_ name: String, _ text: String, _ expected: String) -> Bool {
+            guard start(name) else {
+                check(false, "@\(name) is picked from the list ('\(client.marked)')")
+                return false
+            }
+            typeText(text)
+            _ = act(controller, client)
+            guard finishConversion(controller, "@\(name) \(text)") else { clear(); return false }
+            let answer = controller.composer.choices.last
+            _ = enter(controller, client)
+            return answer?.kind == .answer && answer?.text == expected && client.inserted.last == expected
+                && client.marked.isEmpty && !controller.composer.isComposing
+        }
+
+        check(insertsResult("calc", "23*17", "391"), "@calc 23*17 inserts 391 (\(client.inserted.last ?? ""))")
+        check(insertsResult("calc", "0.1+0.2", "0.3"), "@calc works in decimal: 0.1+0.2 inserts 0.3 (\(client.inserted.last ?? ""))")
+
+        if python {
+            check(insertsResult("py", "2**100", "1267650600228229401496703205376"),
+                  "@py 2**100 inserts the value from python3 (\(client.inserted.last ?? ""))")
+            if start("py") {
+                typeText("1/0")
+                _ = act(controller, client)
+                waitForEnd()
+                check(failure()?.contains("ZeroDivisionError") == true, "@py shows Python's error (\(failure() ?? "no error"))")
+            }
+            clear()
+        }
+        check(insertsResult("js", "6*7", "42"), "@js 6*7 inserts 42 from the JavaScriptCore child process (\(client.inserted.last ?? ""))")
+
+        // Without a key nothing is sent: the error says where to add one. (No live search here.)
+        if start("search") {
+            type("pingguo", controller, client)  // 苹果: apple
+            _ = act(controller, client)
+            waitForEnd()
+            let expected = UIText.describe(WebSearch.SearchError.missingKey(variable: WebSearch.backend.keyVariables[0]))
+            check(failure() == expected, "@search without a key says where to add one (\(failure() ?? "no error"))")
+        } else {
+            check(false, "@search is picked from the list ('\(client.marked)')")
+        }
+        clear()
+        check(!controller.composer.isComposing && client.marked.isEmpty, "nothing left composing")
+    }
+
     /// The composer's notices (`Composer.Messages`): Chinese wording → English wording.
     static let englishNotices: [String: String] = Dictionary(
         zip(Mirror(reflecting: Composer.Messages.chinese).children.compactMap { $0.value as? String },
@@ -1493,6 +1588,7 @@ enum SelfTest {
         controller.applySettings()
         testCommands(controller, client, snapshotDirectory: snapshotDirectory)
         testNotesAndReminders(controller, client, snapshotDirectory: snapshotDirectory)
+        testToolCommands(controller, client, snapshotDirectory: snapshotDirectory)
 
         print("— error display")
         controller.converter = Converter(loadConfig: {
