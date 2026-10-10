@@ -30,6 +30,8 @@ public struct PluginManifest: Codable, Equatable, Hashable, Sendable {
         case script
         /// An AI instruction (`prompt`), like a custom command.
         case prompt
+        /// A web address (`url`, with `{input}`) opened in the browser with the text in it (`LinkTemplate`).
+        case link
     }
 
     public var name: String
@@ -50,10 +52,13 @@ public struct PluginManifest: Codable, Equatable, Hashable, Sendable {
     /// Its icon in the command list: an SF Symbol name and a color (see `CustomCommand.icon`).
     public var icon: String?
     public var color: String?
+    /// `link`: the address opened, with `{input}` in its query (`LinkTemplate`).
+    public var url: String?
 
     public init(name: String, version: String, api: Int = 1, minAppVersion: String? = nil, type: PluginType,
                 summary: LocalizedText? = nil, script: String? = nil, prompt: String? = nil, hosts: [String] = [],
-                timeoutSeconds: Double? = nil, ascii: Bool? = nil, author: String? = nil, homepage: String? = nil) {
+                timeoutSeconds: Double? = nil, ascii: Bool? = nil, author: String? = nil, homepage: String? = nil,
+                url: String? = nil) {
         self.name = name
         self.version = version
         self.api = api
@@ -67,6 +72,7 @@ public struct PluginManifest: Codable, Equatable, Hashable, Sendable {
         self.ascii = ascii
         self.author = author
         self.homepage = homepage
+        self.url = url
     }
 
     public static let supportedAPI = 1
@@ -90,6 +96,7 @@ public struct PluginManifest: Codable, Equatable, Hashable, Sendable {
         homepage = try c.decodeIfPresent(String.self, forKey: .homepage)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         color = try c.decodeIfPresent(String.self, forKey: .color)
+        url = try c.decodeIfPresent(String.self, forKey: .url)
     }
 
     public var timeout: Double { min(max(timeoutSeconds ?? 10, 1), Self.maxTimeout) }
@@ -108,8 +115,16 @@ public struct PluginManifest: Codable, Equatable, Hashable, Sendable {
             if hosts.contains(where: { $0.isEmpty || $0.contains("/") || $0.contains(":") }) { return "invalid hosts" }
         case .prompt:
             if (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "no prompt" }
+        case .link:
+            if let problem = LinkTemplate.problem(url) { return problem.description }
         }
         return nil
+    }
+
+    /// Where what is typed after the command goes: a script's `hosts`, a link's host (shown before
+    /// installing and in Settings).
+    public var destinationHosts: [String] {
+        type == .link ? LinkTemplate.host(url).map { [$0] } ?? [] : hosts
     }
 }
 
