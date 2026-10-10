@@ -108,6 +108,16 @@ final class SettingsModel: ObservableObject {
         SettingsWindow.shared.updateTitle()
     }
 
+    /// Shows or hides the floating panel (the self-test passes its own).
+    var applyFloatingPanel: @MainActor (Bool) -> Void = { FloatingPanel.shared.apply($0) }
+
+    /// The floating panel's switch: saved, and the panel shown or hidden at once (not by a preview).
+    func setFloatingPanel(_ on: Bool) {
+        config.floatingPanel = on
+        save()
+        if persists { applyFloatingPanel(on) }
+    }
+
     // MARK: Styles
 
     func isStyleOn(_ style: RewriteStyle) -> Bool {
@@ -461,6 +471,18 @@ struct SettingsView: View {
                        isOn: $model.config.claudeInBackground)
                 Text(tr("开着：交给 Claude Code 后台去做，做完弹通知，点通知或用 @tasks 查看；关掉：在终端打开 Claude Code 接着聊。",
                         "On: Claude Code works in the background and you get a notification when it's done (click it, or @tasks); off: Claude Code opens in Terminal to talk."))
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle(tr("悬浮面板：笔记、提醒、Claude 任务", "Floating panel: notes, reminders, Claude tasks"),
+                       isOn: Binding(get: { model.config.floatingPanel }, set: { model.setFloatingPanel($0) }))
+                    .disabled(!model.canSave)
+                    .onReceive(NotificationCenter.default.publisher(for: .allInOneIMEFloatingPanelChanged)) { note in
+                        // Turned on or off from the input menu or the panel's close button (already saved).
+                        if note.object as AnyObject? === FloatingPanel.shared, let on = note.userInfo?["enabled"] as? Bool {
+                            model.config.floatingPanel = on
+                        }
+                    }
+                Text(tr("常驻屏幕的小窗口，不抢输入焦点，点一行就打开；输入法菜单里也能开关。",
+                        "Stays on screen without taking focus; click a row to open it. Also in the input menu."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 

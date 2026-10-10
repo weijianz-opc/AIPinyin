@@ -6,7 +6,7 @@
 // voice.png     dictation (hold right ⌥) after a command
 // commands.png  the @ command palette → @question's answer
 // open.png      @open: Spotlight as you type, and a path listing a folder (only macOS's own apps)
-// panel-dark.png, settings.png   copies of the renders
+// panel-dark.png, settings.png, dashboard.png   copies of the renders (dashboard: the floating panel, sample data)
 import AppKit
 
 let args = CommandLine.arguments
@@ -137,8 +137,8 @@ try composite([
          marked: "open › /System/Applications/", panel: load("12b-open-path")),
 ], to: "open.png")
 
-for (from, to) in [("4-final-dark", "panel-dark.png"), ("6-settings", "settings.png")] {
+for (from, to) in [("4-final-dark", "panel-dark.png"), ("6-settings", "settings.png"), ("14-dashboard", "dashboard.png")] {
     try? FileManager.default.removeItem(at: output.appendingPathComponent(to))
     try FileManager.default.copyItem(at: render(from), to: output.appendingPathComponent(to))
 }
-print("wrote \(output.path)/demo.png, english.png, voice.png, commands.png, open.png, panel-dark.png, settings.png")
+print("wrote \(output.path)/demo.png, english.png, voice.png, commands.png, open.png, panel-dark.png, settings.png, dashboard.png")

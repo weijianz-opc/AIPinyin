@@ -7,7 +7,10 @@ import Foundation
 enum UIText {
     /// Picked in the settings (applied from the config when a text field or the window opens);
     /// nil follows the system. Main thread only.
-    static var choice: Language?
+    static var choice: Language? {
+        // The floating panel, on screen all along, redraws in the new language.
+        didSet { if choice != oldValue { NotificationCenter.default.post(name: .allInOneIMEInterfaceLanguageChanged, object: nil) } }
+    }
     /// Read once per process (macOS relaunches apps after a language change).
     static let systemPrefersChinese = prefersChinese(Locale.preferredLanguages)
 

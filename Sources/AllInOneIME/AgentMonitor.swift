@@ -53,6 +53,13 @@ final class AgentMonitor: NSObject, UNUserNotificationCenterDelegate {
         }.value
     }
 
+    /// Whether it looks at the tasks every few seconds now (one started with @claude isn't done yet);
+    /// each look is posted as `.allInOneIMEAgentsPolled`.
+    var isWatching: Bool { timer != nil }
+
+    /// The prompt a task it watches was started with (for one Claude Code hasn't named yet).
+    func prompt(for id: String) -> String? { watch.tasks.first { $0.id == id }?.prompt }
+
     /// Opens the session in Terminal, to read all of it and go on: joined while it runs, resumed once
     /// its process has exited (`ClaudeAgents.openArguments`).
     func open(_ id: String) {
@@ -90,6 +97,8 @@ final class AgentMonitor: NSObject, UNUserNotificationCenterDelegate {
             defer { self.polling = false }
             guard let output = try? await Self.run(claude, ClaudeAgents.listArguments) else { return }
             let sessions = ClaudeAgents.sessions(from: Data(output.utf8))
+            // What it saw, for the floating panel: it doesn't ask Claude Code itself meanwhile.
+            NotificationCenter.default.post(name: .allInOneIMEAgentsPolled, object: self, userInfo: ["sessions": sessions])
             for event in self.watch.update(with: sessions) {
                 switch event {
                 case let .done(task, session):
@@ -191,4 +200,10 @@ final class AgentMonitor: NSObject, UNUserNotificationCenterDelegate {
             }
         }
     }
+}
+
+extension Notification.Name {
+    /// AgentMonitor looked at the background tasks (every few seconds while it watches some). userInfo:
+    /// "sessions" ([AgentSession], as `claude agents --json --all` listed them). Posted on the main thread.
+    static let allInOneIMEAgentsPolled = Notification.Name("AllInOneIMEAgentsPolled")
 }

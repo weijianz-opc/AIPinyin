@@ -130,6 +130,19 @@ struct ConfigTests {
         #expect(try decode(#"{"uiLanguage": "en"}"#).uiLanguage == .english)
     }
 
+    /// The floating panel is off unless turned on; the key is written either way (discoverable).
+    @Test func floatingPanel() throws {
+        #expect(!Config.default.floatingPanel && !Config.fresh.floatingPanel)
+        #expect(try !decode("{}").floatingPanel)
+        #expect(try decode(#"{"floatingPanel": true}"#).floatingPanel)
+        #expect(throws: DecodingError.self) { try decode(#"{"floatingPanel": "yes"}"#) }
+        var c = Config.default
+        let off = String(decoding: try JSONEncoder().encode(c), as: UTF8.self)
+        #expect(off.contains(#""floatingPanel":false"#))
+        c.floatingPanel = true
+        #expect(try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(c)) == c)
+    }
+
     @Test func fileRoundTripAndMissingFile() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("allinoneime-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }

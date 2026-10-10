@@ -1545,6 +1545,7 @@ enum SelfTest {
         let configuredOutput = ((try? Config.load()) ?? .default).outputLanguage
         check(outputItems.count == 2 && outputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String }
               == [configuredOutput.rawValue], "menu offers the output language, checked per config")
+        testFloatingPanel(controller, snapshotDirectory: snapshotDirectory)
         testSettingsWindow(snapshotDirectory: snapshotDirectory)
         controller.deactivateServer(client)
 

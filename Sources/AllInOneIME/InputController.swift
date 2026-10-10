@@ -149,6 +149,8 @@ final class AllInOneIMEInputController: IMKInputController {
     var startAgent: (String) async throws -> String = { try await AgentMonitor.shared.start($0) }
     var listAgents: () async throws -> [(session: AgentSession, reply: String?)] = { try await AgentMonitor.shared.list() }
     var openAgent: (String) -> Void = { id in MainActor.assumeIsolated { AgentMonitor.shared.open(id) } }
+    /// The floating panel the input menu turns on and off (the self-test's keeps the setting in memory).
+    var floatingPanel: @MainActor () -> FloatingPanel = { FloatingPanel.shared }
     /// A custom `run` command: runs its program in the background (the self-test supplies its own).
     var runProgram: (CustomCommand, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { CommandRunner.run($0, input: $1) }
     /// A script plugin: runs in this program's own child process (`--run-plugin`).
@@ -1206,6 +1208,12 @@ final class AllInOneIMEInputController: IMKInputController {
         let info = NSMenuItem(title: model, action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
+        menu.addItem(.separator())
+        let panelItem = NSMenuItem(title: tr("显示悬浮面板", "Show Floating Panel"), action: #selector(toggleFloatingPanel(_:)),
+                                   keyEquivalent: "")
+        panelItem.target = self
+        panelItem.state = floatingPanel().isEnabled ? .on : .off
+        menu.addItem(panelItem)
 
         menu.addItem(.separator())
         let outputHeader = NSMenuItem(title: tr("输出（1–3 行）", "Output (lines 1–3)"), action: nil, keyEquivalent: "")
@@ -1252,6 +1260,14 @@ final class AllInOneIMEInputController: IMKInputController {
         if let item = sender as? NSMenuItem { return item }
         guard let info = sender as? NSDictionary else { return nil }
         return info[kIMKCommandMenuItemName as Any] as? NSMenuItem
+    }
+
+    /// 「显示悬浮面板」: turns the floating panel on (checked: off) and saves that in the config file.
+    @objc func toggleFloatingPanel(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            let panel = floatingPanel()
+            panel.setEnabled(!panel.isEnabled)
+        }
     }
 
     @objc func toggleStyle(_ sender: Any?) {
