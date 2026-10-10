@@ -1331,7 +1331,7 @@ struct ComposerTests {
     @Test func commandsKnowTheirProgram() {
         let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
         let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
-        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, nil, "python3", nil])
+        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, nil, nil, "python3", nil])
     }
 
     @Test func theListPutsWhatIsRunMostFirst() {
@@ -1358,7 +1358,7 @@ struct ComposerTests {
         e.commands = catalog
         _ = e.handleKeyDown(at)
         type("s", e)
-        #expect(e.paletteMatches.map(\.name) == ["sh", "question"])  // names starting with s first
+        #expect(e.paletteMatches.map(\.name) == ["sh", "question", "tasks"])  // names starting with s first
         // Picking from the list doesn't count: only running does.
         _ = e.handleKeyDown(tab)
         #expect(e.commandUsage.score("sh") == 0)

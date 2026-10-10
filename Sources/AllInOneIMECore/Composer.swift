@@ -67,6 +67,10 @@ public final class Composer {
         case runInTerminal(prompt: String)
         /// Run `argv` in a new terminal window (a custom `terminal` command).
         case launchInTerminal(argv: [String])
+        /// Start `prompt` as a Claude Code background session (`@claude` with `claudeInBackground`).
+        case startBackgroundAgent(prompt: String)
+        /// List the background tasks (`@tasks`); they arrive via `receiveSearch`.
+        case listAgents(id: Int)
         /// Run a custom `run` command's program on `input`; what it prints arrives via `receive`.
         case startRun(Command, input: String, id: Int)
         /// A command was run (`commandUsage` has it): keep the usage for the order of the command list.
@@ -158,6 +162,8 @@ public final class Composer {
         public var secureInputTerminal: String
         /// A custom terminal command was started in its own window.
         public var ranInTerminal: String
+        /// `@claude` started in the background.
+        public var startedInBackground: String
         /// A custom terminal command while secure input is on: nothing is started.
         public var secureInputCommand: String
         /// ⌘V in a draft with more on the clipboard than `Composer.maxPasteLength`.
@@ -172,6 +178,7 @@ public final class Composer {
             openedTerminal: "已在终端打开 Claude Code",
             secureInputTerminal: "系统安全输入已开启（密码框或锁屏），没有打开 Claude Code",
             ranInTerminal: "已在终端运行",
+            startedInBackground: "已在后台开始，做完会通知你；@tasks 查看",
             secureInputCommand: "系统安全输入已开启（密码框或锁屏），没有运行命令",
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
             nothingToPaste: "剪贴板里没有能用的文字")
@@ -183,6 +190,7 @@ public final class Composer {
             openedTerminal: "Opened Claude Code in Terminal",
             secureInputTerminal: "Secure input is on (a password field or the lock screen): Claude Code was not opened",
             ranInTerminal: "Running in Terminal",
+            startedInBackground: "Started in the background; you'll be notified when it's done (@tasks)",
             secureInputCommand: "Secure input is on (a password field or the lock screen): the command was not run",
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
             nothingToPaste: "No text on the clipboard to use")
@@ -194,6 +202,8 @@ public final class Composer {
     /// How much each command is used: the list shows the most used first (set by the controller,
     /// shared by its text fields).
     public var commandUsage = CommandUsage()
+    /// `@claude` starts a background session instead of a Terminal window.
+    public var claudeInBackground = false
     /// Files and apps found for `@open`.
     public private(set) var searchResults: [SearchResult] = []
     /// Results for the `@open` text as it is typed (`liveQuery`), and the highlighted one.
@@ -353,7 +363,7 @@ public final class Composer {
     public var choices: [Choice] {
         guard isLevelTwo else { return [] }
         switch activeCommand?.kind {
-        case .search?:
+        case .search?, .agents?:
             return searchResults.prefix(9).enumerated().map {
                 Choice(label: String($0.offset + 1), kind: .file(path: $0.element.path), text: $0.element.name,
                        isComplete: true)
@@ -392,7 +402,7 @@ public final class Composer {
     public var highlighted: Int {
         let all = choices
         if let highlightOverride { return all.isEmpty ? 0 : min(highlightOverride, all.count - 1) }
-        if activeCommand?.kind == .search { return 0 }
+        if activeCommand?.kind == .search || activeCommand?.kind == .agents { return 0 }
         if case .translating = phase { return 1 }
         if let i = all.firstIndex(where: { $0.kind == .version || $0.kind == .answer }) { return i }
         if let i = all.firstIndex(where: { $0.kind.isRewrite }) { return i }
@@ -461,7 +471,9 @@ public final class Composer {
         if isLevelTwo {
             let all = choices
             guard all.indices.contains(highlighted), all[highlighted].isComplete, !all[highlighted].text.isEmpty else { return nil }
-            if case let .file(path) = all[highlighted].kind { return path }
+            if case let .file(path) = all[highlighted].kind {
+                return searchResults.first { $0.path == path }?.detail ?? path  // a task: its reply
+            }
             return all[highlighted].text
         }
         let live = currentLiveResults
@@ -1235,6 +1247,16 @@ public final class Composer {
     private func startAction() -> Response {
         let parsed = Command.parse(draft, in: commands)
         let input = sentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The task list needs nothing after the command.
+        if parsed?.command.kind == .agents, !isLevelTwo {
+            requestCounter += 1
+            phase = .translating(id: requestCounter)
+            result = .empty
+            searchResults = []
+            highlightOverride = nil
+            activeCommand = parsed?.command
+            return .consumed([.listAgents(id: requestCounter), .updateMarkedText, .showPanel, used(parsed!.command)])
+        }
         // A command with nothing after it takes the clipboard's text (shown in the draft first; the
         // action key again runs it). This works where ⌘V can't (terminals paste on their own).
         if input.isEmpty, parsed != nil, !isLevelTwo { return .consumed([requestClipboard(forEmptyCommand: true)]) }
@@ -1248,6 +1270,10 @@ public final class Composer {
             if let custom = command.custom {
                 return .consumed(finish(committing: "") + [.launchInTerminal(argv: custom.arguments(for: input)),
                                                            .notice(messages.ranInTerminal), usage])
+            }
+            if command == .claude, claudeInBackground {
+                return .consumed(finish(committing: "") + [.startBackgroundAgent(prompt: input),
+                                                           .notice(messages.startedInBackground), usage])
             }
             return .consumed(finish(committing: "") + [.runInTerminal(prompt: input), .notice(messages.openedTerminal), usage])
         }

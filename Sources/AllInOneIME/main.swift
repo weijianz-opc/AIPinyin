@@ -56,6 +56,8 @@ func runServer(showSettings: Bool = false) -> Never {
         exit(1)
     }
     log.info("IMKServer started: \(name, privacy: .public)")
+    // Background @claude tasks: notifications, and tasks from before a restart watched again.
+    MainActor.assumeIsolated { AgentMonitor.shared.setUp() }
     if showSettings {
         DispatchQueue.main.async { MainActor.assumeIsolated { SettingsWindow.shared.show() } }
     }

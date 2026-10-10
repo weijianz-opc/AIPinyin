@@ -23,6 +23,8 @@ public struct Command: Hashable, Sendable {
         case search
         /// A program run in the background with the input; what it prints can be inserted.
         case run
+        /// The background Claude Code tasks (`@tasks`): picking one opens it.
+        case agents
     }
 
     init(name: String, kind: Kind, custom: CustomCommand? = nil, plugin: InstalledPlugin? = nil) {
@@ -46,7 +48,10 @@ public struct Command: Hashable, Sendable {
     /// `@question 总结一下 @read https://…`.
     public static let read = Command(name: "read", kind: .run)
 
-    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read]
+    /// The background tasks `@claude` started: how they're doing and what they replied.
+    public static let tasks = Command(name: "tasks", kind: .agents)
+
+    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .tasks]
 
     /// The text after the command is typed as Latin letters (file names, paths, code): picking the
     /// command switches the engine to English, and Chinese comes back when the command is done.
@@ -283,10 +288,17 @@ public struct SearchResult: Equatable, Sendable {
     public var path: String
     /// A folder (not an app bundle): Tab goes into it.
     public var isFolder: Bool
+    /// Shown next to the name; what ⌘C copies instead of the path (a task's reply).
+    public var detail: String?
 
-    public init(name: String, path: String, isFolder: Bool = false) {
+    public init(name: String, path: String, isFolder: Bool = false, detail: String? = nil) {
         self.name = name
         self.path = path
         self.isFolder = isFolder
+        self.detail = detail
     }
+
+    /// A background task in the list (`@tasks`): its "path" names the session to open.
+    public static let agentPrefix = "claude-agent:"
+    public var agentID: String? { path.hasPrefix(Self.agentPrefix) ? String(path.dropFirst(Self.agentPrefix.count)) : nil }
 }

@@ -472,6 +472,11 @@ struct SettingsView: View {
                 Toggle(tr("整句模式（⇧空格）", "Sentence mode (⇧Space)"),
                        isOn: Binding(get: { model.sentenceMode }, set: { model.setSentenceMode($0) }))
                 Text(sentenceModeSummary).font(.caption).foregroundStyle(.secondary)
+                Toggle(tr("@claude 在后台运行，做完通知我", "@claude runs in the background and notifies me"),
+                       isOn: $model.config.claudeInBackground)
+                Text(tr("开着：交给 Claude Code 后台去做，做完弹通知，点通知或用 @tasks 查看；关掉：在终端打开 Claude Code 接着聊。",
+                        "On: Claude Code works in the background and you get a notification when it's done (click it, or @tasks); off: Claude Code opens in Terminal to talk."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section(tr("输入和输出", "Input and Output")) {
@@ -718,6 +723,7 @@ struct SettingsView: View {
         .onChange(of: model.config.englishAI) { model.save() }
         .onChange(of: model.config.voiceInput) { model.save() }
         .onChange(of: model.config.actionKey) { model.save() }
+        .onChange(of: model.config.claudeInBackground) { model.save() }
         .onAppear {
             model.refreshPlugins()
             model.refreshKeys()

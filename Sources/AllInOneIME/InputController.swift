@@ -137,6 +137,10 @@ final class AllInOneIMEInputController: IMKInputController {
     private var missingCommands: Set<String> = []
     /// The latest check (an older one that finishes later is ignored).
     private var programCheck = 0
+    /// Background `@claude` tasks: starting one, the list, opening one (the self-test supplies its own).
+    var startAgent: (String) async throws -> String = { try await AgentMonitor.shared.start($0) }
+    var listAgents: () async throws -> [(session: AgentSession, reply: String?)] = { try await AgentMonitor.shared.list() }
+    var openAgent: (String) -> Void = { id in MainActor.assumeIsolated { AgentMonitor.shared.open(id) } }
     /// A custom `run` command: runs its program in the background (the self-test supplies its own).
     var runProgram: (CustomCommand, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { CommandRunner.run($0, input: $1) }
     /// A script plugin: runs in this program's own child process (`--run-plugin`).
@@ -268,6 +272,7 @@ final class AllInOneIMEInputController: IMKInputController {
         composer.englishAI = config.englishAI
         composer.voiceEnabled = config.voiceInput && VoiceInput.isSupported
         composer.actionKey = config.actionKey
+        composer.claudeInBackground = config.claudeInBackground
         setCommands(Command.catalog(config.customCommands, plugins: LivePlugins.current(rescan: true)), recheck: true)
         // The interface language (config `uiLanguage`, else the system's) for the panel, notices and menu.
         UIText.choice = config.uiLanguage
@@ -339,6 +344,7 @@ final class AllInOneIMEInputController: IMKInputController {
         if !composer.isComposing {
             setCommands(Command.catalog(loadSettings().customCommands, plugins: LivePlugins.current()))
             composer.commandUsage = loadCommandUsage()  // another text field may have run commands
+            composer.claudeInBackground = loadSettings().claudeInBackground
         }
         let response = composer.handleKeyDown(KeyEvent(
             keyCode: event.keyCode, characters: event.characters ?? "",
@@ -422,8 +428,40 @@ final class AllInOneIMEInputController: IMKInputController {
                     self.perform(self.composer.receiveSearch(results, id: id), client: nil)
                 }
             case let .open(path):
+                if let agent = SearchResult(name: "", path: path).agentID {
+                    openAgent(agent)  // a background task: in Terminal
+                    break
+                }
                 log.notice("opening an @open result")
                 openItem(path)
+            case let .startBackgroundAgent(prompt):
+                Task { @MainActor [weak self] in
+                    do {
+                        _ = try await self?.startAgent(prompt)
+                    } catch {
+                        log.error("@claude in the background failed: \(String(describing: error), privacy: .public)")
+                        self?.showNotice(UIText.describe(error), client: nil)
+                    }
+                }
+            case let .listAgents(id):
+                conversionTask?.cancel()
+                conversionTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let results: [SearchResult]
+                    do {
+                        results = try await self.listAgents().map { session, reply in
+                            let mark = session.progress == .done ? "✓" : session.progress == .needsYou ? "⚠︎" : "…"
+                            return SearchResult(name: "\(mark) \(session.name ?? session.shortID)",
+                                                path: SearchResult.agentPrefix + session.shortID, detail: reply)
+                        }
+                    } catch {
+                        guard !Task.isCancelled else { return }
+                        self.perform(self.composer.fail(UIText.describe(error), id: id), client: nil)
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    self.perform(self.composer.receiveSearch(results, id: id), client: nil)
+                }
             case let .runInTerminal(prompt):
                 do {
                     try runInTerminal(prompt)
@@ -859,6 +897,12 @@ final class AllInOneIMEInputController: IMKInputController {
                     return CandidateView.Row(label: choice.label, text: Self.preview(text),
                                              comment: UIText.answerLabel(composer.activeCommand),
                                              style: .translation, isComplete: choice.isComplete)
+                case let .file(path) where path.hasPrefix(SearchResult.agentPrefix):
+                    // A background task: its last reply, shortened.
+                    let reply = composer.searchResults.first { $0.path == path }?.detail ?? ""
+                    let preview = reply.replacingOccurrences(of: "\n", with: " ")
+                    return CandidateView.Row(label: choice.label, text: choice.text,
+                                             comment: preview.count > 60 ? String(preview.prefix(60)) + "…" : preview, style: .candidate)
                 case let .file(path):
                     let folder = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
                     return CandidateView.Row(label: choice.label, text: choice.text,
@@ -873,10 +917,14 @@ final class AllInOneIMEInputController: IMKInputController {
                 let loading = command?.kind == .generate ? tr("AI 回答中…", "Answering…")
                     : command?.kind == .run ? tr("运行中…", "Running…")
                     : command == .open ? tr("搜索中…", "Searching…")
+                    : command == .tasks ? tr("读取后台任务…", "Reading the background tasks…")
                     : polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")
                 model.status = choices.count <= 1 ? .loading(loading) : .none
                 model.footer = command == .open ? tr("搜索中… · Esc 返回", "Searching… · Esc back")
                     : tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
+            case .choosing where command == .tasks:
+                model.footer = tr("⏎ 在终端打开 · 数字选择 · ⌘C 复制回复 · Esc 返回",
+                                  "⏎ open in Terminal · digits pick · ⌘C copy the reply · Esc back")
             case .choosing:
                 model.footer = command == .open
                     ? tr("空格 / ⏎ 打开 · 数字选择 · ⌘C 复制路径 · Esc 返回", "Space / ⏎ open · digits pick · ⌘C copy path · Esc back")

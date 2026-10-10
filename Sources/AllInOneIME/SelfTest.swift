@@ -74,7 +74,11 @@ final class FakeTextClient: NSObject, IMKTextInput {
 enum SelfTest {
     static var failures = 0
     /// What the controller under test reads as its settings (the real config, adjusted per section).
-    static var settings = Config.default
+    static var settings: Config = {
+        var config = Config.default
+        config.claudeInBackground = false  // @claude records a Terminal launch here; nothing starts in the background
+        return config
+    }()
     /// Sentence mode for the controller under test: off (the default) at first, on for the original flow.
     static var sentenceMode = false
 
@@ -553,6 +557,7 @@ enum SelfTest {
         var opened: [String] = [], terminal: [String] = [], copied: [String] = []
         controller.openItem = { opened.append($0) }
         controller.runInTerminal = { terminal.append($0) }
+        controller.startAgent = { _ in "selftest" }  // never a real background task
         controller.copyText = { copied.append($0) }
         controller.programInstalled = { _ in true }  // @claude runs here even without Claude Code
         controller.setCommands(Command.catalog(controller.loadSettings().customCommands), recheck: true)
