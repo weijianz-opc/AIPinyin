@@ -95,9 +95,11 @@ enum UIText {
         switch command {
         case .improve: return tr("润色 / 翻译，和不加命令一样", "Polish / translate, as without a command")
         case .question: return tr("提问，答案可以直接上屏", "Ask a question; insert the answer")
-        case .claude: return tr("在终端里开 Claude Code，接着聊", "Start Claude Code in Terminal")
+        case .claude: return tr("交给 Claude Code 去做", "Hand it to Claude Code")
         case .open: return tr("找文件、文件夹或 App 并打开", "Find a file, folder or app and open it")
         case .read: return tr("读网页正文，可放在句中给 AI 当上下文", "Read a web page; inside a sentence, context for the AI")
+        case .tasks: return tr("后台 Claude 任务的进度和回复", "Background Claude tasks: progress and replies")
+        case .settings: return tr("打开设置", "Open the settings")
         default: return ""
         }
     }
@@ -123,9 +125,12 @@ enum UIText {
         switch command {
         case .improve: return action(input: input, config: config)
         case .question: return tr("提问", "ask")
-        case .claude: return tr("在终端打开 Claude Code", "open Claude Code in Terminal")
+        case .claude: return config.claudeInBackground ? tr("交给 Claude 在后台做", "hand it to Claude in the background")
+                                                       : tr("在终端打开 Claude Code", "open Claude Code in Terminal")
         case .open: return tr("搜索并打开", "search and open")
         case .read: return tr("读网页", "read the page")
+        case .tasks: return tr("查看后台任务", "show the background tasks")
+        case .settings: return tr("打开设置", "open the settings")
         default: return ""
         }
     }

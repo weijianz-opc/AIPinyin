@@ -47,6 +47,9 @@ public struct PluginManifest: Codable, Equatable, Hashable, Sendable {
     public var ascii: Bool?
     public var author: String?
     public var homepage: String?
+    /// Its icon in the command list: an SF Symbol name and a color (see `CustomCommand.icon`).
+    public var icon: String?
+    public var color: String?
 
     public init(name: String, version: String, api: Int = 1, minAppVersion: String? = nil, type: PluginType,
                 summary: LocalizedText? = nil, script: String? = nil, prompt: String? = nil, hosts: [String] = [],
@@ -85,6 +88,8 @@ public struct PluginManifest: Codable, Equatable, Hashable, Sendable {
         ascii = try c.decodeIfPresent(Bool.self, forKey: .ascii)
         author = try c.decodeIfPresent(String.self, forKey: .author)
         homepage = try c.decodeIfPresent(String.self, forKey: .homepage)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
     }
 
     public var timeout: Double { min(max(timeoutSeconds ?? 10, 1), Self.maxTimeout) }

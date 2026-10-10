@@ -43,6 +43,9 @@ public struct Config: Codable, Equatable, Sendable {
     public var uiLanguage: Language?
     /// The user's own @ commands, after the built-in ones (see `CustomCommand`).
     public var customCommands: [CustomCommand]
+    /// `@claude` runs as a Claude Code background session, with a notification when it's done
+    /// (false: an interactive session in Terminal).
+    public var claudeInBackground: Bool
 
     /// The settings of an API-key provider, with its defaults filled in.
     public func settings(for provider: Provider) -> ProviderSettings {
@@ -97,6 +100,7 @@ public struct Config: Codable, Equatable, Sendable {
         self.actionKey = actionKey
         self.uiLanguage = uiLanguage
         self.customCommands = customCommands
+        self.claudeInBackground = true
     }
 
     public static let `default` = Config(
@@ -112,7 +116,7 @@ public struct Config: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case awsProfile, region, modelId, maxTokens, temperature, timeoutSeconds, rewriteStyles
-        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage, customCommands
+        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage, customCommands, claudeInBackground
         case provider, anthropic, gemini, openai
     }
 
@@ -137,6 +141,7 @@ public struct Config: Codable, Equatable, Sendable {
         actionKey = try c.decodeIfPresent(ActionKey.self, forKey: .actionKey) ?? d.actionKey
         uiLanguage = try c.decodeIfPresent(Language.self, forKey: .uiLanguage)
         customCommands = try c.decodeIfPresent([CustomCommand].self, forKey: .customCommands) ?? d.customCommands
+        claudeInBackground = try c.decodeIfPresent(Bool.self, forKey: .claudeInBackground) ?? d.claudeInBackground
         provider = try c.decodeIfPresent(Provider.self, forKey: .provider) ?? d.provider
         anthropic = try c.decodeIfPresent(ProviderSettings.self, forKey: .anthropic) ?? d.anthropic
         gemini = try c.decodeIfPresent(ProviderSettings.self, forKey: .gemini) ?? d.gemini
@@ -160,6 +165,7 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(actionKey, forKey: .actionKey)
         try c.encode(uiLanguage, forKey: .uiLanguage)  // null: follow the system
         try c.encode(customCommands, forKey: .customCommands)
+        try c.encode(claudeInBackground, forKey: .claudeInBackground)
         try c.encode(provider, forKey: .provider)
         try c.encode(anthropic, forKey: .anthropic)
         try c.encode(gemini, forKey: .gemini)

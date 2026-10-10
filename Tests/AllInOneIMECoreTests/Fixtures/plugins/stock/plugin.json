@@ -9,6 +9,8 @@
   "hosts": ["query1.finance.yahoo.com"],
   "timeoutSeconds": 10,
   "ascii": true,
+  "icon": "chart.line.uptrend.xyaxis",
+  "color": "green",
   "author": "weijianz-opc",
   "homepage": "https://github.com/weijianz-opc/AllInOneIME-plugins"
 }

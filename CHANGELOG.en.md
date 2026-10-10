@@ -2,6 +2,28 @@
 
 [中文](CHANGELOG.md) | English
 
+## 0.4.0 (2026-10-09)
+
+### Added
+
+- `@claude` runs in the background by default (a Claude Code background session) instead of opening Terminal, with a notification when it's done; click it to open the session in Terminal. The new `@tasks` shows the background tasks' progress and replies. The settings switch it back to Terminal.
+- Icons in the command list: a colored square with an SF Symbol for each command (like iOS Settings), and in `@tasks` for done / working / waiting for you. Custom commands and plugins can set their own with `icon` (an SF Symbol name) and `color`.
+- `@settings` opens the settings window.
+
+### Changed
+
+- The command list has every command, 5 shown at a time: ↑↓, the wheel or the trackpad scroll it (the position shows on the right), digits pick among the rows shown, and a click picks one.
+
+### Fixed
+
+- Opening Claude Code or a command in Terminal did nothing when the login shell starts a wrapper first (such as the Kiro CLI's `kiro-cli-term`): the command was dropped, leaving an empty prompt. The command is now typed once the shell is ready (asking once for permission to control Terminal).
+- `@tasks` opens a task whose process has ended with `claude --resume`.
+
+### Upgrading
+
+- `@claude` now runs in the background and notifies you when it's done; to open Terminal as before, turn off "@claude runs in the background and notifies me" in the settings.
+- The first time a Terminal window is opened (`@claude` in Terminal mode, a notification, `@tasks`, "run in Terminal" commands), macOS asks whether AllInOneIME may control Terminal: click OK. Without it things still work, except that a shell which starts a wrapper first (like the Kiro CLI's) may not run the command.
+
 ## 0.3.0 (2026-10-09)
 
 ### Added

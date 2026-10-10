@@ -24,9 +24,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.0</string>
+	<string>0.4.0</string>
 	<key>CFBundleVersion</key>
-	<string>3</string>
+	<string>4</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
@@ -35,6 +35,8 @@
 	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Personal build</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>为 @claude 和你自己加的「在终端运行」命令打开终端窗口。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>按住右 ⌥ 说话时录音。语音在这台 Mac 上识别成文字，不会上传。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

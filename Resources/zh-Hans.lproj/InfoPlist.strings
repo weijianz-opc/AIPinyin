@@ -4,3 +4,4 @@
 "com.aipinyin.inputmethod.AIPinyin" = "AllInOneIME";
 "NSMicrophoneUsageDescription" = "按住右 ⌥ 说话时录音。语音在这台 Mac 上识别成文字，不会上传。";
 "NSSpeechRecognitionUsageDescription" = "按住右 ⌥ 说话时把语音识别成文字（在这台 Mac 上完成）。";
+"NSAppleEventsUsageDescription" = "为 @claude 和你自己加的「在终端运行」命令打开终端窗口。";

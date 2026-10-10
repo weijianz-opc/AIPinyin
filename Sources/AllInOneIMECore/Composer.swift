@@ -67,6 +67,12 @@ public final class Composer {
         case runInTerminal(prompt: String)
         /// Run `argv` in a new terminal window (a custom `terminal` command).
         case launchInTerminal(argv: [String])
+        /// Start `prompt` as a Claude Code background session (`@claude` with `claudeInBackground`).
+        case startBackgroundAgent(prompt: String)
+        /// List the background tasks (`@tasks`); they arrive via `receiveSearch`.
+        case listAgents(id: Int)
+        /// Show the settings window (`@settings`).
+        case openSettings
         /// Run a custom `run` command's program on `input`; what it prints arrives via `receive`.
         case startRun(Command, input: String, id: Int)
         /// A command was run (`commandUsage` has it): keep the usage for the order of the command list.
@@ -158,6 +164,8 @@ public final class Composer {
         public var secureInputTerminal: String
         /// A custom terminal command was started in its own window.
         public var ranInTerminal: String
+        /// `@claude` started in the background.
+        public var startedInBackground: String
         /// A custom terminal command while secure input is on: nothing is started.
         public var secureInputCommand: String
         /// ⌘V in a draft with more on the clipboard than `Composer.maxPasteLength`.
@@ -172,6 +180,7 @@ public final class Composer {
             openedTerminal: "已在终端打开 Claude Code",
             secureInputTerminal: "系统安全输入已开启（密码框或锁屏），没有打开 Claude Code",
             ranInTerminal: "已在终端运行",
+            startedInBackground: "已在后台开始，做完会通知你；@tasks 查看",
             secureInputCommand: "系统安全输入已开启（密码框或锁屏），没有运行命令",
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
             nothingToPaste: "剪贴板里没有能用的文字")
@@ -183,6 +192,7 @@ public final class Composer {
             openedTerminal: "Opened Claude Code in Terminal",
             secureInputTerminal: "Secure input is on (a password field or the lock screen): Claude Code was not opened",
             ranInTerminal: "Running in Terminal",
+            startedInBackground: "Started in the background; you'll be notified when it's done (@tasks)",
             secureInputCommand: "Secure input is on (a password field or the lock screen): the command was not run",
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
             nothingToPaste: "No text on the clipboard to use")
@@ -194,6 +204,8 @@ public final class Composer {
     /// How much each command is used: the list shows the most used first (set by the controller,
     /// shared by its text fields).
     public var commandUsage = CommandUsage()
+    /// `@claude` starts a background session instead of a Terminal window.
+    public var claudeInBackground = false
     /// Files and apps found for `@open`.
     public private(set) var searchResults: [SearchResult] = []
     /// Results for the `@open` text as it is typed (`liveQuery`), and the highlighted one.
@@ -206,7 +218,13 @@ public final class Composer {
     /// Chinese comes back at the first space after it.
     private var nestedLatinFrom: Int?
     /// Highlighted row of the command palette.
-    private var paletteHighlight = 0
+    private var paletteHighlight = 0 {
+        didSet { if paletteHighlight == 0 { paletteTop = 0 } }
+    }
+    /// The first command the list shows; it scrolls to keep the highlight in view.
+    private var paletteTop = 0
+    /// How many commands the list shows at once (the rest scroll into view).
+    public static let paletteRows = 5
     /// The ⌘V whose clipboard text the draft is waiting for (`pasted`), and the last one's id.
     private var pendingPaste: Int?
     private var pasteCounter = 0
@@ -353,7 +371,7 @@ public final class Composer {
     public var choices: [Choice] {
         guard isLevelTwo else { return [] }
         switch activeCommand?.kind {
-        case .search?:
+        case .search?, .agents?:
             return searchResults.prefix(9).enumerated().map {
                 Choice(label: String($0.offset + 1), kind: .file(path: $0.element.path), text: $0.element.name,
                        isComplete: true)
@@ -364,7 +382,7 @@ public final class Composer {
                 out.append(Choice(label: "1", kind: .answer, text: line.text, isComplete: line.isComplete))
             }
             return out
-        case .convert?, .terminal?, nil:
+        case .convert?, .terminal?, .settings?, nil:
             break
         }
         let original = sentText
@@ -392,7 +410,7 @@ public final class Composer {
     public var highlighted: Int {
         let all = choices
         if let highlightOverride { return all.isEmpty ? 0 : min(highlightOverride, all.count - 1) }
-        if activeCommand?.kind == .search { return 0 }
+        if activeCommand?.kind == .search || activeCommand?.kind == .agents { return 0 }
         if case .translating = phase { return 1 }
         if let i = all.firstIndex(where: { $0.kind == .version || $0.kind == .answer }) { return i }
         if let i = all.firstIndex(where: { $0.kind.isRewrite }) { return i }
@@ -429,11 +447,44 @@ public final class Composer {
     }
 
     /// Commands offered for `paletteQuery`, and the highlighted one.
-    /// At most `Command.paletteLimit`: the most used, or what matches the letters (`Command.palette`).
+    /// All of them, the most used first, or what matches the letters (`Command.palette`); the list shows
+    /// `paletteRows` at a time from `paletteFirstVisible`.
     public var paletteMatches: [Command] {
-        paletteQuery.map { Command.palette($0, in: paletteCommands, usage: commandUsage) } ?? []
+        paletteQuery.map { Command.palette($0, in: paletteCommands, usage: commandUsage, limit: .max) } ?? []
     }
     public var paletteHighlighted: Int { min(paletteHighlight, max(paletteMatches.count - 1, 0)) }
+
+    /// The first row shown: where the list was scrolled to, moved just enough to show the highlight.
+    public var paletteFirstVisible: Int {
+        let count = paletteMatches.count, highlight = paletteHighlighted, rows = Self.paletteRows
+        var top = min(paletteTop, max(count - rows, 0))
+        if highlight < top { top = highlight } else if highlight >= top + rows { top = highlight - rows + 1 }
+        return max(top, 0)
+    }
+
+    /// The commands shown now (digits 1–5 pick them).
+    public var paletteVisible: ArraySlice<Command> {
+        let all = paletteMatches, first = paletteFirstVisible
+        return all[first..<min(first + Self.paletteRows, all.count)]
+    }
+
+    /// Moves the highlight by `steps` (arrows, the scroll wheel), around the ends, scrolling with it.
+    private func movePaletteHighlight(by steps: Int) {
+        let count = paletteMatches.count
+        guard count > 0 else { return }
+        paletteHighlight = ((paletteHighlighted + steps) % count + count) % count
+        paletteTop = paletteFirstVisible
+    }
+
+    /// The scroll wheel over the list: the highlight moves (the list scrolls with it).
+    public func scrollPalette(by steps: Int) -> [Effect] {
+        guard paletteQuery != nil, steps != 0, !paletteMatches.isEmpty else { return [] }
+        let count = paletteMatches.count
+        // Not around the ends: the wheel stops at the first and the last.
+        let target = min(max(paletteHighlighted + steps, 0), count - 1)
+        movePaletteHighlight(by: target - paletteHighlighted)
+        return [.showPanel]
+    }
 
     /// The `@open` text while it is typed, for results as you type (`receiveLive`).
     public var liveQuery: String? {
@@ -461,7 +512,9 @@ public final class Composer {
         if isLevelTwo {
             let all = choices
             guard all.indices.contains(highlighted), all[highlighted].isComplete, !all[highlighted].text.isEmpty else { return nil }
-            if case let .file(path) = all[highlighted].kind { return path }
+            if case let .file(path) = all[highlighted].kind {
+                return searchResults.first { $0.path == path }?.detail ?? path  // a task: its reply
+            }
             return all[highlighted].text
         }
         let live = currentLiveResults
@@ -636,6 +689,11 @@ public final class Composer {
     /// A candidate clicked in the panel.
     public func choose(index: Int) -> [Effect] {
         if isLevelTwo { return commitChoice(at: index) }
+        // A command in the list (`index` among the rows shown).
+        if paletteQuery != nil {
+            let matches = paletteMatches
+            return matches.indices.contains(paletteFirstVisible + index) ? complete(matches, at: paletteFirstVisible + index) : []
+        }
         guard let engine, engineState.isComposing, engine.selectCandidate(onPage: index) else { return [] }
         return afterEngineChange(engine, effects: [], picked: true)
     }
@@ -931,7 +989,7 @@ public final class Composer {
             return .consumed([.updateMarkedText, draft.isEmpty ? .hidePanel : .showPanel])
         case VirtualKey.up, VirtualKey.down:
             guard !matches.isEmpty else { return .consumed() }
-            paletteHighlight = (paletteHighlighted + (event.keyCode == VirtualKey.up ? -1 : 1) + matches.count) % matches.count
+            movePaletteHighlight(by: event.keyCode == VirtualKey.up ? -1 : 1)
             return .consumed([.showPanel])
         default:
             break
@@ -942,8 +1000,9 @@ public final class Composer {
                 paletteHighlight = 0
                 return .consumed([.updateMarkedText, .showPanel])
             }
-            if let n = c.wholeNumberValue, matches.indices.contains(n - 1) {
-                return .consumed(complete(matches, at: n - 1))
+            // Digits pick from the rows shown.
+            if let n = c.wholeNumberValue, n >= 1, matches.indices.contains(paletteFirstVisible + n - 1) {
+                return .consumed(complete(matches, at: paletteFirstVisible + n - 1))
             }
         }
         return leave()
@@ -953,6 +1012,10 @@ public final class Composer {
     /// rest of the sentence follows.
     private func complete(_ matches: [Command], at index: Int? = nil) -> [Effect] {
         let command = matches[index ?? paletteHighlighted]
+        // Nothing to write after it: picked, it's done (only at the start of a draft).
+        if command.kind == .settings, palette?.nested != true {
+            return finish(committing: "") + [.openSettings, used(command)]
+        }
         let nested = palette?.nested == true
         draft = (palette.map { String(draft[..<$0.at]) } ?? "") + "@\(command.name) "
         paletteHighlight = 0
@@ -1235,6 +1298,19 @@ public final class Composer {
     private func startAction() -> Response {
         let parsed = Command.parse(draft, in: commands)
         let input = sentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if parsed?.command.kind == .settings, !isLevelTwo {
+            return .consumed(finish(committing: "") + [.openSettings, used(parsed!.command)])
+        }
+        // The task list needs nothing after the command.
+        if parsed?.command.kind == .agents, !isLevelTwo {
+            requestCounter += 1
+            phase = .translating(id: requestCounter)
+            result = .empty
+            searchResults = []
+            highlightOverride = nil
+            activeCommand = parsed?.command
+            return .consumed([.listAgents(id: requestCounter), .updateMarkedText, .showPanel, used(parsed!.command)])
+        }
         // A command with nothing after it takes the clipboard's text (shown in the draft first; the
         // action key again runs it). This works where ⌘V can't (terminals paste on their own).
         if input.isEmpty, parsed != nil, !isLevelTwo { return .consumed([requestClipboard(forEmptyCommand: true)]) }
@@ -1248,6 +1324,10 @@ public final class Composer {
             if let custom = command.custom {
                 return .consumed(finish(committing: "") + [.launchInTerminal(argv: custom.arguments(for: input)),
                                                            .notice(messages.ranInTerminal), usage])
+            }
+            if command == .claude, claudeInBackground {
+                return .consumed(finish(committing: "") + [.startBackgroundAgent(prompt: input),
+                                                           .notice(messages.startedInBackground), usage])
             }
             return .consumed(finish(committing: "") + [.runInTerminal(prompt: input), .notice(messages.openedTerminal), usage])
         }

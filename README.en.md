@@ -22,7 +22,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | Key | What it does |
 |---|---|
 | Type pinyin, Space / digits | Pick words, as in any pinyin input method |
-| `@` (at the start of a sentence) | Opens the command list: at most 5, the most used lately first; type letters for the others (names starting with them first, then names containing them). ⏎, Tab, Space or a digit chooses |
+| `@` (at the start of a sentence) | Opens the command list: the most used lately first, 5 at a time, scrolled with ↑↓, the wheel or the trackpad; or type letters to find one (names starting with them first, then names containing them). ⏎, Tab, Space or a digit chooses |
 | ⏎ | Runs the command. Works even if the pinyin isn't picked yet: it's picked first, as with Space |
 | Space, ⏎ / digits | Once the results are up: insert the highlighted / numbered one; 0 is the original |
 | ⌘C | Copies the highlighted result (for `@open`, the path); the candidate panel stays open |
@@ -40,7 +40,9 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 |---|---|
 | `@improve` | Polish / translate: 1–3 are three versions in the output language, 4 onward are rewrites, 0 is the original |
 | `@question` | Ask a question; the answer appears in the candidates, ⏎ or Space inserts it, ⌘C copies it |
-| `@claude` | Opens Claude Code in Terminal with what you wrote as the first message; then keep talking to it in Terminal and have it do the work. Nothing is inserted |
+| `@claude` | Hands the task to Claude Code: in the background by default, with a notification when it's done (click it to open the session in Terminal and go on), or see `@tasks`. It uses your own Claude Code (the `claude` command) with its own sign-in and settings. Turn off "@claude runs in the background" in the settings to open it in Terminal as before. The first time it opens Terminal, macOS asks whether AllInOneIME may control Terminal: click OK |
+| `@tasks` | Lists the background Claude tasks (working / done / waiting for you) with their last replies; ⏎ opens one in Terminal, ⌘C copies the reply |
+| `@settings` | Opens the settings window right away (picking it is enough) |
 | `@open` | Lists matching files, folders and apps as you type (Spotlight). Text starting with `~/` or `/` is a path: Tab completes it and goes into folders; ⏎ opens, ⌘C copies the path |
 | `@read` | Reads a web page's title and text (up to 6000 characters; web pages, plain text and PDFs). Mostly inside a sentence as context for the AI: `@question summarize @read https://…` in one line |
 
