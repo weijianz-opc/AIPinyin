@@ -6,5 +6,9 @@
 	     needs this entitlement in addition to the user's permission. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- @claude and "run in Terminal" commands: Terminal is asked (Apple events) to open a window and
+	     run the command once its shell is ready. -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 </dict>
 </plist>

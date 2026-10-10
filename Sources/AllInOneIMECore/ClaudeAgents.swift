@@ -9,6 +9,13 @@ public enum ClaudeAgents {
     public static func startArguments(_ prompt: String) -> [String] { ["--bg", "--", prompt] }
     public static let listArguments = ["agents", "--json", "--all"]
 
+    /// How to open a session in Terminal: `attach` while its process runs; once it has exited (older
+    /// sessions in `@tasks`), `attach` has nothing to join, so `--resume` opens the conversation again,
+    /// in the folder it ran in.
+    public static func openArguments(_ session: AgentSession, isRunning: Bool) -> (arguments: [String], directory: String?) {
+        isRunning ? (["attach", session.shortID], nil) : (["--resume", session.sessionId], session.cwd)
+    }
+
     /// The id `claude --bg` prints: "backgrounded · 9b90f24f".
     public static func startedID(in output: String) -> String? {
         let clean = output.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[A-Za-z]", with: "", options: .regularExpression)
@@ -58,6 +65,7 @@ public enum ClaudeAgents {
 /// One session in `claude agents --json`.
 public struct AgentSession: Codable, Equatable, Sendable {
     public var id: String?
+    public var pid: Int?
     public var sessionId: String
     public var name: String?
     public var kind: String?
@@ -67,9 +75,10 @@ public struct AgentSession: Codable, Equatable, Sendable {
     public var startedAt: Double?
     public var cwd: String?
 
-    public init(id: String? = nil, sessionId: String, name: String? = nil, kind: String? = "background",
+    public init(id: String? = nil, pid: Int? = nil, sessionId: String, name: String? = nil, kind: String? = "background",
                 status: String? = nil, state: String? = nil, startedAt: Double? = nil, cwd: String? = nil) {
         self.id = id
+        self.pid = pid
         self.sessionId = sessionId
         self.name = name
         self.kind = kind

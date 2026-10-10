@@ -19,6 +19,11 @@ struct ClaudeAgentsTests {
         #expect(AgentSession(sessionId: "x", state: "working").progress == .working)
         #expect(AgentSession(sessionId: "x", state: "waiting_for_permission").progress == .needsYou)
         #expect(ClaudeAgents.sessions(from: Data("not json".utf8)).isEmpty)
+        #expect(sessions.first?.pid == 95911)
+        // Opening one: joined while its process runs, resumed (in its folder) once it has exited.
+        let done = try #require(sessions.first)
+        #expect(ClaudeAgents.openArguments(done, isRunning: true) == (["attach", "9b90f24f"], nil))
+        #expect(ClaudeAgents.openArguments(done, isRunning: false) == (["--resume", "9b90f24f-f73c-49db"], "/Users/me"))
     }
 
     @Test func theLastReplyFromTheTranscript() throws {

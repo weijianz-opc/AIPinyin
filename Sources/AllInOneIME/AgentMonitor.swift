@@ -53,12 +53,21 @@ final class AgentMonitor: NSObject, UNUserNotificationCenterDelegate {
         }.value
     }
 
-    /// Opens the session in Terminal, to read all of it and go on.
+    /// Opens the session in Terminal, to read all of it and go on: joined while it runs, resumed once
+    /// its process has exited (`ClaudeAgents.openArguments`).
     func open(_ id: String) {
-        do {
-            try TerminalLauncher.launch([claude, "attach", id], name: "claude-attach")
-        } catch {
-            log.error("could not open background task \(id, privacy: .public): \(String(describing: error), privacy: .public)")
+        Task {
+            let sessions = (try? await Self.run(claude, ClaudeAgents.listArguments))
+                .map { ClaudeAgents.sessions(from: Data($0.utf8)) } ?? []
+            let session = sessions.first { $0.shortID == id || $0.sessionId.hasPrefix(id) }
+            let running = session?.pid.map { kill(pid_t($0), 0) == 0 } ?? true
+            let (arguments, directory) = session.map { ClaudeAgents.openArguments($0, isRunning: running) } ?? (["attach", id], nil)
+            do {
+                try TerminalLauncher.launch([claude] + arguments, name: "claude-open", directory: directory)
+                log.notice("background task \(id, privacy: .public) opened (\(running ? "attach" : "resume", privacy: .public))")
+            } catch {
+                log.error("could not open background task \(id, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
