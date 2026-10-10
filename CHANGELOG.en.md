@@ -7,6 +7,7 @@
 ### Added
 
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
+- `@imessage` sends an iMessage. Type a name, its pinyin (in full or the initials), a phone number or an email and pick the recipient in the candidate panel (the ones you messaged lately come first), write the message and press ⏎: the panel shows what will be sent, and ⏎ again sends it (Esc goes back to editing). Nothing is typed into the text field. Commands inside the message such as `@stock AAPL` run first. The first time, macOS asks for two permissions: access to Contacts (only names, phone numbers and emails are read) and control of Messages to send.
 
 ## 0.4.0 (2026-10-09)
 
