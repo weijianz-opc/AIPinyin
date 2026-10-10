@@ -26,13 +26,12 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | ⏎ | Runs the command. Works even if the pinyin isn't picked yet: it's picked first, as with Space |
 | Space, ⏎ / digits | Once the results are up: insert the highlighted / numbered one; 0 is the original |
 | ⌘C | Copies the highlighted result (for `@open`, the path); the candidate panel stays open |
-| ⌃V | In a command (e.g. after `@improve `, or in a sentence-mode draft): appends the clipboard text after what you've typed instead of pasting it into the app. Multiple lines become one, up to 2000 characters at a time. Works in any app; without a command, the key goes to the app as usual |
+| ⌃V | In a command (e.g. after `@improve `): appends the clipboard text after what you've typed instead of pasting it into the app. Multiple lines become one, up to 2000 characters at a time. Works in any app; without a command, the key goes to the app as usual |
 | ⌘V | Like ⌃V, but some apps handle ⌘V themselves (terminals such as Ghostty, iTerm2 and Terminal, and Notes) and paste into the app as usual; use ⌃V there |
 | ⏎ (nothing written after the command yet) | Uses the clipboard text: it's shown in the command first, then ⏎ runs it. E.g. after copying a paragraph: `@i` ⏎ ⏎ ⏎. Works in any app |
 | Esc, ⌫ | Back to the sentence to keep editing; typing just continues it |
 | Tap Shift | Switch between Chinese and English |
 | Hold right ⌥ | Talk, release to stop. Chinese in Chinese mode, English in English mode. In a command, the text goes after it; otherwise it's inserted directly |
-| ⇧Space | Turn sentence mode on or off (see below) |
 
 ## @ commands (beta)
 
@@ -123,13 +122,6 @@ are picked; twice in English mode).
 Whatever the action key, @ commands also run on ⏎. If ⌥Space is already a shortcut for Alfred, Raycast or the like,
 they get it first.
 
-### Sentence mode
-
-The original behavior: when it's on, text goes into a draft even without `@`, and the action key polishes / translates
-the finished sentence, as if every sentence started with `@improve`.
-To insert it as typed, press ⇧⏎ (⏎ when the action key isn't ⏎). Turn it on in the settings, or toggle it with ⇧Space
-(in Chinese mode). Off by default.
-
 ## Input and output
 
 Two choices in the settings:
@@ -141,8 +133,6 @@ Two choices in the settings:
 |---|---|---|
 | Typing Chinese | Translate to English | Polish the Chinese |
 | Typing English | Polish the English | Translate to Chinese |
-
-In sentence mode, English goes into a draft too; if you don't want that, turn off "Sentence mode: English too" in the settings.
 
 ## Rewrite styles
 
@@ -272,7 +262,6 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 |---|---|---|
 | `defaultInput` | Default input: `"zh"` Chinese, `"en"` English | `"zh"` |
 | `outputLanguage` | Language of lines 1–3: `"en"` / `"zh"` | `"en"` |
-| `englishAI` | In sentence mode, English goes into a draft too | `true` |
 | `voiceInput` | Hold right ⌥ to talk | `true` |
 | `actionKey` | Action key: `"enter"` (⏎), `"optionTap"` (Tap ⌥), `"optionSpace"` (⌥Space), `"space"` (Space) | `"enter"` |
 | `uiLanguage` | Interface language (settings window, candidate panel hints, menu): `"zh"`, `"en"` | `null` (follow the system) |
@@ -281,10 +270,10 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 
 ## Privacy
 
-- Pinyin typing is entirely local. Only when you press the action key on `@improve` or `@question` (or on a sentence in sentence mode) is that sentence sent to the AI provider you chose (your own Bedrock, or the service whose key you added). With "Jargon" checked and a jargon list set, the list is sent along with it.
+- Pinyin typing is entirely local. Only when you press the action key on `@improve` or `@question` is that sentence sent to the AI provider you chose (your own Bedrock, or the service whose key you added). With "Jargon" checked and a jargon list set, the list is sent along with it.
 - With AllInOneIME Cloud, the sentence goes through the developer's server to a model provider (currently through OpenRouter): the server keeps counts only, never the text. Signing in keeps only your email address.
 - Voice is recorded only while you hold right ⌥ and is recognized on the Mac; the recognized text is sent only in the commands above, when you press the action key.
-- The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command (or a sentence-mode draft) or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.
+- The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.
 - In password fields (secure input) it doesn't compose text and can't record. Whenever the system is in secure input (password fields, Terminal's Secure Keyboard Entry, etc.), nothing is sent to the AI.
 - Logs don't record what you type. For every third-party input method, macOS warns "The developer can access anything you type with this input source"; it's a generic system warning.
 
@@ -302,7 +291,7 @@ make dmg          # the release installer, build/AllInOneIME-<version>.dmg (univ
 
 Code layout:
 
-- `Sources/AllInOneIMECore`: Bedrock client, SigV4, prompts, the two-level input state machine (including English drafts and the voice gesture); no AppKit dependency
+- `Sources/AllInOneIMECore`: Bedrock client, SigV4, prompts, the two-level input state machine (including @ commands and the voice gesture); no AppKit dependency
 - `Sources/AllInOneIMERime`: librime wrapper
 - `Sources/AllInOneIME`: the InputMethodKit input method, candidate panel, settings window, speech recognition
 - `Sources/AllInOneIMESettings`: the "AllInOneIME Settings" launcher

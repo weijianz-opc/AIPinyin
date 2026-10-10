@@ -18,6 +18,10 @@
 
 - A shorter input menu: rewrite styles, output languages and input languages are submenus whose titles show what's set (e.g. "Rewrite Styles: Polish, Concise, Formal").
 
+### Removed
+
+- Sentence mode is gone (the flow where, without `@`, a sentence went into a draft and the action key produced the results). To translate or polish, start the sentence with `@improve` (`@i` ⏎). ⇧Space no longer toggles anything; it's now the same as Space. "Sentence mode (⇧Space)" in the settings window ("Sentence Mode (⇧Space)" in the input menu), "Sentence mode: English too" in the settings, and `englishAI` in the config are gone too; leaving that key in an old config.json does no harm.
+
 ### Upgrading
 
 - Existing settings stay as they were: both input languages and both output languages remain; remove one under "Input and Output" in the settings to keep just one.
