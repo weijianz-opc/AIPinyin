@@ -27,6 +27,7 @@ enum CommandIcons {
         case .read: return CandidateView.Icon(symbol: "doc.richtext.fill", color: .systemTeal)
         case .tasks: return CandidateView.Icon(symbol: "checklist", color: .systemGreen)
         case .settings: return CandidateView.Icon(symbol: "gearshape.fill", color: .systemGray)
+        case .imessage: return CandidateView.Icon(symbol: "message.fill", color: .systemGreen)
         default: return CandidateView.Icon(symbol: "command", color: .systemGray)
         }
     }

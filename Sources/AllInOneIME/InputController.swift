@@ -133,6 +133,7 @@ final class AllInOneIMEInputController: IMKInputController {
     /// Whether a command's program is on this Mac (the self-test supplies its own). Called off the main thread.
     var programInstalled: @Sendable (String) -> Bool = { program in
         if program == "claude", TerminalLauncher.claudePath != nil { return true }
+        if program.hasSuffix(".app") { return FileManager.default.fileExists(atPath: program) }  // a send command's app
         return CommandRunner.resolve(program, path: ShellEnvironment.current["PATH"]) != nil
     }
     /// The commands whose programs were last checked (`setCommands`), and those whose program is missing.
@@ -169,6 +170,19 @@ final class AllInOneIMEInputController: IMKInputController {
         guard types.contains(.string), hidden.allSatisfy({ !types.contains($0) }) else { return nil }
         return pasteboard.string(forType: .string)
     }
+    /// `@imessage`: the address book (nil: no access), and sending (the self-test supplies stand-ins:
+    /// never the real Contacts or Messages).
+    var loadContacts: () async -> [Contact]? = {
+        if case let .contacts(contacts) = await ContactBook.load() { return contacts }
+        return nil
+    }
+    var messageSender: MessageSender = AppleScriptMessageSender()
+    /// The handles last messaged, and keeping them (the self-test leaves the user's alone).
+    var loadRecentHandles: () -> [String] = { RecentRecipients.handles }
+    var saveRecentHandles: ([String]) -> Void = { RecentRecipients.handles = $0 }
+    /// The recipient text last searched, and the search in flight for it.
+    private var recipientSearchQuery: String?
+    private var recipientSearchTask: Task<Void, Never>?
     /// The `@open` text last searched as it was typed, and the search in flight for it.
     private var liveSearchQuery: String?
     private var liveSearchTask: Task<Void, Never>?
@@ -487,6 +501,8 @@ final class AllInOneIMEInputController: IMKInputController {
                 }
             case let .copy(text):
                 copyText(text)
+            case let .sendMessage(recipient, text, command):
+                sendMessage(text, to: recipient, command: command, client: target)
             case let .readClipboard(id):
                 // After the key has been answered: if macOS asks whether this may read the clipboard,
                 // the app isn't left waiting for the key (and doesn't paste on its own meanwhile).
@@ -524,6 +540,65 @@ final class AllInOneIMEInputController: IMKInputController {
             }
         }
         scheduleLiveSearch()
+        scheduleRecipientSearch()
+    }
+
+    /// A send command's recipient as it is typed: a short pause, then the contacts that match (Contacts
+    /// access is asked for here, the first time).
+    @MainActor
+    private func scheduleRecipientSearch() {
+        let query = composer.recipientQuery
+        guard query != recipientSearchQuery else { return }
+        recipientSearchQuery = query
+        recipientSearchTask?.cancel()
+        guard let query else { return }
+        let recent = loadRecentHandles()
+        recipientSearchTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let contacts = await self.loadContacts()
+            guard !Task.isCancelled else { return }
+            let found = await Task.detached { RecipientSearch.results(query, contacts: contacts ?? [], recent: recent) }.value
+            guard !Task.isCancelled else { return }
+            let note = contacts == nil
+                ? tr("没有通讯录权限：系统设置 → 隐私与安全性 → 通讯录 → 打开 AllInOneIME；也可以直接输入手机号或邮箱",
+                     "No access to Contacts: System Settings → Privacy & Security → Contacts → turn on AllInOneIME; or type a phone number or email")
+                : found.isEmpty ? (query.isEmpty ? tr("输入名字、拼音、手机号或邮箱", "Type a name, phone number or email")
+                                                 : tr("没有找到联系人；也可以输入完整的手机号或邮箱", "No contact found; or type a full phone number or email"))
+                : nil
+            self.perform(self.composer.receiveRecipients(found, note: note, for: query), client: nil)
+        }
+    }
+
+    /// Sends a confirmed message off the main thread; a notice says how it went. The log keeps no
+    /// names, handles or text.
+    @MainActor
+    private func sendMessage(_ text: String, to recipient: Recipient, command: Command, client: IMKTextInput?) {
+        guard !secureInputActive() else {
+            showNotice(tr("系统安全输入已开启（密码框或锁屏），没有发送", "Secure input is on (a password field or the lock screen): nothing was sent"),
+                       client: client)
+            return
+        }
+        log.notice("@\(command.name, privacy: .public): sending (\(text.count) chars)")
+        let sender = messageSender
+        Task { @MainActor [weak self] in
+            do {
+                try await sender.send(text, to: recipient)
+                log.notice("@\(command.name, privacy: .public): sent")
+                guard let self else { return }
+                self.saveRecentHandles(RecipientSearch.remember(recipient.handle, in: self.loadRecentHandles()))
+                self.showNotice(tr("已发送给 ", "Sent to ") + recipient.displayName, client: nil)
+            } catch {
+                let code: String
+                switch error {
+                case MessageSendError.notPermitted: code = "-1743"
+                case let MessageSendError.failed(number): code = String(number)
+                default: code = String(describing: type(of: error))
+                }
+                log.error("@\(command.name, privacy: .public): sending failed (\(code, privacy: .public))")
+                self?.showNotice(UIText.describe(error), client: nil)
+            }
+        }
     }
 
     /// `@open` as you type: a short pause after the text changes, then a search for it.
@@ -722,6 +797,7 @@ final class AllInOneIMEInputController: IMKInputController {
         // Not tied to the main actor: the pipeline calls it from its own task.
         let streamFor: @Sendable (Command?, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { command, input in
             if command == .read { return WebReader.stream(input) }
+            if command?.kind == .message { return CommandPipeline.unchanged(input) }  // sent as written, after confirming
             if let command, command.kind == .run, let plugin = command.plugin { return runPlugin(plugin, input) }
             if let command, command.kind == .run, let custom = command.custom { return runProgram(custom, input) }
             return command.map { converter.generate($0, input: input) } ?? converter.convert(input)
@@ -919,6 +995,13 @@ final class AllInOneIMEInputController: IMKInputController {
                 case let .file(path) where SearchResult(name: "", path: path).webURL != nil:
                     return CandidateView.Row(label: choice.label, text: choice.text,
                                              comment: tr("在浏览器中打开", "open in the browser"), style: .candidate)
+                case .send:
+                    // 「发给 张三（+1 555…）：…」: who it goes to and the text, to confirm.
+                    let to = composer.messageRecipient.map { $0.name.isEmpty ? $0.handle : "\($0.name)（\($0.handle)）" } ?? ""
+                    return CandidateView.Row(label: choice.label,
+                                             text: tr("发给 \(to)：", "Send to \(to): ") + Self.preview(choice.text.replacingOccurrences(of: "\n", with: " ↵ ")),
+                                             style: .translation, isComplete: choice.isComplete,
+                                             icon: composer.activeCommand.map(CommandIcons.icon(for:)))
                 case let .file(path):
                     let folder = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
                     return CandidateView.Row(label: choice.label, text: choice.text,
@@ -934,10 +1017,13 @@ final class AllInOneIMEInputController: IMKInputController {
                     : command?.kind == .run ? tr("运行中…", "Running…")
                     : command == .open ? tr("搜索中…", "Searching…")
                     : command == .tasks ? tr("读取后台任务…", "Reading the background tasks…")
+                    : command?.kind == .message ? tr("运行句中的命令…", "Running the commands in the message…")
                     : polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")
                 model.status = choices.count <= 1 ? .loading(loading) : .none
                 model.footer = command == .open ? tr("搜索中… · Esc 返回", "Searching… · Esc back")
                     : tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
+            case .choosing where command?.kind == .message:
+                model.footer = tr("⏎ 发送 · Esc 返回修改", "⏎ send · Esc back to editing")
             case .choosing where command == .tasks:
                 model.footer = tr("⏎ 在终端打开 · 数字选择 · ⌘C 复制回复 · Esc 返回",
                                   "⏎ open in Terminal · digits pick · ⌘C copy the reply · Esc back")
@@ -1020,6 +1106,17 @@ final class AllInOneIMEInputController: IMKInputController {
             model.highlighted = composer.liveHighlight
             model.footer = tr("⏎ 打开 · Tab 补全路径 · ↑↓ 选择 · ⌘C 复制路径 · Esc 取消",
                               "⏎ open · Tab complete path · ↑↓ choose · ⌘C copy path · Esc cancel")
+        } else if composer.recipientQuery != nil {
+            // "@imessage zs": the contacts that match, to pick the recipient.
+            let found = composer.currentRecipients
+            model.rows = found.enumerated().map { index, recipient in
+                CandidateView.Row(label: String(index + 1), text: recipient.displayName,
+                                  comment: recipient.name.isEmpty ? tr("直接发送到这个号码 / 邮箱", "send to this number / email") : recipient.handle,
+                                  style: .candidate)
+            }
+            model.highlighted = found.isEmpty ? nil : composer.recipientHighlight
+            if let note = composer.recipientNote { model.status = .hint(note) }
+            model.footer = tr("⏎ / Tab 选择收件人 · ↑↓ · Esc 取消", "⏎ / Tab pick the recipient · ↑↓ · Esc cancel")
         } else if !composer.draft.isEmpty {
             model.status = .hint(draftHint(config: config))
             let asTyped = composer.actionKey == .enter ? "⇧⏎" : "⏎"

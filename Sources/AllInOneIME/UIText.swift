@@ -100,6 +100,7 @@ enum UIText {
         case .read: return tr("读网页正文，可放在句中给 AI 当上下文", "Read a web page; inside a sentence, context for the AI")
         case .tasks: return tr("后台 Claude 任务的进度和回复", "Background Claude tasks: progress and replies")
         case .settings: return tr("打开设置", "Open the settings")
+        case .imessage: return tr("发 iMessage：选联系人，写好后确认再发", "Send an iMessage: pick someone, write, confirm")
         default: return ""
         }
     }
@@ -131,6 +132,7 @@ enum UIText {
         case .read: return tr("读网页", "read the page")
         case .tasks: return tr("查看后台任务", "show the background tasks")
         case .settings: return tr("打开设置", "open the settings")
+        case .imessage: return tr("确认后发送", "check, then send")
         default: return ""
         }
     }
@@ -155,6 +157,17 @@ enum UIText {
         }
         if let error = error as? CommandPipelineError, case let .inner(name, underlying) = error, name == "read" {
             return "@read" + tr("：", ": ") + underlying
+        }
+        if let error = error as? MessageSendError {
+            switch error {
+            case .notPermitted:
+                return tr("没有控制「信息」的权限：系统设置 → 隐私与安全性 → 自动化 → AllInOneIME → 打开「信息」",
+                          "Not allowed to control Messages: System Settings → Privacy & Security → Automation → AllInOneIME → turn on Messages")
+            case .appMissing: return tr("这台 Mac 上没有「信息」App", "The Messages app isn't on this Mac")
+            case let .failed(code):
+                return tr("「信息」没有发出去（错误 \(code)）：看看「信息」里是否登录了 iMessage，号码 / 邮箱是否正确",
+                          "Messages didn't send it (error \(code)): check that iMessage is signed in and the number or email is right")
+            }
         }
         if let error = error as? CommandRunner.RunError {
             switch error {

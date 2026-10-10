@@ -27,6 +27,8 @@ public struct Command: Hashable, Sendable {
         case agents
         /// Opens the settings window (`@settings`), right when it is picked.
         case settings
+        /// Sends the text to someone picked in the panel (`@imessage`), after the user confirms it.
+        case message
     }
 
     init(name: String, kind: Kind, custom: CustomCommand? = nil, plugin: InstalledPlugin? = nil) {
@@ -56,16 +58,21 @@ public struct Command: Hashable, Sendable {
     /// The settings window.
     public static let settings = Command(name: "settings", kind: .settings)
 
-    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .tasks, .settings]
+    /// Send an iMessage: pick the recipient in the panel, write the message, confirm it in the panel.
+    public static let imessage = Command(name: "imessage", kind: .message)
+
+    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .tasks, .settings, .imessage]
 
     /// The text after the command is typed as Latin letters (file names, paths, code): picking the
     /// command switches the engine to English, and Chinese comes back when the command is done.
     public var typesLatin: Bool { self == .open || self == .read || custom?.typesLatin == true || plugin?.manifest.typesLatin == true }
 
     /// The program this command needs on the Mac: `claude` for `@claude`, `argv[0]` for a custom
-    /// `run` or `terminal` command; nil when it needs none.
+    /// `run` or `terminal` command, the app that sends for a send command (an absolute ".app" path);
+    /// nil when it needs none.
     public var program: String? {
         if self == .claude { return "claude" }
+        if self == .imessage { return "/System/Applications/Messages.app" }
         guard let custom, custom.type != .prompt else { return nil }
         return custom.argv?.first
     }
