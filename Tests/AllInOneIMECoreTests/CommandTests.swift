@@ -18,7 +18,7 @@ struct CommandTests {
         #expect(Command.matching("Q") == [.question])
         #expect(Command.matching("cl") == [.claude])
         #expect(Command.matching("x").isEmpty)
-        #expect(Command.builtins.map(\.kind) == [.convert, .generate, .terminal, .search, .run, .note, .reminder,
+        #expect(Command.builtins.map(\.kind) == [.convert, .generate, .terminal, .search, .run, .note, .reminder, .run,
                                                       .agents, .settings])
     }
 
@@ -46,7 +46,7 @@ struct CommandTests {
             CustomCommand(name: "empty", type: .prompt, prompt: "  "),     // nothing to tell the model
             CustomCommand(name: "noargv", type: .run),
         ])
-        #expect(catalog.map(\.name) == ["improve", "question", "claude", "open", "read", "note", "reminder", "tasks", "settings", "python", "reply", "sh"])
+        #expect(catalog.map(\.name) == ["improve", "question", "claude", "open", "read", "note", "reminder", "calc", "tasks", "settings", "python", "reply", "sh"])
         #expect(catalog.suffix(3).map(\.kind) == [.run, .generate, .terminal])
         #expect(Command.matching("p", in: catalog).map(\.name) == ["python"])
         #expect(Command.parse("@python print(1)", in: catalog)?.command.custom == python)
@@ -157,7 +157,7 @@ struct CommandTests {
         let custom = ["calc", "sh", "reply", "python", "japanese"].map {
             CustomCommand(name: $0, type: .run, argv: ["x"])
         }
-        let catalog = Command.catalog(custom)  // 7 built-in + 5
+        let catalog = Command.catalog(custom)  // 10 built-in + 4 (the custom calc gives way to the built-in)
         // Nothing used yet: the first five in catalog order.
         #expect(Command.palette("", in: catalog, usage: CommandUsage(), now: now).map(\.name)
             == ["improve", "question", "claude", "open", "read"])
@@ -171,7 +171,7 @@ struct CommandTests {
         // Letters: names starting with them first, then names containing them; by use within each.
         #expect(Command.palette("py", in: catalog, usage: usage, now: now).map(\.name) == ["python"])
         #expect(Command.palette("p", in: catalog, usage: usage, now: now).map(\.name) == ["python", "japanese", "improve", "open", "reply"])
-        #expect(Command.palette("a", in: catalog, usage: usage, now: now).map(\.name) == ["japanese", "claude", "read", "tasks", "calc"])
+        #expect(Command.palette("a", in: catalog, usage: usage, now: now).map(\.name) == ["japanese", "claude", "read", "calc", "tasks"])
         #expect(Command.palette("o", in: catalog, usage: usage, now: now).map(\.name) == ["open", "python", "improve", "question", "note"])
         #expect(Command.palette("zz", in: catalog, usage: usage, now: now).isEmpty)
     }

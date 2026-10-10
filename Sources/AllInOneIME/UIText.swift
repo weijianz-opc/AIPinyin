@@ -102,6 +102,7 @@ enum UIText {
         case .settings: return tr("打开设置", "Open the settings")
         case .note: return tr("存到备忘录", "Save to Notes")
         case .reminder: return tr("加到提醒事项，时间直接写在里面", "Add to Reminders; write the time in it")
+        case .calc: return tr("在本机计算算式，结果可以直接上屏", "Calculate on this Mac; insert the result")
         default: return ""
         }
     }
@@ -137,6 +138,7 @@ enum UIText {
         case .settings: return tr("打开设置", "open the settings")
         case .note: return tr("存到备忘录", "save to Notes")
         case .reminder: return tr("看一下再加到提醒事项", "check, then add to Reminders")
+        case .calc: return tr("计算", "calculate")
         default: return ""
         }
     }
@@ -189,6 +191,22 @@ enum UIText {
             case .notFound: return tr("这条提醒事项已经不在了", "That reminder is gone")
             // Our words and EventKit's code, never its message (in the system's language).
             case let .failed(code): return tr("提醒事项出错（错误 \(code)）", "Reminders failed (error \(code))")
+            }
+        }
+        if let error = error as? Calculator.CalcError {
+            switch error {
+            case .empty: return tr("没有要算的式子", "Nothing to calculate")
+            case .tooLong:
+                return tr("算式太长：最多 \(Calculator.maxLength) 个字符", "The expression is too long: \(Calculator.maxLength) characters at most")
+            case .tooDeep:
+                return tr("算式嵌套太深：最多 \(Calculator.maxDepth) 层", "The expression is nested too deeply: \(Calculator.maxDepth) levels at most")
+            case let .unexpected(text): return tr("算式有误：「\(text)」这里不对", "Invalid expression near \"\(text)\"")
+            case .incomplete: return tr("算式不完整", "The expression is incomplete")
+            case .missingParenthesis: return tr("缺少右括号", "A closing parenthesis is missing")
+            case let .unknownName(name): return tr("不认识的函数或常数：\(name)", "Unknown function or constant: \(name)")
+            case let .badArguments(name): return tr("\(name) 的参数不对", "Wrong arguments for \(name)")
+            case .divisionByZero: return tr("不能除以 0", "Division by zero")
+            case .notFinite: return tr("结果不是有限的实数", "The result isn't a finite real number")
             }
         }
         if let error = error as? CommandRunner.RunError {

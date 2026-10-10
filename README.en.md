@@ -44,9 +44,10 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | `@settings` | Opens the settings window right away (picking it is enough) |
 | `@open` | Lists matching files, folders and apps as you type (Spotlight). Text starting with `~/` or `/` is a path: Tab completes it and goes into folders; ⏎ opens, ⌘C copies the path |
 | `@read` | Reads a web page's title and text (up to 6000 characters; web pages, plain text and PDFs). Mostly inside a sentence as context for the AI: `@question summarize @read https://…` in one line |
+| `@calc` | Calculates on this Mac; the result appears in the candidates, ⏎ or Space inserts it: `@calc 23*17` → `391`. It also works inside a sentence: `@reply 总价是 @calc 23*17 元` ("the total is … yuan") |
 
 Example: `@q` ⏎, type `什么是量子计算` ("what is quantum computing"), ⏎. Once the command is chosen, you can also hold right ⌥
-and talk. `@open` switches to English letters for the moment and goes back to Chinese when you're done.
+and talk. `@open` and `@calc` switch to English letters for the moment and go back to Chinese when you're done.
 
 ![Typing @ opens the command list; @question plus a question, then ⏎ for the answer](docs/en/commands.png)
 
@@ -58,6 +59,12 @@ people in chat apps still works.
 Mac; `@claude` uses the Claude Code installed on your Mac (the `claude` command) and its own account, and it asks you
 first, as usual, before changing files or running commands. Without Claude Code installed, `@claude` isn't offered.
 
+`@calc` works on this Mac, offline: `+ - * /` (also `× ÷`), `^` or `**` for powers, parentheses, percent (`50%` is 0.5,
+`200*5%` is 10), the functions `sqrt abs round floor ceil ln log exp sin cos tan min max pow` (`log` is base 10, angles are
+radians, `round(x, 2)` keeps two decimals) and the constants `pi` (`π`) and `e`. Full-width digits and signs work too
+(`（１＋２）×３`). Arithmetic is exact in decimal, so `0.1+0.2` is `0.3`; results have at most 15 significant digits, and
+whole numbers of up to 38 digits are written out in full (`2^100` → `1267650600228229401496703205376`).
+
 ### Your own commands
 
 In the settings, under "Custom @ Commands", click "Add Command…": give it a name and choose what it does (an AI
@@ -68,7 +75,7 @@ They're kept in `customCommands` in the config file (`~/.config/allinoneime/conf
 ```json
 "customCommands": [
   { "name": "python", "type": "run", "argv": ["python3", "-c", "{input}"], "summary": "Run Python" },
-  { "name": "calc", "type": "run", "argv": ["bc", "-l"], "stdin": "{input}\n" },
+  { "name": "bc", "type": "run", "argv": ["bc", "-l"], "stdin": "{input}\n" },
   { "name": "sh", "type": "terminal", "argv": ["zsh", "-c", "{input}"] },
   { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." },
   { "name": "google", "type": "link", "url": "https://www.google.com/search?q={input}" }
@@ -110,6 +117,8 @@ Commands that fetch something (plugins and programs) also work inside a sentence
 The inner ones run first, their output takes their place, and the outer command works on the result. The argument is
 the word after the command, plus the uppercase codes or numbers right after it (`@stock AAPL TSLA`, `@stock 600519 700`);
 a lowercase word ends it (`@stock SNDK is good to buy` looks up SNDK). Quotes mark it exactly: `@stock「aapl tsla」`.
+`@calc` works inside a sentence too; its argument is the whole expression after it, spaces included, up to other text:
+`@reply 总价是 @calc 23 * 17 元`.
 
 ### Action key
 
@@ -267,7 +276,7 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 
 ## Privacy
 
-- Pinyin typing is entirely local. Only when you press the action key on `@improve` or `@question` is that sentence sent to the AI provider you chose (your own Bedrock, or the service whose key you added). With "Jargon" checked and a jargon list set, the list is sent along with it.
+- Pinyin typing and `@calc` calculations are entirely local. Only when you press the action key on `@improve` or `@question` is that sentence sent to the AI provider you chose (your own Bedrock, or the service whose key you added). With "Jargon" checked and a jargon list set, the list is sent along with it.
 - With AllInOneIME Cloud, the sentence goes through the developer's server to a model provider (currently through OpenRouter): the server keeps counts only, never the text. Signing in keeps only your email address.
 - Voice is recorded only while you hold right ⌥ and is recognized on the Mac; the recognized text is sent only in the commands above, when you press the action key.
 - The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.

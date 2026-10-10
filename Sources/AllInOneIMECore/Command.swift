@@ -63,18 +63,22 @@ public struct Command: Hashable, Sendable {
     /// `@reminder 明天下午3点给张三打电话`.
     public static let reminder = Command(name: "reminder", kind: .reminder)
 
+    /// Arithmetic worked out on this Mac (`Calculator`): `@calc 23*17` → `391`, also inside another
+    /// command's text: `@reply 总价是 @calc 23*17 元`.
+    public static let calc = Command(name: "calc", kind: .run)
+
     /// The background tasks `@claude` started: how they're doing and what they replied.
     public static let tasks = Command(name: "tasks", kind: .agents)
 
     /// The settings window.
     public static let settings = Command(name: "settings", kind: .settings)
 
-    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .note, .reminder,
+    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .note, .reminder, .calc,
                                              .tasks, .settings]
 
     /// The text after the command is typed as Latin letters (file names, paths, code): picking the
     /// command switches the engine to English, and Chinese comes back when the command is done.
-    public var typesLatin: Bool { self == .open || self == .read || custom?.typesLatin == true || plugin?.manifest.typesLatin == true }
+    public var typesLatin: Bool { self == .open || self == .read || self == .calc || custom?.typesLatin == true || plugin?.manifest.typesLatin == true }
 
     /// The program this command needs on the Mac: `claude` for `@claude`, `argv[0]` for a custom
     /// `run` or `terminal` command; nil when it needs none.

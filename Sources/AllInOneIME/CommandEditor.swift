@@ -216,7 +216,7 @@ struct CommandEditor: View {
             CustomCommand(name: "ja", type: .prompt, summary: tr("翻译成日语", "Translate to Japanese"),
                           prompt: "Translate the user's text into natural Japanese. Reply with the translation only."),
             CustomCommand(name: "py", type: .run, summary: tr("运行 Python", "Run Python"), argv: ["python3", "-c", CustomCommand.placeholder]),
-            CustomCommand(name: "calc", type: .run, summary: tr("计算器", "Calculator"), argv: ["bc", "-l"],
+            CustomCommand(name: "bc", type: .run, summary: tr("用 bc 计算", "Calculate with bc"), argv: ["bc", "-l"],
                           stdin: CustomCommand.placeholder + "\n"),
             CustomCommand(name: "google", type: .link, summary: tr("用 Google 搜索", "Search with Google"),
                           url: "https://www.google.com/search?q=" + CustomCommand.placeholder),

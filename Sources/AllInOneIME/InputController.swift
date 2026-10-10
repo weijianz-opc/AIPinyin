@@ -864,10 +864,18 @@ final class AllInOneIMEInputController: IMKInputController {
         func logged(_ command: Command) -> String { command.custom == nil || command.plugin != nil ? command.name : "custom" }
         let inner = plan.map { ", inside: " + $0.inner.map { "@" + logged($0.command) }.joined(separator: " ") } ?? ""
         log.notice("conversion \(id) started (\(input.count) chars\(command.map { ", @\(logged($0))" } ?? "")\(inner), privacy: .public))")
+        // An @calc inside the text is worked out here first: a mistake in it is reported at once and in the
+        // interface language (from inside the pipeline only its English description would arrive).
+        if let plan, let error = Calculator.failure(in: plan) {
+            log.notice("conversion \(id): @calc inside the text failed")
+            perform(composer.fail("@calc" + tr("：", ": ") + UIText.describe(error), id: id), client: nil)
+            return
+        }
         let (runPlugin, runProgram, converter) = (self.runPlugin, self.runProgram, self.converter)
         // Not tied to the main actor: the pipeline calls it from its own task.
         let streamFor: @Sendable (Command?, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { command, input in
             if command == .read { return WebReader.stream(input) }
+            if command == .calc { return Calculator.stream(input) }
             // A link opens once the commands inside its text have run: their outputs go in it as they are.
             if let command, command.kind == .link { return LinkTemplate.passThrough(input) }
             if let command, command.kind == .run, let plugin = command.plugin { return runPlugin(plugin, input) }

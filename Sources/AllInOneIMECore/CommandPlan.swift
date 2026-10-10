@@ -6,7 +6,8 @@ import Foundation
 ///
 /// An inner command is `@name` (a known command, not after a letter or digit, so `a@b.com` stays text)
 /// followed by a space and its argument (`argument(_:from:)`): `@stock AAPL TSLA 哪个涨得多` → `AAPL TSLA`,
-/// `@stock SNDK is good to buy` → `SNDK`, `@stock「aapl tsla」` → `aapl tsla`. Anything else is plain text.
+/// `@stock SNDK is good to buy` → `SNDK`, `@stock「aapl tsla」` → `aapl tsla`. `@calc` takes the whole
+/// expression after it (`Calculator.argument`): `总价是 @calc 23 * 17 元` → `23 * 17`. Anything else is plain text.
 public struct CommandPlan: Equatable, Sendable {
     public enum Part: Equatable, Sendable {
         case text(String)
@@ -45,7 +46,7 @@ public struct CommandPlan: Equatable, Sendable {
                 // A space before the argument, or a quote right after the name (`@stock「aapl tsla」`).
                 let start = j < chars.count && chars[j] == " " ? j + 1 : j
                 if let command = inners[name], j < chars.count, chars[j] == " " || "「“\"".contains(chars[j]),
-                   let (argument, end) = Self.argument(chars, from: start) {
+                   let (argument, end) = command == .calc ? Calculator.argument(chars, from: start) : Self.argument(chars, from: start) {
                     if !argument.isEmpty {
                         if !literal.isEmpty { parts.append(.text(literal)) }
                         literal = ""
