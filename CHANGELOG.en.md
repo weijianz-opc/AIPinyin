@@ -8,6 +8,14 @@
 
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
 
+### Removed
+
+- Sentence mode is gone (the flow where, without `@`, a sentence went into a draft and the action key produced the results). To translate or polish, start the sentence with `@improve` (`@i` ⏎). ⇧Space no longer toggles anything; it's now the same as Space. "Sentence mode (⇧Space)" in the settings window ("Sentence Mode (⇧Space)" in the input menu), "Sentence mode: English too" in the settings, and `englishAI` in the config are gone too; leaving that key in an old config.json does no harm.
+
+### Upgrading
+
+- Sentence mode is gone: without `@`, ⏎ is a plain Return and picked words go straight in; to translate or polish, start the sentence with `@improve` (`@i` ⏎). If you had sentence mode on, there's nothing to do: the setting is cleared.
+
 ## 0.4.0 (2026-10-09)
 
 ### Added
