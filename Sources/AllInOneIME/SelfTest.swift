@@ -1057,8 +1057,9 @@ enum SelfTest {
     }
 
     /// @calc, @py, @js and @search through the controller, with ⏎ as the action key: results come back as
-    /// candidates (@py and @js from their child processes), and @search without a key says where to add one
-    /// (nothing is sent). The search key is a stand-in: the user's keychain is never read here.
+    /// candidates (@py and @js from their child processes), output with several lines goes in as printed
+    /// (in a terminal as one line), and @search without a key says where to add one (nothing is sent). The
+    /// search key is a stand-in: the user's keychain is never read here.
     static func testToolCommands(_ controller: AllInOneIMEInputController, _ client: FakeTextClient,
                                  snapshotDirectory: URL) {
         print("— @calc, @py, @js, @search")
@@ -1084,6 +1085,7 @@ enum SelfTest {
         // Symbols with their US-layout keys (`type` sends key code 0 for anything not in `keyCodes`).
         let symbols: [Character: (UInt16, NSEvent.ModifierFlags)] = [
             "*": (0x1C, .shift), "/": (0x2C, []), "+": (0x18, .shift), ".": (0x2F, []),
+            "(": (0x19, .shift), ")": (0x1D, .shift), ";": (0x29, []),
         ]
         func start(_ name: String) -> Bool {
             press(controller, client, "@", code: 0x13, flags: .shift)  // ⇧2
@@ -1136,6 +1138,23 @@ enum SelfTest {
             clear()
         }
         check(insertsResult("js", "6*7", "42"), "@js 6*7 inserts 42 from the JavaScriptCore child process (\(client.inserted.last ?? ""))")
+
+        // Output with several lines: inserted as printed, except in a terminal, which would run all but the
+        // last line. (Terminals refuse composing while secure input is on, so that check needs it off.)
+        func shown(_ text: String?) -> String { (text ?? "").replacingOccurrences(of: "\n", with: "\\n") }
+        if python {
+            check(insertsResult("py", "print(1);print(2)", "1\n2"), "@py output keeps its lines in other apps (\(shown(client.inserted.last)))")
+            if SecureInput.ownerPID() == nil {
+                client.bundleIDOverride = "com.mitchellh.ghostty"
+                controller.activateServer(client)
+                check(insertsResult("py", "print(1);print(2)", "1 2"),
+                      "…and goes in as one line in a terminal (\(shown(client.inserted.last)))")
+                client.bundleIDOverride = nil
+                controller.activateServer(client)
+            } else {
+                print("  secure input is on (\(SecureInput.ownerDescription())): no terminal check")
+            }
+        }
 
         // Without a key nothing is sent: the error says where to add one. (No live search here.)
         if start("search") {

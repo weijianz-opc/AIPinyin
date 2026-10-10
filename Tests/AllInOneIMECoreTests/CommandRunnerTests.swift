@@ -24,6 +24,16 @@ struct CommandRunnerTests {
         #expect(try await run(multi, "printf 'a\\n\\033[31mb\\033[0m\\n\\n'").get() == "a\nb")  // colors and trailing lines dropped
     }
 
+    /// What goes into a terminal (it runs every line): one line, nothing that would run or complete.
+    @Test func oneLineForATerminal() {
+        let result = ConversionResult(versions: [CandidateLine("0\n1\n2"), CandidateLine("a\tb\u{2028}c", isComplete: false),
+                                                 CandidateLine("你好\n世界\nok")])
+        let line = CommandRunner.oneLine(result)
+        #expect(line.versions.map(\.text) == ["0 1 2", "a b c", "你好世界 ok"])
+        #expect(line.versions.map(\.isComplete) == [true, false, true])
+        #expect(CommandRunner.oneLine(ConversionResult(versions: [CandidateLine("391")])).versions.map(\.text) == ["391"])
+    }
+
     @Test func standardInput() async throws {
         let rev = CustomCommand(name: "rev", type: .run, argv: ["rev"], stdin: "{input}\n")
         #expect(try await run(rev, "abc").get() == "cba")

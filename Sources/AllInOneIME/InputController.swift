@@ -881,8 +881,10 @@ final class AllInOneIMEInputController: IMKInputController {
             return
         }
         let (runPlugin, runProgram, converter, loadSearchKey) = (self.runPlugin, self.runProgram, self.converter, self.loadSearchKey)
-        // A terminal runs each line it is given: there @search's list goes in as one line.
-        let searchList: WebSearch.Output = Self.isTerminal(clientOverride ?? client()) ? .line : .list
+        // A terminal runs each line it is given: there @search's list, and any command's output, goes in
+        // as one line.
+        let terminal = Self.isTerminal(clientOverride ?? client())
+        let searchList: WebSearch.Output = terminal ? .line : .list
         // Not tied to the main actor: the pipeline calls it from its own task.
         let streamFor: @Sendable (Command?, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { command, input in
             if command == .read { return WebReader.stream(input) }
@@ -910,9 +912,12 @@ final class AllInOneIMEInputController: IMKInputController {
         } else {
             stream = streamFor(command, input)
         }
+        // Model answers are one line already (`Converter.oneLine`); a program's output, a page from
+        // @read and code results may have several, and a terminal would run all but the last.
+        let inserted = terminal && command?.kind == .run ? Self.oneLine(stream) : stream
         conversionTask = Task { @MainActor [weak self] in
             do {
-                for try await update in stream {
+                for try await update in inserted {
                     guard let self, !Task.isCancelled else { return }
                     if update.isFinal {
                         self.lastElapsed = update.elapsed
@@ -932,6 +937,25 @@ final class AllInOneIMEInputController: IMKInputController {
     /// Whether `client` is a terminal, which runs every line it is given.
     static func isTerminal(_ client: IMKTextInput?) -> Bool {
         client?.bundleIdentifier().map(SecureInput.terminals.contains) ?? false
+    }
+
+    /// `stream` with each result on one line (`CommandRunner.oneLine`): what goes into a terminal.
+    static func oneLine(_ stream: AsyncThrowingStream<ConversionUpdate, Error>) -> AsyncThrowingStream<ConversionUpdate, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await update in stream {
+                        var update = update
+                        update.result = CommandRunner.oneLine(update.result)
+                        continuation.yield(update)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     /// `stream` with its error described in the interface language: inside a text, an inner command's

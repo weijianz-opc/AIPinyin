@@ -72,6 +72,16 @@ public enum CommandRunner {
         return String(out).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// `result` as inserted into a terminal, which runs every line it is given: each text on one line
+    /// (line breaks and tabs become spaces, none between Chinese characters; `Composer.oneLine`).
+    public static func oneLine(_ result: ConversionResult) -> ConversionResult {
+        var result = result
+        for index in result.versions.indices {
+            result.versions[index].text = Composer.oneLine(result.versions[index].text)
+        }
+        return result
+    }
+
     /// One run of a program. Its callbacks arrive on several queues; `lock` guards the state.
     private final class Run: @unchecked Sendable {
         private let command: CustomCommand
