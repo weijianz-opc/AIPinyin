@@ -1,0 +1,3 @@
+/* Name of the installer on the disk image, in Finder and the Dock. */
+"CFBundleName" = "Install AllInOneIME";
+"CFBundleDisplayName" = "Install AllInOneIME";

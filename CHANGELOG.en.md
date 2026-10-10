@@ -2,16 +2,27 @@
 
 [中文](CHANGELOG.md) | English
 
-## Unreleased
+## 0.3.0 (2026-10-09)
 
 ### Added
 
+- An installer: download `AllInOneIME-<version>.dmg` from [Releases](https://github.com/weijianz-opc/AllInOneIME/releases) and double-click "Install AllInOneIME" in it to install, update or uninstall; no more building with Xcode. Universal: it works on Macs with Apple silicon and Intel. It installs for the current user only, with no administrator password. The installer isn't notarized by Apple yet: the first time, click Open Anyway in System Settings → Privacy & Security; download it only from Releases.
 - ⌃V in a command (or in a sentence-mode draft) appends the clipboard text after what you've typed, in any app, terminals included. In terminals (Ghostty etc.) and Notes, the app takes ⌘V and pastes it itself; use ⌃V there.
+- Development: `make dmg` builds the release installer (signed if there's a Developer ID certificate, and notarized too if `NOTARY_PROFILE` is set).
+
+### Changed
+
+- The input method carries its licenses (`LICENSE`, `THIRD_PARTY_NOTICES.md`). `THIRD_PARTY_NOTICES.md` now has the full license texts of the libraries compiled into librime (Boost, glog, LevelDB, yaml-cpp, OpenCC, Lua and others).
 
 ### Fixed
 
 - A very long row in the candidate panel (such as a long `@question` answer) could lose its last line; it is shown in full now.
 - The settings window explains `@improve` more clearly: "Chinese → translate to English / rewrite; English → polish the English / rewrite".
+
+### Upgrade notes
+
+- A copy installed from source (`make install`) can be updated with the installer, and the other way round: the bundle ID hasn't changed, so settings, learned words and the entry in your input sources are kept.
+- The apps in the installer are ad-hoc signed: after switching to the installer, and after each update, macOS may ask for the microphone permission again.
 
 ## 0.2.0 (2026-10-09)
 

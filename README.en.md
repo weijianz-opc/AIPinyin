@@ -136,10 +136,37 @@ The first time:
 
 Recording starts only after you've held the key for about 0.2 s, so a quick tap on right ⌥ doesn't turn on the microphone (with the action key set to "Tap ⌥", a tap runs the action). If you press another key while holding it (an ⌥ shortcut, ⌥←), it counts as a shortcut and nothing is recorded either. Pressing any other key while recording cancels the recording.
 
-## Installation (from source)
+## Installation
 
-Running it needs macOS 14 or later, voice input macOS 26 or later. Building needs Xcode 26 or later, since voice input uses the macOS 26 SDK.
-So far it has only been tested on macOS 27 + Xcode 27 on Apple Silicon.
+Running it needs macOS 14 or later, voice input macOS 26 or later. The installer is universal: it works on Macs with
+Apple silicon and Intel. So far it has only been tested on macOS 27 on Apple silicon (the Intel build only through its self-test under Rosetta).
+
+1. Download `AllInOneIME-<version>.dmg` from [Releases](https://github.com/weijianz-opc/AllInOneIME/releases/latest) (only from there) and open it.
+2. Double-click "Install AllInOneIME" in it and click Install. The input method goes into `~/Library/Input Methods`
+   and "AllInOneIME Settings" into `~/Applications` ("AllInOneIME 设置" on a Chinese system). For this user only; no administrator password needed.
+3. The installer isn't notarized by Apple yet, so macOS can't verify who made it, and the first time it says it can't verify "Install AllInOneIME":
+   click Done (Cancel on macOS 14), open System Settings → Privacy & Security, click Open Anyway near the bottom, and confirm.
+   Each new version's installer needs this once.
+
+After that, AllInOneIME is enabled and in your input sources; switch to it with Ctrl+Space
+(the 🌐 key switches only if "Press 🌐 key to" is set to "Change Input Source" in System Settings → Keyboard).
+If the installer tells you to add it by hand, this Mac doesn't let programs enable it, so add it once yourself:
+System Settings → Keyboard → Text Input → Input Sources → Edit… → + (bottom left) → Chinese, Simplified → AllInOneIME.
+
+If Ctrl+Space doesn't get you to AllInOneIME, or it switches back to U.S. after a while, run the installer again: it adds AllInOneIME back to your input sources.
+
+To update, install again from the new version's disk image, without uninstalling first; settings, the jargon list and learned words are kept.
+Before upgrading, read the [changelog](CHANGELOG.en.md): it has each version's changes and upgrade notes.
+
+If you had AIPinyin (AI 拼音) installed, just install: the old AIPinyin.app and "AI 拼音设置" (its settings launcher) are removed,
+and the entry in your input sources gets the new name, with no need to add it again. Settings, the jargon list and learned words move to the new folders
+(`~/.config/allinoneime` and others) on first launch, and each old folder is left as a link to the new one.
+
+To uninstall, open "Install AllInOneIME" and click Uninstall…. Settings and learned words are kept.
+
+### Building from source
+
+Building needs Xcode 26 or later, since voice input uses the macOS 26 SDK.
 
 ```sh
 git clone https://github.com/weijianz-opc/AllInOneIME.git
@@ -147,24 +174,8 @@ cd AllInOneIME
 make install
 ```
 
-`make install` downloads librime and the rime-ice dictionaries and verifies them, builds, installs into `~/Library/Input Methods`,
-and puts "AllInOneIME Settings" in `~/Applications` ("AllInOneIME 设置" on a Chinese system).
-
-`make install` enables AllInOneIME and adds it to your input sources; after that, switch to it with Ctrl+Space
-(the 🌐 key switches only if "Press 🌐 key to" is set to "Change Input Source" in System Settings → Keyboard).
-If it ends by telling you to add it by hand, this Mac doesn't let programs enable it, so add it once yourself:
-System Settings → Keyboard → Text Input → Input Sources → Edit… → + (bottom left) → Chinese, Simplified → AllInOneIME.
-
-If Ctrl+Space doesn't get you to AllInOneIME, or it switches back to U.S. after a while, run `make install` again:
-it adds AllInOneIME back to your input sources. The `listed:` line in `make status` shows whether it's in the list.
-
-If you had AIPinyin (AI 拼音) installed, just run `make install`: it removes the old AIPinyin.app and "AI 拼音设置" (its settings launcher),
-and the entry in your input sources gets the new name, with no need to add it again. Settings, the jargon list and learned words move to the new folders
-(`~/.config/allinoneime` and others) on first launch, and each old folder is left as a link to the new one.
-
-Before upgrading, read the [changelog](CHANGELOG.en.md): it has each version's changes and upgrade notes. The `version:` line of `make status` shows which version is installed.
-
-To uninstall: `make uninstall`.
+`make install` downloads librime and the rime-ice dictionaries and verifies them, builds, and installs into the same places, adding it to your input sources the same way.
+`make status` shows the installed version (`version:`) and whether it's in your input sources (`listed:`). To uninstall: `make uninstall`.
 
 ## Setting up the AI (Amazon Bedrock)
 
@@ -209,6 +220,7 @@ make realtest     # types into a real app's text field (needs the screen unlocke
 make screenshots  # regenerates the screenshots in docs/
 make cli && .build/release/allinoneime-cli --styles 简洁,黑话 "我今天有点不舒服"   # try translation and rewrites in the terminal (styles Concise, Jargon; "I'm not feeling well today")
 make icon         # regenerates the app icon and the menu bar icon from Resources/AppIcon.png
+make dmg          # the release installer, build/AllInOneIME-<version>.dmg (universal; signed if there's a Developer ID certificate, optionally notarized)
 ```
 
 Code layout:
@@ -217,6 +229,7 @@ Code layout:
 - `Sources/AllInOneIMERime`: librime wrapper
 - `Sources/AllInOneIME`: the InputMethodKit input method, candidate panel, settings window, speech recognition
 - `Sources/AllInOneIMESettings`: the "AllInOneIME Settings" launcher
+- `Sources/AllInOneIMEInstaller`: "Install AllInOneIME" on the disk image: installs, updates and uninstalls
 
 The bundle ID is still `com.aipinyin.inputmethod.AIPinyin`: macOS uses it to remember the added input source and the microphone permission, so changing it would mean adding the input method and granting the permission again.
 

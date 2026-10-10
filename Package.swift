@@ -51,6 +51,14 @@ let package = Package(
         // AllInOneIME Settings (「AllInOneIME 设置」): a launcher in ~/Applications that opens the settings window.
         .executableTarget(name: "AllInOneIMESettings", swiftSettings: [.swiftLanguageMode(.v5)]),
 
+        // 「安装 AllInOneIME」: the installer on the release disk image (`make dmg`). It carries both
+        // apps and installs them like `make install`; it uninstalls them too.
+        .executableTarget(
+            name: "AllInOneIMEInstaller",
+            dependencies: ["AllInOneIMECore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+
         .testTarget(
             name: "AllInOneIMECoreTests",
             dependencies: ["AllInOneIMECore"],

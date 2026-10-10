@@ -2,16 +2,27 @@
 
 中文 | [English](CHANGELOG.en.md)
 
-## 未发布
+## 0.3.0（2026-10-09）
 
 ### 新增
 
+- 安装包：从 [Releases](https://github.com/weijianz-opc/AllInOneIME/releases) 下载 `AllInOneIME-<版本>.dmg`，双击里面的「安装 AllInOneIME」就能安装、更新或卸载，不用再装 Xcode 编译。通用版，Apple 芯片和 Intel 的 Mac 都能用。只装给当前用户，不需要管理员密码。安装包还没有经过 Apple 公证，第一次打开要在 系统设置 → 隐私与安全性 里点「仍要打开」；只从 Releases 下载。
 - 在命令里（或整句模式的草稿里）按 ⌃V，把剪贴板里的文字接到已经打的字后面，哪个 App 里都能用，终端也行。⌘V 在终端（Ghostty 等）和备忘录里会被 App 自己拿去粘贴，在那里用 ⌃V。
+- 开发：`make dmg` 生成发布用的安装包（有 Developer ID 证书时签名，设了 `NOTARY_PROFILE` 时顺便公证）。
+
+### 改动
+
+- 输入法里带上了许可证（`LICENSE`、`THIRD_PARTY_NOTICES.md`）。`THIRD_PARTY_NOTICES.md` 补上了编进 librime 的库（Boost、glog、LevelDB、yaml-cpp、OpenCC、Lua 等）的许可证全文。
 
 ### 修复
 
 - 候选框里很长的一行（比如 `@question` 的长答案）有时会少画最后一行，现在完整显示。
 - 设置窗口里 `@improve` 的说明改得更清楚：「打中文 → 翻译成英文 / 改写；打英文 → 英文润色 / 改写」。
+
+### 升级须知
+
+- 从源码装的（`make install`）可以直接用安装包更新，反过来也一样：bundle ID 没变，设置、学到的词和输入法列表里那一项都保留。
+- 安装包里的 App 是临时（ad-hoc）签名，换成安装包、或者以后每次更新后，macOS 可能会再问一次麦克风权限。
 
 ## 0.2.0（2026-10-09）
 

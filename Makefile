@@ -6,6 +6,12 @@ INSTALL_DIR   := $(HOME)/Library/Input Methods
 INSTALLED_APP := $(INSTALL_DIR)/$(APP_NAME).app
 # Any identity substring codesign accepts; falls back to ad-hoc signing if not found.
 SIGN_IDENTITY ?= Apple Development
+# Developer ID signatures get a secure timestamp (from Apple, over the network): notarization needs it.
+# Goes by the certificate SIGN_IDENTITY picks, so a hash works too.
+TIMESTAMP = $(shell security find-identity -v -p codesigning | grep -F -- '$(SIGN_IDENTITY)' | grep -q 'Developer ID' && echo --timestamp)
+# Architectures to build for; empty: this Mac's. `make dmg` builds for both (DIST_ARCHS).
+ARCHS ?=
+SWIFT_BUILD = swift build -c $(CONFIG) $(foreach arch,$(ARCHS),--arch $(arch))
 
 # Level one: official librime release build (BSD-3) and the rime-ice dictionaries (GPL-3.0).
 LIBRIME_VERSION := 1.16.1
@@ -21,7 +27,7 @@ RIME_LIB   := $(RIME_DIST)/lib/librime.1.dylib
 RIME_DATA  := $(DEPS)/rime-data
 RIME_BUILT := $(RIME_DATA)/build/rime_ice.table.bin
 
-.PHONY: all deps build app settings-app test icon install uninstall cli status selftest screenshots realtest realtest-build realtest-run realtest-when-unlocked realtest-cancel clean distclean
+.PHONY: all deps build app settings-app installer-app dmg test icon install uninstall cli status selftest screenshots realtest realtest-build realtest-run realtest-when-unlocked realtest-cancel clean distclean
 
 all: app
 
@@ -51,14 +57,16 @@ $(RIME_BUILT): $(RIME_LIB) Resources/rime/default.custom.yaml
 	test -f $@
 
 build: deps
-	swift build -c $(CONFIG) --product $(APP_NAME)
+	$(SWIFT_BUILD) --product $(APP_NAME)
 
 app: build Resources/icon.tiff Resources/AppIcon.icns
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources" "$(APP)/Contents/Frameworks" "$(APP)/Contents/SharedSupport"
-	cp "$$(swift build -c $(CONFIG) --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
+	cp "$$($(SWIFT_BUILD) --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
+	Scripts/strip-rpaths.sh "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp Resources/Info.plist "$(APP)/Contents/Info.plist"
-	cp Resources/icon.tiff Resources/AppIcon.icns "$(APP)/Contents/Resources/"
+	# The licenses travel with the binaries (librime's BSD license asks for its notice).
+	cp Resources/icon.tiff Resources/AppIcon.icns LICENSE THIRD_PARTY_NOTICES.md "$(APP)/Contents/Resources/"
 	for lang in en zh-Hans; do \
 		mkdir -p "$(APP)/Contents/Resources/$$lang.lproj" && \
 		cp "Resources/$$lang.lproj/InfoPlist.strings" "$(APP)/Contents/Resources/$$lang.lproj/"; \
@@ -71,9 +79,9 @@ app: build Resources/icon.tiff Resources/AppIcon.icns
 	# DYLD_* injection is ignored. Ad-hoc signing (no identity) can't use it. The entitlement
 	# allows microphone access (voice input) under the hardened runtime.
 	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
-		codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(APP)"/Contents/Frameworks/rime-plugins/*.dylib \
+		codesign --force --options runtime $(TIMESTAMP) --sign "$(SIGN_IDENTITY)" "$(APP)"/Contents/Frameworks/rime-plugins/*.dylib \
 			"$(APP)/Contents/Frameworks/librime.1.dylib" && \
-		codesign --force --options runtime --entitlements Resources/AllInOneIME.entitlements \
+		codesign --force --options runtime $(TIMESTAMP) --entitlements Resources/AllInOneIME.entitlements \
 			--sign "$(SIGN_IDENTITY)" "$(APP)"; \
 	else \
 		echo "warning: no '$(SIGN_IDENTITY)' signing identity; ad-hoc signing without hardened runtime"; \
@@ -109,10 +117,11 @@ LEGACY_SETTINGS_APP  := $(USER_APPS)/AI 拼音设置.app
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 settings-app: Resources/AppIcon.icns
-	swift build -c $(CONFIG) --product AllInOneIMESettings
+	$(SWIFT_BUILD) --product AllInOneIMESettings
 	rm -rf "$(SETTINGS_APP)"
 	mkdir -p "$(SETTINGS_APP)/Contents/MacOS" "$(SETTINGS_APP)/Contents/Resources"
-	cp "$$(swift build -c $(CONFIG) --show-bin-path)/AllInOneIMESettings" "$(SETTINGS_APP)/Contents/MacOS/AllInOneIMESettings"
+	cp "$$($(SWIFT_BUILD) --show-bin-path)/AllInOneIMESettings" "$(SETTINGS_APP)/Contents/MacOS/AllInOneIMESettings"
+	Scripts/strip-rpaths.sh "$(SETTINGS_APP)/Contents/MacOS/AllInOneIMESettings"
 	cp Resources/Settings-Info.plist "$(SETTINGS_APP)/Contents/Info.plist"
 	cp Resources/AppIcon.icns "$(SETTINGS_APP)/Contents/Resources/AppIcon.icns"
 	for lang in en zh-Hans; do \
@@ -121,11 +130,59 @@ settings-app: Resources/AppIcon.icns
 	done
 	printf 'APPL????' > "$(SETTINGS_APP)/Contents/PkgInfo"
 	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
-		codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(SETTINGS_APP)"; \
+		codesign --force --options runtime $(TIMESTAMP) --sign "$(SIGN_IDENTITY)" "$(SETTINGS_APP)"; \
 	else \
 		codesign --force --sign - "$(SETTINGS_APP)"; \
 	fi
 	codesign --verify --strict "$(SETTINGS_APP)"
+
+# 「安装 AllInOneIME」 (Install AllInOneIME): the installer on the release disk image. Both apps go in
+# as one zip archive, which it unpacks into place like `make install` (Sources/AllInOneIMEInstaller).
+# They are moved into the archive, not copied: build/ keeps no second AllInOneIME.app (same bundle
+# ID) for macOS to launch instead of the installed one. Stored uncompressed: the disk image
+# compresses it better. Without this Mac's extended attributes and ACLs.
+INSTALLER_NAME := Install AllInOneIME
+INSTALLER_APP  := $(BUILD_DIR)/$(INSTALLER_NAME).app
+PAYLOAD_DIR    := $(BUILD_DIR)/payload
+
+installer-app: app settings-app
+	$(SWIFT_BUILD) --product AllInOneIMEInstaller
+	rm -rf "$(INSTALLER_APP)" "$(PAYLOAD_DIR)"
+	mkdir -p "$(INSTALLER_APP)/Contents/MacOS" "$(INSTALLER_APP)/Contents/Resources" "$(PAYLOAD_DIR)"
+	cp "$$($(SWIFT_BUILD) --show-bin-path)/AllInOneIMEInstaller" "$(INSTALLER_APP)/Contents/MacOS/AllInOneIMEInstaller"
+	Scripts/strip-rpaths.sh "$(INSTALLER_APP)/Contents/MacOS/AllInOneIMEInstaller"
+	cp Resources/Installer-Info.plist "$(INSTALLER_APP)/Contents/Info.plist"
+	cp Resources/AppIcon.icns "$(INSTALLER_APP)/Contents/Resources/AppIcon.icns"
+	for lang in en zh-Hans; do \
+		mkdir -p "$(INSTALLER_APP)/Contents/Resources/$$lang.lproj" && \
+		cp "Resources/Installer-$$lang.lproj/InfoPlist.strings" "$(INSTALLER_APP)/Contents/Resources/$$lang.lproj/"; \
+	done
+	printf 'APPL????' > "$(INSTALLER_APP)/Contents/PkgInfo"
+	mv "$(APP)" "$(SETTINGS_APP)" "$(PAYLOAD_DIR)/"
+	ditto -c -k --norsrc --noextattr --noacl --zlibCompressionLevel 0 "$(PAYLOAD_DIR)" "$(INSTALLER_APP)/Contents/Resources/Payload.zip"
+	rm -rf "$(PAYLOAD_DIR)"
+	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
+		codesign --force --options runtime $(TIMESTAMP) --sign "$(SIGN_IDENTITY)" "$(INSTALLER_APP)"; \
+	else \
+		codesign --force --sign - "$(INSTALLER_APP)"; \
+	fi
+	codesign --verify --strict "$(INSTALLER_APP)"
+	@echo "Built $(INSTALLER_APP)"
+
+# The release: build/AllInOneIME-<version>.dmg and its .sha256, with the installer (universal: Apple
+# silicon and Intel), a read-me and the licenses (Scripts/make-dmg.sh). Signed with DIST_IDENTITY, a
+# Developer ID Application certificate, if the keychain has one, else ad-hoc; then macOS asks users
+# to allow the installer once (System Settings → Privacy & Security → Open Anyway). NOTARY_PROFILE,
+# a keychain profile saved with `xcrun notarytool store-credentials`, also notarizes and staples it.
+VERSION        := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
+DMG            := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).dmg
+DIST_IDENTITY  ?= Developer ID Application
+DIST_ARCHS     ?= arm64 x86_64
+NOTARY_PROFILE ?=
+
+dmg:
+	$(MAKE) installer-app SIGN_IDENTITY="$(DIST_IDENTITY)" ARCHS="$(DIST_ARCHS)"
+	Scripts/make-dmg.sh "$(INSTALLER_APP)" "$(DMG)" "$(APP_NAME) $(VERSION)" "$(DIST_IDENTITY)" "$(NOTARY_PROFILE)"
 
 test: deps
 	swift test

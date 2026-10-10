@@ -124,10 +124,36 @@ two-way door：可以随时撤回的决定
 
 按住约 0.2 秒后才开始录音，所以轻点右 ⌥ 不会打开麦克风（执行键设成「单按 ⌥」时，轻点就是执行）。按住时如果按了别的键（比如 ⌥ 组合键、⌥←），就当作快捷键，也不会录音。录音中按其他键会取消录音。
 
-## 安装（从源码）
+## 安装
 
-运行需要 macOS 14 以上，语音输入要 macOS 26 以上。编译需要 Xcode 26 以上，因为语音输入用到 macOS 26 SDK。
-目前只在 macOS 27 + Xcode 27、Apple Silicon 上测试过。
+运行需要 macOS 14 以上，语音输入要 macOS 26 以上。安装包是通用版，Apple 芯片和 Intel 的 Mac 都能用；
+目前只在 macOS 27、Apple 芯片上测试过（Intel 版只在 Rosetta 下跑过自测）。
+
+1. 从 [Releases](https://github.com/weijianz-opc/AllInOneIME/releases/latest) 下载 `AllInOneIME-<版本>.dmg`（只从这里下载），双击打开。
+2. 双击里面的「安装 AllInOneIME」，点「安装」。输入法装到 `~/Library/Input Methods`，
+   「AllInOneIME 设置」装到 `~/Applications`（英文系统里叫 AllInOneIME Settings）。只装给当前用户，不需要管理员密码。
+3. 安装包还没有经过 Apple 公证，macOS 验证不了它是谁做的，第一次打开时会说无法验证「安装 AllInOneIME」：
+   点「完成」（macOS 14 上是「取消」），打开 系统设置 → 隐私与安全性，在页面下方点「仍要打开」，再确认一次。
+   每个新版本的安装程序都要这样放行一次。
+
+装好后 AllInOneIME 已经启用，也在你的输入法列表里，用 Ctrl+空格 切换
+（🌐 键要在 系统设置 → 键盘 里把「按下 🌐 键时」设成「更改输入法」才会切换）。
+如果安装程序提示要手动添加，说明这台 Mac 不让程序启用，就自己加一次：
+系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME。
+
+Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再运行一次安装程序，它会把 AllInOneIME 加回输入法列表。
+
+更新：用新版的 DMG 再装一次，不用先卸载，设置、黑话库和学到的词都保留。升级前看一下 [更新日志](CHANGELOG.md)，里面有每个版本的变化和升级须知。
+
+以前装过 AI 拼音（AIPinyin）的话，直接安装就行：旧的 AIPinyin.app 和「AI 拼音设置」会被删掉，
+输入法列表里那一项会换成新名字，不用重新添加。设置、黑话库和学到的词第一次启动时搬到新目录
+（`~/.config/allinoneime` 等），旧目录留一个指向新目录的链接。
+
+卸载：打开「安装 AllInOneIME」，点「卸载…」。设置和学到的词会保留。
+
+### 从源码编译
+
+编译需要 Xcode 26 以上，因为语音输入用到 macOS 26 SDK。
 
 ```sh
 git clone https://github.com/weijianz-opc/AllInOneIME.git
@@ -135,24 +161,8 @@ cd AllInOneIME
 make install
 ```
 
-`make install` 会下载 librime 和雾凇拼音词库并校验，编译后安装到 `~/Library/Input Methods`，
-并在 `~/Applications` 放一个「AllInOneIME 设置」（英文系统里叫 AllInOneIME Settings）。
-
-`make install` 会启用 AllInOneIME，并把它加进你的输入法列表，之后用 Ctrl+空格 切换
-（🌐 键要在 系统设置 → 键盘 里把「按下 🌐 键时」设成「更改输入法」才会切换）。
-如果最后提示要手动添加，说明这台 Mac 不让程序启用，就自己加一次：
-系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME。
-
-Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再运行一次 `make install`，
-它会把 AllInOneIME 加回输入法列表。`make status` 里的 `listed:` 一行显示它在不在列表里。
-
-以前装过 AI 拼音（AIPinyin）的话，直接 `make install` 就行：它会删掉旧的 AIPinyin.app 和「AI 拼音设置」，
-输入法列表里那一项会换成新名字，不用重新添加。设置、黑话库和学到的词第一次启动时搬到新目录
-（`~/.config/allinoneime` 等），旧目录留一个指向新目录的链接。
-
-升级前看一下 [更新日志](CHANGELOG.md)，里面有每个版本的变化和升级须知。装的是哪个版本，看 `make status` 的 `version:` 一行。
-
-卸载：`make uninstall`。
+`make install` 会下载 librime 和雾凇拼音词库并校验，编译后装到同样的位置，同样加进输入法列表。
+`make status` 显示装的是哪个版本（`version:`）、在不在输入法列表里（`listed:`）。卸载：`make uninstall`。
 
 ## 配置 AI（Amazon Bedrock）
 
@@ -197,6 +207,7 @@ make realtest     # 在真实 App 的文本框里打字测试（需要屏幕已�
 make screenshots  # 重新生成 docs/ 里的截图
 make cli && .build/release/allinoneime-cli --styles 简洁,黑话 "我今天有点不舒服"   # 在终端里试翻译和改写
 make icon         # 从 Resources/AppIcon.png 重新生成 App 图标和菜单栏图标
+make dmg          # 发布用的安装包 build/AllInOneIME-<版本>.dmg（通用版；有 Developer ID 证书时签名，可以顺便公证）
 ```
 
 代码结构：
@@ -205,6 +216,7 @@ make icon         # 从 Resources/AppIcon.png 重新生成 App 图标和菜单�
 - `Sources/AllInOneIMERime`：librime 封装
 - `Sources/AllInOneIME`：InputMethodKit 输入法、候选框、设置窗口、语音识别
 - `Sources/AllInOneIMESettings`：「AllInOneIME 设置」启动器
+- `Sources/AllInOneIMEInstaller`：DMG 里的「安装 AllInOneIME」：安装、更新和卸载
 
 Bundle ID 仍是 `com.aipinyin.inputmethod.AIPinyin`：macOS 按它记住已添加的输入法和麦克风权限，改了就要重新添加和授权。
 
