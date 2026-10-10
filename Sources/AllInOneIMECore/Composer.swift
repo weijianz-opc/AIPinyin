@@ -71,6 +71,12 @@ public final class Composer {
         case listAgents(id: Int)
         /// Show the settings window (`@settings`).
         case openSettings
+        /// Save `text` to Apple Notes (`@note`); nothing is inserted.
+        case saveNote(text: String)
+        /// Read the reminder in `input` (`@reminder`), by the real clock; it arrives via `receiveReminder`.
+        case previewReminder(input: String, id: Int)
+        /// Add a confirmed reminder to Apple Reminders.
+        case addReminder(ReminderDraft)
         /// Run a custom `run` command's program on `input`; what it prints arrives via `receive`.
         case startRun(Command, input: String, id: Int)
         /// A command was run (`commandUsage` has it): keep the usage for the order of the command list.
@@ -126,6 +132,8 @@ public final class Composer {
             case answer
             /// A file or app found by `@open`; picking it opens it instead of inserting anything.
             case file(path: String)
+            /// The reminder read from an `@reminder` text; picking it adds it to Reminders.
+            case reminder(ReminderDraft)
 
             public var isRewrite: Bool {
                 if case .rewrite = self { return true }
@@ -166,6 +174,8 @@ public final class Composer {
         public var pasteTooLong: String
         /// ⌘V in a draft with no text on the clipboard (or reading it isn't allowed).
         public var nothingToPaste: String
+        /// `@reminder` with only a time ("@reminder 明天下午3点"): nothing to be reminded of.
+        public var reminderWithoutTitle: String
 
         public static let chinese = Messages(
             notReady: "词库准备中，稍候可用", holdToTalk: "按住右 ⌥ 说话", didNotHear: "没听清，再说一次",
@@ -177,7 +187,8 @@ public final class Composer {
             startedInBackground: "已在后台开始，做完会通知你；@tasks 查看",
             secureInputCommand: "系统安全输入已开启（密码框或锁屏），没有运行命令",
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
-            nothingToPaste: "剪贴板里没有能用的文字")
+            nothingToPaste: "剪贴板里没有能用的文字",
+            reminderWithoutTitle: "写上要提醒的事，比如「明天下午3点给张三打电话」")
         public static let english = Messages(
             notReady: "Loading the dictionaries, one moment", holdToTalk: "Hold right ⌥ to talk",
             didNotHear: "Didn't catch that, try again", chineseMode: "Chinese", englishMode: "English",
@@ -189,7 +200,8 @@ public final class Composer {
             startedInBackground: "Started in the background; you'll be notified when it's done (@tasks)",
             secureInputCommand: "Secure input is on (a password field or the lock screen): the command was not run",
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
-            nothingToPaste: "No text on the clipboard to use")
+            nothingToPaste: "No text on the clipboard to use",
+            reminderWithoutTitle: "Write what to be reminded of, e.g. “call Bob tomorrow at 3pm”")
     }
     /// The command of the request in level two (nil otherwise).
     public private(set) var activeCommand: Command?
@@ -200,6 +212,8 @@ public final class Composer {
     public var commandUsage = CommandUsage()
     /// `@claude` starts a background session instead of a Terminal window.
     public var claudeInBackground = false
+    /// The reminder read from an `@reminder` text (`receiveReminder`), shown to confirm.
+    public private(set) var pendingReminder: ReminderDraft?
     /// Files and apps found for `@open`.
     public private(set) var searchResults: [SearchResult] = []
     /// Results for the `@open` text as it is typed (`liveQuery`), and the highlighted one.
@@ -230,7 +244,8 @@ public final class Composer {
     public var pastesIntoDraft = true
     /// Whether secure input is on anywhere (set by the input controller). Nothing is sent to a model
     /// then: a terminal command doesn't start Claude Code, and its text stays in the draft. (The other
-    /// commands are refused by the controller, which sends their requests.)
+    /// commands are refused by the controller, which sends their requests; `@note` and `@reminder`
+    /// stay on this Mac and go ahead.)
     public var secureInputActive: () -> Bool = { false }
     /// Confirmed text waiting for level two: an @ command and the sentence after it.
     public private(set) var draft = ""
@@ -351,7 +366,8 @@ public final class Composer {
     /// Level-two rows: "0" the sentence as typed, "1"–"3" the versions in the output language, then
     /// the rewrites in the configured styles, numbered on from 4. A rewrite is shown once it has fully
     /// arrived, and only if it changes the wording (not just punctuation) and repeats no other row.
-    /// For `@question` / `@claude`: "0" the text sent and "1" the answer; for `@open`: the files found.
+    /// For `@question` / `@claude`: "0" the text sent and "1" the answer; for `@open`: the files found;
+    /// for `@reminder`: "1" the reminder to add.
     public var choices: [Choice] {
         guard isLevelTwo else { return [] }
         switch activeCommand?.kind {
@@ -360,13 +376,15 @@ public final class Composer {
                 Choice(label: String($0.offset + 1), kind: .file(path: $0.element.path), text: $0.element.name,
                        isComplete: true)
             }
+        case .reminder?:
+            return pendingReminder.map { [Choice(label: "1", kind: .reminder($0), text: $0.title, isComplete: true)] } ?? []
         case .generate?, .run?:
             var out = [Choice(label: "0", kind: .original, text: sentText, isComplete: true)]
             if let line = result.versions.first {
                 out.append(Choice(label: "1", kind: .answer, text: line.text, isComplete: line.isComplete))
             }
             return out
-        case .convert?, .terminal?, .settings?, nil:
+        case .convert?, .terminal?, .settings?, .note?, nil:
             break
         }
         let original = sentText
@@ -394,7 +412,7 @@ public final class Composer {
     public var highlighted: Int {
         let all = choices
         if let highlightOverride { return all.isEmpty ? 0 : min(highlightOverride, all.count - 1) }
-        if activeCommand?.kind == .search || activeCommand?.kind == .agents { return 0 }
+        if activeCommand?.kind == .search || activeCommand?.kind == .agents || activeCommand?.kind == .reminder { return 0 }
         if case .translating = phase { return 1 }
         if let i = all.firstIndex(where: { $0.kind == .version || $0.kind == .answer }) { return i }
         if let i = all.firstIndex(where: { $0.kind.isRewrite }) { return i }
@@ -713,6 +731,19 @@ public final class Composer {
     public func fail(_ message: String, id: Int) -> [Effect] {
         guard phase == .translating(id: id) else { return [] }
         phase = .failed(message)
+        return [.showPanel]
+    }
+
+    /// The reminder read from the `@reminder` text (`.previewReminder`): one row to confirm (Space, ⏎ or 1
+    /// adds it, Esc goes back to fix the wording), or a hint when the text holds only a time.
+    public func receiveReminder(_ reminder: ReminderDraft, id: Int) -> [Effect] {
+        guard phase == .translating(id: id) else { return [] }
+        if reminder.title.isEmpty {
+            phase = .failed(messages.reminderWithoutTitle)
+        } else {
+            pendingReminder = reminder
+            phase = .choosing
+        }
         return [.showPanel]
     }
 
@@ -1259,21 +1290,32 @@ public final class Composer {
             }
             return .consumed(finish(committing: "") + [.runInTerminal(prompt: input), .notice(messages.openedTerminal), usage])
         }
+        if let command = parsed?.command, command.kind == .note {
+            // Saved on this Mac (Apple Notes) and nothing goes to a model, so secure input doesn't hold it
+            // back. The controller says when it is saved, or why not.
+            let usage = used(command)
+            return .consumed(finish(committing: "") + [.saveNote(text: input), usage])
+        }
         requestCounter += 1
         phase = .translating(id: requestCounter)
         result = .empty
         searchResults = []
+        pendingReminder = nil
         highlightOverride = nil
         activeCommand = parsed?.command
         let start: Effect
-        // Commands inside the text (`@stock AAPL`) run first; not inside a search's text.
-        let plan = parsed?.command.kind == .search ? nil : CommandPlan.make(input, commands: commands)
+        // Commands inside the text (`@stock AAPL`) run first; not inside a search's text, nor a reminder's
+        // (it stays on this Mac).
+        let local = parsed?.command.kind == .search || parsed?.command.kind == .reminder
+        let plan = local ? nil : CommandPlan.make(input, commands: commands)
         switch parsed?.command {
         case _ where plan?.isEmpty == false:
             start = .startPlan(outer: parsed?.command, plan: plan!, id: requestCounter)
         case let command? where command.kind == .generate: start = .startCommand(command, input: input, id: requestCounter)
         case let command? where command.kind == .run: start = .startRun(command, input: input, id: requestCounter)
         case .open?: start = .search(query: input, id: requestCounter)
+        // Read by the controller on this Mac (nothing is sent anywhere, so secure input doesn't hold it back).
+        case .reminder?: start = .previewReminder(input: input, id: requestCounter)
         default: start = .startConversion(input: input, id: requestCounter)
         }
         let usage = ((parsed.map { [$0.command] } ?? []) + (plan?.inner.map(\.command) ?? [])).map(used)
@@ -1383,6 +1425,7 @@ public final class Composer {
         if case .translating = phase { effects.append(.cancelConversion) }
         result = .empty
         searchResults = []
+        pendingReminder = nil
         activeCommand = nil
         highlightOverride = nil
         setLevelOnePhase()
@@ -1393,6 +1436,7 @@ public final class Composer {
         let all = choices
         guard all.indices.contains(index), all[index].isComplete, !all[index].text.isEmpty else { return [] }
         if case let .file(path) = all[index].kind { return finish(committing: "") + [.open(path: path)] }
+        if case let .reminder(reminder) = all[index].kind { return finish(committing: "") + [.addReminder(reminder)] }
         return finish(committing: all[index].text)
     }
 
@@ -1416,6 +1460,7 @@ public final class Composer {
         actsAfterVoice = false
         result = .empty
         searchResults = []
+        pendingReminder = nil
         activeCommand = nil
         paletteHighlight = 0
         pendingPaste = nil  // a paste still on its way is dropped

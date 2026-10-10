@@ -726,9 +726,10 @@ struct SettingsView: View {
     private var commandsSummary: String {
         let key = UIText.howToPress(model.config.actionKey)
         return tr("平时就是普通拼音输入法。开头打 @ 用命令：@improve 润色 / 翻译，@question 提问，@claude 开 Claude Code，"
-                      + "@open 找文件。写完\(key)执行。",
+                      + "@open 找文件，@note 存到备忘录，@reminder 加提醒事项。写完\(key)执行。",
                   "A regular pinyin input method. Type @ first for commands: @improve polishes / translates, @question asks, "
-                      + "@claude opens Claude Code, @open finds files. When done, \(key).")
+                      + "@claude opens Claude Code, @open finds files, @note saves to Notes, @reminder adds a reminder. "
+                      + "When done, \(key).")
     }
 
     /// What @improve does for Chinese and for English input.

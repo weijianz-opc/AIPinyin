@@ -40,6 +40,8 @@ let package = Package(
                 // Voice input: microphone capture and on-device speech recognition.
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Speech"),
+                // @reminder: Apple Reminders.
+                .linkedFramework("EventKit"),
                 // librime.1.dylib is copied into Contents/Frameworks by the Makefile.
                 .unsafeFlags(["-L\(rimeLib)", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
             ]

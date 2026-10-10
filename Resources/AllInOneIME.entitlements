@@ -6,9 +6,14 @@
 	     needs this entitlement in addition to the user's permission. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
-	<!-- @claude and "run in Terminal" commands: Terminal is asked (Apple events) to open a window and
-	     run the command once its shell is ready. -->
+	<!-- Apple events, which the hardened runtime blocks without this (the user is still asked, under
+	     Automation): @claude and "run in Terminal" commands ask Terminal to open a window and run the
+	     command once its shell is ready; @note saves to Notes through AppleScript. -->
 	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<!-- @reminder uses EventKit for Reminders. This is the hardened runtime's EventKit entitlement
+	     (named for Calendar); whether Reminders needs it isn't verified, so it is kept. -->
+	<key>com.apple.security.personal-information.calendars</key>
 	<true/>
 </dict>
 </plist>

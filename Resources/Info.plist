@@ -36,11 +36,17 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Personal build</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>为 @claude 和你自己加的「在终端运行」命令打开终端窗口。</string>
+	<string>为 @claude 和你自己加的「在终端运行」命令打开终端窗口；用 @note 时把文字存进「备忘录」（AllInOneIME 文件夹）。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>按住右 ⌥ 说话时录音。语音在这台 Mac 上识别成文字，不会上传。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>按住右 ⌥ 说话时把语音识别成文字（在这台 Mac 上完成）。</string>
+	<!-- @reminder adds to Reminders through EventKit, with full access (macOS 14) so it can make its
+	     list and read it back. Without these strings macOS denies the access without asking. -->
+	<key>NSRemindersUsageDescription</key>
+	<string>用 @reminder 时把提醒加进「提醒事项」（AllInOneIME 列表）。</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>用 @reminder 时把提醒加进「提醒事项」（AllInOneIME 列表）。</string>
 	<key>InputMethodConnectionName</key>
 	<string>com.aipinyin.inputmethod.AIPinyin_Connection</string>
 	<key>InputMethodServerControllerClass</key>

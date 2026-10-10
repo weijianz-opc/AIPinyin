@@ -4,4 +4,6 @@
 "com.aipinyin.inputmethod.AIPinyin" = "AllInOneIME";
 "NSMicrophoneUsageDescription" = "Records while you hold the right ⌥ key to talk. Speech is turned into text on this Mac and never uploaded.";
 "NSSpeechRecognitionUsageDescription" = "Turns speech into text while you hold the right ⌥ key, on this Mac.";
-"NSAppleEventsUsageDescription" = "Opens Terminal windows for @claude and your own commands that run in Terminal.";
+"NSAppleEventsUsageDescription" = "Opens Terminal windows for @claude and your own commands that run in Terminal, and saves your text to Notes (the AllInOneIME folder) when you use @note.";
+"NSRemindersUsageDescription" = "Adds reminders to Reminders (the AllInOneIME list) when you use @reminder.";
+"NSRemindersFullAccessUsageDescription" = "Adds reminders to Reminders (the AllInOneIME list) when you use @reminder.";

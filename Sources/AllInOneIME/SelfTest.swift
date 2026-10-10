@@ -692,6 +692,191 @@ enum SelfTest {
         controller.commitComposition(client)
     }
 
+    /// @note and @reminder through the controller, with stand-ins for Notes and Reminders (nothing is
+    /// saved or added for real): what they get, the notices, the reminder's row to confirm (read by
+    /// the real parser, by the real clock) and that secure input doesn't hold them back.
+    static func testNotesAndReminders(_ controller: AllInOneIMEInputController, _ client: FakeTextClient,
+                                      snapshotDirectory: URL) {
+        print("— @note, @reminder (stand-ins for Notes and Reminders)")
+        var notes: [String] = [], reminders: [ReminderDraft] = [], copied: [String] = []
+        var failure: Error?
+        controller.saveNote = { text in
+            if let failure { throw failure }
+            notes.append(text)
+        }
+        controller.addReminder = { reminder in
+            if let failure { throw failure }
+            reminders.append(reminder)
+        }
+        controller.copyText = { copied.append($0) }
+        let (parse, secureInput) = (controller.parseReminder, controller.secureInputActive)
+        defer {
+            controller.saveNote = { _ = try await NotesBridge.save($0) }
+            controller.addReminder = { _ = try await RemindersBridge.add($0) }
+            controller.parseReminder = parse
+            controller.secureInputActive = secureInput
+            controller.readClipboard = { nil }
+            controller.copyText = { text in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
+        }
+        func at() { _ = press(controller, client, "@", code: 0x13, flags: .shift) }
+        func tab() { _ = press(controller, client, "\t", code: VirtualKey.tab) }
+        func notice() -> String? { controller.panelModel().detail }
+        func settle() { _ = pump(timeout: 6) { notice() == nil } }
+        let insertedBefore = client.inserted
+
+        // @note: "@n" offers it, ⏎ saves, nothing goes in.
+        settle()
+        at()
+        type("n", controller, client)
+        let offered = controller.panelModel().rows.first
+        check(offered?.text == "@note" && offered?.comment == "存到备忘录",
+              "@n offers @note first (\(offered?.text ?? "-") \(offered?.comment ?? ""))")
+        tab()
+        type("nihao", controller, client)
+        _ = space(controller, client)
+        check(client.marked == "note › 你好" && controller.panelModel().status == .hint("⏎ → 存到备忘录"),
+              "the hint says ⏎ saves it to Notes (\(controller.panelModel().status))")
+        _ = enter(controller, client)
+        check(client.marked.isEmpty && client.inserted == insertedBefore && !controller.composer.isComposing,
+              "⏎ inserts nothing and clears the draft")
+        check(pump(timeout: 2) { notice() == "已存到备忘录" } && notes == ["你好"],
+              "the text goes to Notes, then 「已存到备忘录」 (\(notes), \(notice() ?? "no notice"))")
+        // Secure input on (a password field elsewhere) doesn't hold it back: nothing goes to a model.
+        controller.secureInputActive = { true }
+        at()
+        type("n", controller, client)
+        tab()
+        type("nihao", controller, client)
+        _ = enter(controller, client)  // converts the pinyin and saves
+        check(pump(timeout: 2) { notes.count == 2 } && notes.last == "你好", "…also while secure input is on (\(notes))")
+        controller.secureInputActive = secureInput
+        // Not allowed to control Notes: it says where to allow it.
+        failure = NotesBridge.NotesError.notPermitted
+        at()
+        type("n", controller, client)
+        tab()
+        type("nihao", controller, client)
+        _ = enter(controller, client)
+        let notAllowed = "没有权限控制「备忘录」：在 系统设置 → 隐私与安全性 → 自动化 里允许 AllInOneIME"
+        check(pump(timeout: 2) { notice() == notAllowed } && notes.count == 2, "without permission: \(notice() ?? "no notice")")
+        failure = nil
+        // Nothing after it: ⏎ takes the clipboard's text (as for every command), ⏎ again saves it.
+        controller.readClipboard = { "买牛奶" }
+        at()
+        type("n", controller, client)
+        tab()
+        check(enter(controller, client) && pump(timeout: 1) { client.marked == "note › 买牛奶" } && notes.count == 2,
+              "⏎ on an empty @note shows the clipboard's text in it (\(client.marked))")
+        controller.readClipboard = { nil }
+        _ = enter(controller, client)
+        check(pump(timeout: 2) { notes.count == 3 } && notes.last == "买牛奶", "…and ⏎ again saves it (\(notes))")
+        // The note's body is escaped HTML; the text reaches a script as its argument, never as its source,
+        // off the main thread; the scripts compile (none is sent to Notes here).
+        check(NotesBridge.html("a<b> & \"c\"\n\nd") == "<div>a&lt;b&gt; &amp; &quot;c&quot;</div><div><br></div><div>d</div>",
+              "the note's body is escaped HTML")
+        let tricky = "\" & (do shell script \"echo pwned\") & \"\n第二行 \\ <b>"
+        let echoed = runAsync(10) {
+            try await NotesBridge.run("on run argv\n  return item 1 of argv\nend run", [tricky]) { ($0.stringValue, Thread.isMainThread) }
+        }
+        check(echoed?.0 == tricky && echoed?.1 == false, "a script gets the text as an argument, off the main thread")
+        check(NotesBridge.scripts.allSatisfy { source in
+            var error: NSDictionary?
+            return NSAppleScript(source: source)?.compileAndReturnError(&error) == true
+        }, "the Notes scripts compile")
+
+        // @reminder: read by the real parser, shown to confirm, then added.
+        settle()
+        at()
+        type("r", controller, client)
+        let both = controller.panelModel().rows.map(\.text)
+        check(Array(both.prefix(2)) == ["@read", "@reminder"], "@r offers @read and @reminder first (\(both))")
+        type("em", controller, client)
+        let rows = controller.panelModel().rows
+        check(rows.map(\.text) == ["@reminder"] && rows.first?.comment == "加到提醒事项，时间直接写在里面",
+              "@rem offers @reminder (\(rows.first?.comment ?? "-"))")
+        tab()
+        controller.readClipboard = { "明天下午3点给张三打电话" }
+        check(press(controller, client, "v", code: 0x09, flags: .command)
+              && pump(timeout: 1) { client.marked == "reminder › 明天下午3点给张三打电话" },
+              "⌘V puts the text in (\(client.marked))")
+        controller.readClipboard = { nil }
+        check(controller.panelModel().status == .hint("⏎ → 看一下再加到提醒事项"),
+              "the hint says it is checked first (\(controller.panelModel().status))")
+        _ = enter(controller, client)
+        let confirm = controller.panelModel()
+        check(controller.composer.phase == .choosing && confirm.rows.map(\.text) == ["给张三打电话"]
+              && confirm.rows.first?.comment == "明天 15:00" && confirm.highlighted == 0,
+              "one row to confirm: \(confirm.rows.map { "\($0.text) | \($0.comment)" })")
+        check(confirm.footer == "⏎ 加到提醒事项 · Esc 返回修改 · ⌘C 复制", "footer: \(confirm.footer)")
+        readmeSnapshot("13-reminder", controller, client, in: snapshotDirectory)
+        _ = press(controller, client, "c", code: 0x08, flags: .command)
+        check(copied == ["给张三打电话"] && controller.composer.phase == .choosing, "⌘C copies the title (\(copied))")
+        _ = escape(controller, client)
+        check(controller.composer.phase == .drafting && client.marked == "reminder › 明天下午3点给张三打电话",
+              "Esc goes back to the text (\(client.marked))")
+        _ = enter(controller, client)
+        _ = enter(controller, client)
+        let calendar = ReminderParser.localCalendar
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+        let threePM = calendar.dateComponents([.year, .month, .day, .hour, .minute],
+                                              from: calendar.date(bySettingHour: 15, minute: 0, second: 0, of: tomorrow)!)
+        check(pump(timeout: 2) { !reminders.isEmpty }
+              && reminders == [ReminderDraft(title: "给张三打电话", due: threePM, hasTime: true)]
+              && client.marked.isEmpty && !controller.composer.isComposing,
+              "⏎ adds it, due tomorrow 15:00 (\(reminders.map { "\($0.title) · \(UIText.when($0))" }))")
+        check(pump(timeout: 2) { notice() == "已加到提醒事项：明天 15:00" }, "notice: \(notice() ?? "none")")
+
+        // How the row shows a day, no date and a time that is over (stand-ins for the parser); Space, 1
+        // and ⏎ add it; secure input doesn't hold it back.
+        func confirmRow(_ reminder: ReminderDraft) -> CandidateView.Row? {
+            controller.parseReminder = { _ in reminder }
+            at()
+            type("rem", controller, client)
+            tab()
+            type("nihao", controller, client)
+            _ = enter(controller, client)
+            return controller.composer.phase == .choosing ? controller.panelModel().rows.first : nil
+        }
+        controller.secureInputActive = { true }
+        let noDate = ReminderDraft(title: "买牛奶")
+        check(confirmRow(noDate)?.comment == "没有时间", "no date: 「没有时间」, also while secure input is on")
+        controller.secureInputActive = secureInput
+        _ = press(controller, client, "1", code: 0x12)
+        check(pump(timeout: 2) { reminders.count == 2 } && reminders.last == noDate && notice() == "已加到提醒事项",
+              "1 adds it: \(notice() ?? "no notice")")
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: Date()))!
+        let over = ReminderDraft(title: "交报告", due: calendar.dateComponents([.year, .month, .day, .hour, .minute],
+                                                                             from: calendar.date(bySettingHour: 9, minute: 0, second: 0, of: yesterday)!),
+                                 hasTime: true)
+        check(confirmRow(over)?.comment == "昨天 9:00 · 已过", "a time that is over: 「已过」 (\(controller.panelModel().rows.first?.comment ?? "-"))")
+        _ = space(controller, client)
+        check(pump(timeout: 2) { reminders.count == 3 } && notice() == "已加到提醒事项：昨天 9:00 · 已过", "Space adds it: \(notice() ?? "-")")
+        let later = calendar.date(byAdding: .day, value: 5, to: calendar.startOfDay(for: Date()))!
+        let day = ReminderDraft(title: "交房租", due: calendar.dateComponents([.year, .month, .day], from: later))
+        let dayComment = confirmRow(day)?.comment ?? ""
+        check(dayComment.range(of: "^([0-9]+年)?[0-9]+月[0-9]+日 周[一二三四五六日]$", options: .regularExpression) != nil,
+              "a day: 「\(dayComment)」")
+        // Not allowed to use Reminders: it says where to allow it.
+        failure = RemindersBridge.RemindersError.notPermitted
+        _ = enter(controller, client)
+        let remindersNotAllowed = "没有权限使用「提醒事项」：在 系统设置 → 隐私与安全性 → 提醒事项 里允许 AllInOneIME"
+        check(pump(timeout: 2) { notice() == remindersNotAllowed } && reminders.count == 3, "without permission: \(notice() ?? "-")")
+        failure = nil
+        // Only a time: nothing to be reminded of.
+        check(confirmRow(ReminderDraft(title: "", due: threePM, hasTime: true)) == nil
+              && controller.composer.phase == .failed(Composer.Messages.chinese.reminderWithoutTitle)
+              && controller.panelModel().footer == "Esc 返回修改",
+              "only a time asks what for (\(controller.composer.phase))")
+        _ = escape(controller, client)
+        check(controller.composer.phase == .drafting, "Esc goes back to the text")
+        _ = escape(controller, client)
+        check(client.inserted == insertedBefore && !controller.composer.isComposing, "@note and @reminder inserted nothing")
+        controller.commitComposition(client)
+    }
+
     /// Height of the content of the outermost scroll view in `view` (what a SwiftUI form scrolls).
     static func scrolledHeight(_ view: NSView) -> CGFloat? {
         if let scroll = view as? NSScrollView, let document = scroll.documentView { return document.frame.height }
@@ -1161,6 +1346,7 @@ enum SelfTest {
         controller.converter = sharedConverter
         controller.applySettings()
         testCommands(controller, client, snapshotDirectory: snapshotDirectory)
+        testNotesAndReminders(controller, client, snapshotDirectory: snapshotDirectory)
 
         print("— error display")
         controller.converter = Converter(loadConfig: {

@@ -117,6 +117,12 @@ final class AllInOneIMEInputController: IMKInputController {
     var runInTerminal: (String) throws -> Void = { try TerminalLauncher.claude($0) }
     /// A custom `terminal` command: runs its arguments in Terminal (the self-test starts nothing).
     var launchInTerminal: ([String]) throws -> Void = { try TerminalLauncher.launch($0) }
+    /// `@note`: saves the text to Apple Notes (the self-test saves nothing).
+    var saveNote: @MainActor (String) async throws -> Void = { _ = try await NotesBridge.save($0) }
+    /// `@reminder`: reads the reminder in a text by the real clock (the self-test may supply its own), and
+    /// adds a confirmed one to Apple Reminders (the self-test adds nothing).
+    var parseReminder: (String) -> ReminderDraft = { ReminderParser().parse($0, now: Date()) }
+    var addReminder: @MainActor (ReminderDraft) async throws -> Void = { _ = try await RemindersBridge.add($0) }
     /// Whether a command's program is on this Mac (the self-test supplies its own). Called off the main thread.
     var programInstalled: @Sendable (String) -> Bool = { program in
         if program == "claude", TerminalLauncher.claudePath != nil { return true }
@@ -421,6 +427,7 @@ final class AllInOneIMEInputController: IMKInputController {
                 }
                 log.notice("opening an @open result")
                 openItem(path)
+                OpenHistoryStore.record(path)  // listed first by the next searches
             case let .startBackgroundAgent(prompt):
                 Task { @MainActor [weak self] in
                     do {
@@ -469,6 +476,16 @@ final class AllInOneIMEInputController: IMKInputController {
                     log.error("custom command: could not start Terminal: \(String(describing: error), privacy: .public)")
                     showNotice(UIText.describe(error), client: target)
                 }
+            case let .saveNote(text):
+                // Kept on this Mac, nothing goes to a model: not refused while secure input is on, unlike the
+                // requests above (the field that turned it on doesn't compose at all).
+                saveToNotes(text)
+            case let .previewReminder(input, id):
+                // Read here by the real clock (NSDataDetector and the parser's own rules), quick enough for
+                // a keystroke. Nothing leaves the Mac, so secure input doesn't hold it back either.
+                perform(composer.receiveReminder(parseReminder(input), id: id), client: target)
+            case let .addReminder(reminder):
+                addToReminders(reminder)
             case let .copy(text):
                 copyText(text)
             case let .readClipboard(id):
@@ -522,6 +539,47 @@ final class AllInOneIMEInputController: IMKInputController {
             let results = await self.searchFiles(query)
             guard !Task.isCancelled else { return }
             self.perform(self.composer.receiveLive(results, for: query), client: nil)
+        }
+    }
+
+    // MARK: - Notes and Reminders
+
+    /// `@note`: the text goes to Notes in the background (the first time, macOS asks whether this may
+    /// control Notes, and the save waits for the answer); a notice says when it is saved, or why not.
+    /// It is saved even if this text field goes away meanwhile. Only its length is logged.
+    @MainActor
+    private func saveToNotes(_ text: String) {
+        log.notice("@note: saving \(text.count) chars")
+        let save = saveNote
+        Task { @MainActor [weak self] in
+            do {
+                try await save(text)
+                log.notice("@note: saved")
+                self?.showNotice(tr("已存到备忘录", "Saved to Notes"), client: nil)
+            } catch {
+                log.error("@note: not saved: \(Self.errorKind(error), privacy: .public)")
+                self?.showNotice(UIText.describe(error), client: nil)
+            }
+        }
+    }
+
+    /// A confirmed `@reminder`: added to Reminders in the background (the first time, macOS asks for
+    /// access, and this waits for the answer); the notice says when it is due: 「已加到提醒事项：明天 15:00」.
+    @MainActor
+    private func addToReminders(_ reminder: ReminderDraft) {
+        let kind = reminder.due == nil ? "no date" : reminder.hasTime ? "a time" : "a day"
+        log.notice("@reminder: adding one with \(kind, privacy: .public)")
+        let add = addReminder
+        Task { @MainActor [weak self] in
+            do {
+                try await add(reminder)
+                log.notice("@reminder: added")
+                let when = reminder.due == nil ? "" : tr("：", ": ") + UIText.when(reminder)
+                self?.showNotice(tr("已加到提醒事项", "Added to Reminders") + when, client: nil)
+            } catch {
+                log.error("@reminder: not added: \(Self.errorKind(error), privacy: .public)")
+                self?.showNotice(UIText.describe(error), client: nil)
+            }
         }
     }
 
@@ -747,6 +805,12 @@ final class AllInOneIMEInputController: IMKInputController {
         case let ProviderError.refused(provider): return "\(provider.rawValue) refused"
         case ProviderError.signedOut: return "hosted signed out"
         case ProviderError.quotaExhausted: return "hosted quota exhausted"
+        case NotesBridge.NotesError.notPermitted: return "notes not permitted"
+        case let NotesBridge.NotesError.failed(number, _): return "notes error \(number)"
+        case RemindersBridge.RemindersError.notPermitted: return "reminders not permitted"
+        case RemindersBridge.RemindersError.noAccount: return "reminders no account"
+        case RemindersBridge.RemindersError.notFound: return "reminder not found"
+        case RemindersBridge.RemindersError.failed: return "reminders refused"
         case let urlError as URLError: return "url \(urlError.code.rawValue)"
         default: return String(describing: type(of: error))
         }
@@ -902,8 +966,15 @@ final class AllInOneIMEInputController: IMKInputController {
                                              comment: tr("在浏览器中打开", "open in the browser"), style: .candidate)
                 case let .file(path):
                     let folder = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
+                    let place = path.hasSuffix(".app") ? tr("应用", "app") : folder
+                    // Found by what is in it, not by its name: 「内容 · ~/Documents」.
+                    let content = composer.searchResults.contains { $0.path == path && $0.matchedContent }
                     return CandidateView.Row(label: choice.label, text: choice.text,
-                                             comment: path.hasSuffix(".app") ? tr("应用", "app") : folder, style: .candidate)
+                                             comment: content ? tr("内容", "content") + " · " + place : place, style: .candidate)
+                case let .reminder(reminder):
+                    // To confirm: what to be reminded of, and when as read from the text (「明天 15:00」).
+                    return CandidateView.Row(label: choice.label, text: Self.preview(choice.text),
+                                             comment: UIText.when(reminder), style: .candidate)
                 }
             }
             model.highlighted = composer.highlighted
@@ -918,6 +989,7 @@ final class AllInOneIMEInputController: IMKInputController {
                     : polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")
                 model.status = choices.count <= 1 ? .loading(loading) : .none
                 model.footer = command == .open ? tr("搜索中… · Esc 返回", "Searching… · Esc back")
+                    : command == .reminder ? tr("Esc 返回修改", "Esc back to edit")
                     : tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
             case .choosing where command == .tasks:
                 model.footer = tr("⏎ 在终端打开 · 数字选择 · ⌘C 复制回复 · Esc 返回",
@@ -925,15 +997,19 @@ final class AllInOneIMEInputController: IMKInputController {
             case .choosing:
                 model.footer = command == .open
                     ? tr("空格 / ⏎ 打开 · 数字选择 · ⌘C 复制路径 · Esc 返回", "Space / ⏎ open · digits pick · ⌘C copy path · Esc back")
+                    : command == .reminder
+                    ? tr("⏎ 加到提醒事项 · Esc 返回修改 · ⌘C 复制", "⏎ add to Reminders · Esc back to edit · ⌘C copy")
                     : tr("空格 / ⏎ 上屏 · 数字选择 · 0 原文 · ⌘C 复制 · Esc 返回",
                          "Space / ⏎ insert · digits pick · 0 original · ⌘C copy · Esc back")
-                if command != .open {
+                if command != .open && command != .reminder {
                     model.detail = lastFromCache ? tr("缓存", "cached") : lastElapsed.map { String(format: "%.1fs", $0) }
                 }
             case let .failed(message):
                 model.status = .error(message)
                 model.highlighted = nil  // Space retries; nothing is selected
-                model.footer = composer.actionKey == .enter
+                // A reminder without anything to be reminded of: write it in.
+                model.footer = command == .reminder ? tr("Esc 返回修改", "Esc back to edit")
+                    : composer.actionKey == .enter
                     ? tr("空格 / ⏎ 重试 · 0 原文 · Esc 返回", "Space / ⏎ retry · 0 original · Esc back")
                     : tr("空格 重试 · ⏎ 上屏原文 · Esc 返回", "Space retry · ⏎ insert original · Esc back")
             case .idle, .drafting:
@@ -991,7 +1067,8 @@ final class AllInOneIMEInputController: IMKInputController {
             // "@open …" as you type: what matches now.
             model.rows = composer.currentLiveResults.map { result in
                 let folder = ((result.path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
-                let comment = result.path.hasSuffix(".app") ? tr("应用", "app") : result.isFolder ? folder + "/" : folder
+                let place = result.path.hasSuffix(".app") ? tr("应用", "app") : result.isFolder ? folder + "/" : folder
+                let comment = result.matchedContent ? tr("内容", "content") + " · " + place : place  // found by what is in it
                 return CandidateView.Row(label: result.isFolder ? "›" : "", text: result.name, comment: comment, style: .candidate)
             }
             model.highlighted = composer.liveHighlight

@@ -27,6 +27,11 @@ public struct Command: Hashable, Sendable {
         case agents
         /// Opens the settings window (`@settings`), right when it is picked.
         case settings
+        /// The text is saved to Apple Notes; nothing is inserted.
+        case note
+        /// A reminder for Apple Reminders, its time read from the text (`ReminderParser`): shown to
+        /// confirm, then added; nothing is inserted.
+        case reminder
     }
 
     init(name: String, kind: Kind, custom: CustomCommand? = nil, plugin: InstalledPlugin? = nil) {
@@ -49,6 +54,11 @@ public struct Command: Hashable, Sendable {
     /// A web page's title and text (`WebReader`), mostly inside another command's text as context:
     /// `@question 总结一下 @read https://…`.
     public static let read = Command(name: "read", kind: .run)
+    /// Save the text to Apple Notes (a folder named "AllInOneIME").
+    public static let note = Command(name: "note", kind: .note)
+    /// Add a reminder to Apple Reminders (a list named "AllInOneIME"), with the time written in the text:
+    /// `@reminder 明天下午3点给张三打电话`.
+    public static let reminder = Command(name: "reminder", kind: .reminder)
 
     /// The background tasks `@claude` started: how they're doing and what they replied.
     public static let tasks = Command(name: "tasks", kind: .agents)
@@ -56,7 +66,8 @@ public struct Command: Hashable, Sendable {
     /// The settings window.
     public static let settings = Command(name: "settings", kind: .settings)
 
-    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .tasks, .settings]
+    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .note, .reminder,
+                                             .tasks, .settings]
 
     /// The text after the command is typed as Latin letters (file names, paths, code): picking the
     /// command switches the engine to English, and Chinese comes back when the command is done.
@@ -302,12 +313,15 @@ public struct SearchResult: Equatable, Sendable {
     public var isFolder: Bool
     /// Shown next to the name; what ⌘C copies instead of the path (a task's reply).
     public var detail: String?
+    /// Found by what is in it, not by its name: its row says so (「内容」).
+    public var matchedContent: Bool
 
-    public init(name: String, path: String, isFolder: Bool = false, detail: String? = nil) {
+    public init(name: String, path: String, isFolder: Bool = false, detail: String? = nil, matchedContent: Bool = false) {
         self.name = name
         self.path = path
         self.isFolder = isFolder
         self.detail = detail
+        self.matchedContent = matchedContent
     }
 
     /// A background task in the list (`@tasks`): its "path" names the session to open.
