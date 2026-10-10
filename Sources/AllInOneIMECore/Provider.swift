@@ -10,6 +10,13 @@ public enum Provider: String, Codable, CaseIterable, Sendable {
     case gemini
     /// Any OpenAI-compatible chat completions API: OpenAI, DeepSeek, Qwen, OpenRouter, Ollama, …
     case openai
+    /// The developer's own service (`HostedService`): sign in with Google, free requests each day.
+    case hosted
+
+    /// The providers the settings offer (the hosted one once it is set up).
+    public static var offered: [Provider] {
+        [.bedrock, .anthropic, .gemini, .openai] + (HostedService.isConfigured ? [.hosted] : [])
+    }
 
     public var displayName: String {
         switch self {
@@ -17,13 +24,14 @@ public enum Provider: String, Codable, CaseIterable, Sendable {
         case .anthropic: return "Claude API"
         case .gemini: return "Gemini API"
         case .openai: return "OpenAI-compatible API"
+        case .hosted: return "AllInOneIME Cloud"
         }
     }
 
     /// Environment variables (of the user's login shell) that hold the API key when the keychain has none.
     public var keyVariables: [String] {
         switch self {
-        case .bedrock: return []
+        case .bedrock, .hosted: return []
         case .anthropic: return ["ANTHROPIC_API_KEY"]
         case .gemini: return ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
         case .openai: return ["OPENAI_API_KEY"]
@@ -55,6 +63,9 @@ public struct ProviderSettings: Codable, Equatable, Sendable {
         switch provider {
         case .bedrock:
             return ProviderSettings()
+        case .hosted:
+            // The model is the service's; the app only knows where it is.
+            return ProviderSettings(model: "hosted", baseURL: HostedService.baseURL, effort: "")
         case .anthropic:
             // The fastest, cheapest Claude at low effort: an input method waits on every sentence.
             return ProviderSettings(model: "claude-haiku-5-5", baseURL: "https://api.anthropic.com", effort: "low")
@@ -99,6 +110,10 @@ public enum ProviderError: Error, LocalizedError, Equatable {
     /// The model declined the request (the Claude API's `refusal` stop reason, Gemini's SAFETY finish).
     case refused(Provider)
     case invalidResponse(Provider, String)
+    /// The hosted service: not signed in (or the session ended).
+    case signedOut
+    /// The hosted service: no free requests left today and no paid ones.
+    case quotaExhausted
 
     public var errorDescription: String? {
         switch self {
@@ -109,6 +124,8 @@ public enum ProviderError: Error, LocalizedError, Equatable {
         case let .stream(p, type, message): return "\(p.displayName) \(type): \(message)"
         case let .refused(p): return "The \(p.displayName) declined this request"
         case let .invalidResponse(p, detail): return "Couldn't read the \(p.displayName) response: \(detail)"
+        case .signedOut: return "Sign in to AllInOneIME Cloud in the settings"
+        case .quotaExhausted: return "No requests left today: subscribe, or add your own API key in the settings"
         }
     }
 }
@@ -135,10 +152,10 @@ public struct ChatClient: Sendable {
                 return bedrock.converseStream(
                     body, modelId: config.modelId, region: config.region ?? resolved.region ?? "us-east-1",
                     credentials: resolved.credentials, timeout: config.timeoutSeconds)
-            case .anthropic, .gemini, .openai:
+            case .anthropic, .gemini, .openai, .hosted:
                 let provider = config.provider
                 guard let key = loadKey(provider)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
-                    throw ProviderError.missingKey(provider)
+                    throw provider == .hosted ? ProviderError.signedOut : ProviderError.missingKey(provider)
                 }
                 let settings = config.settings(for: provider)
                 let request = try HTTPProviders.makeRequest(body, provider: provider, settings: settings, key: key,

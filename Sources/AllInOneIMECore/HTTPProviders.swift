@@ -17,7 +17,9 @@ public enum HTTPProviders {
 
     public static func makeRequest(_ body: ConverseRequest, provider: Provider, settings: ProviderSettings,
                                    key: String, maxTokens: Int, timeout: TimeInterval) throws -> URLRequest {
-        guard let model = settings.model, !model.isEmpty else { throw ProviderError.missingModel(provider) }
+        // The hosted service picks its own model.
+        let model = settings.model ?? ""
+        if model.isEmpty, provider != .hosted { throw ProviderError.missingModel(provider) }
         let base = (settings.baseURL ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         let system = body.system.map(\.text).joined(separator: "\n\n")
         let effort = settings.effortToSend
@@ -70,10 +72,20 @@ public enum HTTPProviders {
             // the compatible services (DeepSeek, Qwen, Ollama, …) take max_tokens.
             json[base.contains("api.openai.com") ? "max_completion_tokens" : "max_tokens"] = maxTokens
             if let effort { json["reasoning_effort"] = effort }
+        case .hosted:
+            // The request as built (the service checks it, caps it and picks the model), with the session token.
+            path = "/chat"
+            headers["Authorization"] = "Bearer \(key)"
+            json = [
+                "system": body.system.map { ["text": $0.text] },
+                "messages": body.messages.map { ["role": $0.role, "content": $0.content.map { ["text": $0.text] }] },
+                "inferenceConfig": ["maxTokens": maxTokens],
+            ]
+            if let t = body.inferenceConfig.temperature { json["inferenceConfig"] = ["maxTokens": maxTokens, "temperature": t] }
         case .bedrock:
             throw ProviderError.invalidResponse(provider, "Bedrock requests are signed by BedrockClient")
         }
-        if provider != .gemini, let t = settings.temperature { json["temperature"] = t }
+        if provider != .gemini, provider != .hosted, let t = settings.temperature { json["temperature"] = t }
         guard let url = URL(string: base + path), let scheme = url.scheme, ["https", "http"].contains(scheme), url.host != nil else {
             throw ProviderError.invalidBaseURL(settings.baseURL ?? "")
         }
@@ -132,6 +144,11 @@ public enum HTTPProviders {
                 events.append(.messageStop(reason: reason == "length" ? "max_tokens" : reason))
             }
             return events
+        case .hosted:
+            // The service's own events: {"text": …}, then {"stop": …} (errors are handled above).
+            if let text = object["text"] as? String { return [.textDelta(text)] }
+            if let stop = object["stop"] as? String { return [.messageStop(reason: stop)] }
+            return []
         case .bedrock:
             return []
         }
@@ -139,6 +156,8 @@ public enum HTTPProviders {
 
     /// An error body: `{"error": {"type"|"status"|"code": …, "message": …}}` in all three APIs.
     static func httpError(provider: Provider, status: Int, body: [UInt8]) -> ProviderError {
+        if provider == .hosted, status == 401 { return .signedOut }
+        if provider == .hosted, status == 402 { return .quotaExhausted }
         let object = try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any]
         let error = object?["error"] as? [String: Any]
         let message = error?["message"] as? String ?? object?["message"] as? String

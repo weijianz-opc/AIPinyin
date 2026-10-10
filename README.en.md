@@ -22,7 +22,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | Key | What it does |
 |---|---|
 | Type pinyin, Space / digits | Pick words, as in any pinyin input method |
-| `@` (at the start of a sentence) | Opens the command list; type letters to filter, then ⏎, Tab, Space or a digit to choose |
+| `@` (at the start of a sentence) | Opens the command list: at most 5, the most used lately first; type letters for the others (names starting with them first, then names containing them). ⏎, Tab, Space or a digit chooses |
 | ⏎ | Runs the command. Works even if the pinyin isn't picked yet: it's picked first, as with Space |
 | Space, ⏎ / digits | Once the results are up: insert the highlighted / numbered one; 0 is the original |
 | ⌘C | Copies the highlighted result (for `@open`, the path); the candidate panel stays open |
@@ -42,6 +42,7 @@ Without `@`, it works like any other pinyin input method: picking a word inserts
 | `@question` | Ask a question; the answer appears in the candidates, ⏎ or Space inserts it, ⌘C copies it |
 | `@claude` | Opens Claude Code in Terminal with what you wrote as the first message; then keep talking to it in Terminal and have it do the work. Nothing is inserted |
 | `@open` | Lists matching files, folders and apps as you type (Spotlight). Text starting with `~/` or `/` is a path: Tab completes it and goes into folders; ⏎ opens, ⌘C copies the path |
+| `@read` | Reads a web page's title and text (up to 6000 characters; web pages, plain text and PDFs). Mostly inside a sentence as context for the AI: `@question summarize @read https://…` in one line |
 
 Example: `@q` ⏎, type `什么是量子计算` ("what is quantum computing"), ⏎. Once the command is chosen, you can also hold right ⌥
 and talk. `@open` switches to English letters for the moment and goes back to Chinese when you're done.
@@ -58,9 +59,10 @@ first, as usual, before changing files or running commands. Without Claude Code 
 
 ### Your own commands
 
-Add `customCommands` to the config file (`~/.config/allinoneime/config.json`) for `@` commands of your own; they
-come after the built-in ones. Names are English letters only and can't be a built-in command's; saved changes apply
-from the next sentence.
+In the settings, under "Custom @ Commands", click "Add Command…": give it a name and choose what it does (an AI
+instruction, a program, or a program in Terminal), or start from an example. Your commands come after the built-in
+ones; names are English letters only and can't be a built-in command's; they work from the next sentence.
+They're kept in `customCommands` in the config file (`~/.config/allinoneime/config.json`), which you can also edit:
 
 ```json
 "customCommands": [
@@ -85,6 +87,19 @@ from the next sentence.
 - When the program in `argv` isn't found (say, no `python3`), the command isn't offered and `@python …` is inserted as text; once it's installed, the command appears in the next text field.
 
 `run` and `terminal` run code on your Mac: only add commands you wrote and trust. They, too, run only when you press the action key, and never during secure input.
+
+### Plugins
+
+Plugins are ready-made `@` commands for things not everyone needs, like `@stock AAPL 600519 700` for stock quotes.
+Installed, they work like any command; "Plugins" in the settings shows what's installed and where each sends your text,
+and removes them. Plugins are JavaScript run in a separate process: they can reach only the websites they declare
+(HTTPS), and can't read files or run other programs. The plugin library is on its way; for now a plugin folder goes in
+`~/.config/allinoneime/plugins/` ("Open Plugins Folder" in the settings). Writing one: [docs/plugins.md](docs/plugins.md).
+
+Commands that fetch something (plugins and programs) also work inside a sentence: `@reply 告诉他 @stock AAPL 现在多少钱`.
+The inner ones run first, their output takes their place, and the outer command works on the result. The argument is
+the word after the command, plus the uppercase codes or numbers right after it (`@stock AAPL TSLA`, `@stock 600519 700`);
+a lowercase word ends it (`@stock SNDK is good to buy` looks up SNDK). Quotes mark it exactly: `@stock「aapl tsla」`.
 
 ### Action key
 
@@ -166,10 +181,37 @@ The first time:
 
 Recording starts only after you've held the key for about 0.2 s, so a quick tap on right ⌥ doesn't turn on the microphone (with the action key set to "Tap ⌥", a tap runs the action). If you press another key while holding it (an ⌥ shortcut, ⌥←), it counts as a shortcut and nothing is recorded either. Pressing any other key while recording cancels the recording.
 
-## Installation (from source)
+## Installation
 
-Running it needs macOS 14 or later, voice input macOS 26 or later. Building needs Xcode 26 or later, since voice input uses the macOS 26 SDK.
-So far it has only been tested on macOS 27 + Xcode 27 on Apple Silicon.
+Running it needs macOS 14 or later, voice input macOS 26 or later. The installer is universal: it works on Macs with
+Apple silicon and Intel. So far it has only been tested on macOS 27 on Apple silicon (the Intel build only through its self-test under Rosetta).
+
+1. Download `AllInOneIME-<version>.dmg` from [Releases](https://github.com/weijianz-opc/AllInOneIME/releases/latest) (only from there) and open it.
+2. Double-click "Install AllInOneIME" in it and click Install. The input method goes into `~/Library/Input Methods`
+   and "AllInOneIME Settings" into `~/Applications` ("AllInOneIME 设置" on a Chinese system). For this user only; no administrator password needed.
+3. The installer isn't notarized by Apple yet, so macOS can't verify who made it, and the first time it says it can't verify "Install AllInOneIME":
+   click Done (Cancel on macOS 14), open System Settings → Privacy & Security, click Open Anyway near the bottom, and confirm.
+   Each new version's installer needs this once.
+
+After that, AllInOneIME is enabled and in your input sources; switch to it with Ctrl+Space
+(the 🌐 key switches only if "Press 🌐 key to" is set to "Change Input Source" in System Settings → Keyboard).
+If the installer tells you to add it by hand, this Mac doesn't let programs enable it, so add it once yourself:
+System Settings → Keyboard → Text Input → Input Sources → Edit… → + (bottom left) → Chinese, Simplified → AllInOneIME.
+
+If Ctrl+Space doesn't get you to AllInOneIME, or it switches back to U.S. after a while, run the installer again: it adds AllInOneIME back to your input sources.
+
+To update, install again from the new version's disk image, without uninstalling first; settings, the jargon list and learned words are kept.
+Before upgrading, read the [changelog](CHANGELOG.en.md): it has each version's changes and upgrade notes.
+
+If you had AIPinyin (AI 拼音) installed, just install: the old AIPinyin.app and "AI 拼音设置" (its settings launcher) are removed,
+and the entry in your input sources gets the new name, with no need to add it again. Settings, the jargon list and learned words move to the new folders
+(`~/.config/allinoneime` and others) on first launch, and each old folder is left as a link to the new one.
+
+To uninstall, open "Install AllInOneIME" and click Uninstall…. Settings and learned words are kept.
+
+### Building from source
+
+Building needs Xcode 26 or later, since voice input uses the macOS 26 SDK.
 
 ```sh
 git clone https://github.com/weijianz-opc/AllInOneIME.git
@@ -177,24 +219,8 @@ cd AllInOneIME
 make install
 ```
 
-`make install` downloads librime and the rime-ice dictionaries and verifies them, builds, installs into `~/Library/Input Methods`,
-and puts "AllInOneIME Settings" in `~/Applications` ("AllInOneIME 设置" on a Chinese system).
-
-`make install` enables AllInOneIME and adds it to your input sources; after that, switch to it with Ctrl+Space
-(the 🌐 key switches only if "Press 🌐 key to" is set to "Change Input Source" in System Settings → Keyboard).
-If it ends by telling you to add it by hand, this Mac doesn't let programs enable it, so add it once yourself:
-System Settings → Keyboard → Text Input → Input Sources → Edit… → + (bottom left) → Chinese, Simplified → AllInOneIME.
-
-If Ctrl+Space doesn't get you to AllInOneIME, or it switches back to U.S. after a while, run `make install` again:
-it adds AllInOneIME back to your input sources. The `listed:` line in `make status` shows whether it's in the list.
-
-If you had AIPinyin (AI 拼音) installed, just run `make install`: it removes the old AIPinyin.app and "AI 拼音设置" (its settings launcher),
-and the entry in your input sources gets the new name, with no need to add it again. Settings, the jargon list and learned words move to the new folders
-(`~/.config/allinoneime` and others) on first launch, and each old folder is left as a link to the new one.
-
-Before upgrading, read the [changelog](CHANGELOG.en.md): it has each version's changes and upgrade notes. The `version:` line of `make status` shows which version is installed.
-
-To uninstall: `make uninstall`.
+`make install` downloads librime and the rime-ice dictionaries and verifies them, builds, and installs into the same places, adding it to your input sources the same way.
+`make status` shows the installed version (`version:`) and whether it's in your input sources (`listed:`). To uninstall: `make uninstall`.
 
 ## Setting up the AI
 
@@ -242,6 +268,7 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 ## Privacy
 
 - Pinyin typing is entirely local. Only when you press the action key on `@improve` or `@question` (or on a sentence in sentence mode) is that sentence sent to the AI provider you chose (your own Bedrock, or the service whose key you added). With "Jargon" checked and a jargon list set, the list is sent along with it.
+- With AllInOneIME Cloud, the sentence goes through the developer's server to a model provider (currently through OpenRouter): the server keeps counts only, never the text. Signing in keeps only your email address.
 - Voice is recorded only while you hold right ⌥ and is recognized on the Mac; the recognized text is sent only in the commands above, when you press the action key.
 - The input method reads the clipboard text, once, only when you press ⌃V or ⌘V in a command (or a sentence-mode draft) or press the action key with nothing written after a command; content that password managers mark as concealed isn't read. The text is shown in the draft first and, again, is sent only when you press the action key. Recent macOS versions ask whether AllInOneIME may read the clipboard: allow it. To stop being asked every time, set AllInOneIME's paste permission to always allow in System Settings → Privacy & Security.
 - In password fields (secure input) it doesn't compose text and can't record. Whenever the system is in secure input (password fields, Terminal's Secure Keyboard Entry, etc.), nothing is sent to the AI.
@@ -256,6 +283,7 @@ make realtest     # types into a real app's text field (needs the screen unlocke
 make screenshots  # regenerates the screenshots in docs/
 make cli && .build/release/allinoneime-cli --styles 简洁,黑话 "我今天有点不舒服"   # try translation and rewrites in the terminal (styles Concise, Jargon; "I'm not feeling well today")
 make icon         # regenerates the app icon and the menu bar icon from Resources/AppIcon.png
+make dmg          # the release installer, build/AllInOneIME-<version>.dmg (universal; signed if there's a Developer ID certificate, optionally notarized)
 ```
 
 Code layout:
@@ -264,6 +292,7 @@ Code layout:
 - `Sources/AllInOneIMERime`: librime wrapper
 - `Sources/AllInOneIME`: the InputMethodKit input method, candidate panel, settings window, speech recognition
 - `Sources/AllInOneIMESettings`: the "AllInOneIME Settings" launcher
+- `Sources/AllInOneIMEInstaller`: "Install AllInOneIME" on the disk image: installs, updates and uninstalls
 
 The bundle ID is still `com.aipinyin.inputmethod.AIPinyin`: macOS uses it to remember the added input source and the microphone permission, so changing it would mean adding the input method and granting the permission again.
 

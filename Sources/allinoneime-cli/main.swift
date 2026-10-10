@@ -179,6 +179,7 @@ if let m = options.model {
     case .anthropic: config.anthropic.model = m
     case .gemini: config.gemini.model = m
     case .openai: config.openai.model = m
+    case .hosted: fail("the hosted service picks its own model")
     }
 }
 if let o = options.output { config.outputLanguage = o }

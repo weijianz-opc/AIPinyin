@@ -18,7 +18,7 @@ struct CommandTests {
         #expect(Command.matching("Q") == [.question])
         #expect(Command.matching("cl") == [.claude])
         #expect(Command.matching("x").isEmpty)
-        #expect(Command.builtins.map(\.kind) == [.convert, .generate, .terminal, .search])
+        #expect(Command.builtins.map(\.kind) == [.convert, .generate, .terminal, .search, .run])
     }
 
     let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
@@ -34,7 +34,7 @@ struct CommandTests {
             CustomCommand(name: "empty", type: .prompt, prompt: "  "),     // nothing to tell the model
             CustomCommand(name: "noargv", type: .run),
         ])
-        #expect(catalog.map(\.name) == ["improve", "question", "claude", "open", "python", "reply", "sh"])
+        #expect(catalog.map(\.name) == ["improve", "question", "claude", "open", "read", "python", "reply", "sh"])
         #expect(catalog.suffix(3).map(\.kind) == [.run, .generate, .terminal])
         #expect(Command.matching("p", in: catalog).map(\.name) == ["python"])
         #expect(Command.parse("@python print(1)", in: catalog)?.command.custom == python)
@@ -96,5 +96,71 @@ struct CommandTests {
 
     @Test func answersBecomeOneSafeLine() {
         #expect(Converter.oneLine("  First line.\nSecond\tline.\u{1B}[31m  ") == "First line. Second line. [31m")
+    }
+
+    @Test func commandLines() {
+        typealias C = CustomCommand
+        #expect(C.arguments(fromCommandLine: "python3 -c {input}") == ["python3", "-c", "{input}"])
+        #expect(C.arguments(fromCommandLine: #"say -v "Ting-Ting" '{input}'  "#) == ["say", "-v", "Ting-Ting", "{input}"])
+        #expect(C.arguments(fromCommandLine: #"zsh -c "{input}; exec zsh""#) == ["zsh", "-c", "{input}; exec zsh"])
+        #expect(C.arguments(fromCommandLine: #"echo a\ b "" x"#) == ["echo", "a b", "", "x"])
+        #expect(C.arguments(fromCommandLine: #"echo "open"#) == nil)
+        #expect(C.arguments(fromCommandLine: "   ") == [])
+        // One line and back gives the same arguments.
+        for argv in [["python3", "-c", "{input}"], ["zsh", "-c", "{input}; exec zsh"], ["echo", #"say "hi" \ there"#, ""]] {
+            #expect(C.arguments(fromCommandLine: C.commandLine(argv)) == argv)
+        }
+        #expect(C.commandLine(["python3", "-c", "{input}"]) == "python3 -c {input}")
+    }
+
+    @Test func editorProblems() {
+        let ok = CustomCommand(name: "reply", type: .prompt, prompt: "Reply politely.")
+        #expect(ok.problem(among: []) == nil)
+        #expect(CustomCommand(name: "", type: .prompt, prompt: "x").problem(among: []) == .emptyName)
+        #expect(CustomCommand(name: "py3", type: .run, argv: ["python3"]).problem(among: []) == .nameNotLetters)
+        #expect(CustomCommand(name: "Open", type: .run, argv: ["x"]).problem(among: []) == .nameTaken)  // built-in
+        #expect(ok.problem(among: [CustomCommand(name: "Reply", type: .prompt, prompt: "y")]) == .nameTaken)
+        #expect(CustomCommand(name: "x", type: .prompt, prompt: "  ").problem(among: []) == .emptyPrompt)
+        #expect(CustomCommand(name: "x", type: .terminal, argv: []).problem(among: []) == .emptyCommand)
+    }
+
+    @Test func usageCountsOftenAndLately() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var usage = CommandUsage()
+        usage.record("calc", now: now)
+        usage.record("calc", now: now)
+        #expect(usage.score("calc", now: now) == 2)
+        #expect(abs(usage.score("calc", now: now + CommandUsage.halfLife) - 1) < 1e-9)  // halves in a week
+        #expect(usage.score("never", now: now) == 0)
+        // Long unused commands are forgotten when another is used.
+        usage.record("py", now: now + 60 * 86400)
+        #expect(usage.score("calc", now: now + 60 * 86400) == 0)
+        // Kept as JSON between launches.
+        let again = try? JSONDecoder().decode(CommandUsage.self, from: JSONEncoder().encode(usage))
+        #expect(again == usage)
+    }
+
+    @Test func paletteShowsFiveByUse() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let custom = ["calc", "sh", "reply", "python", "japanese"].map {
+            CustomCommand(name: $0, type: .run, argv: ["x"])
+        }
+        let catalog = Command.catalog(custom)  // 4 built-in + 5
+        // Nothing used yet: the first five in catalog order.
+        #expect(Command.palette("", in: catalog, usage: CommandUsage(), now: now).map(\.name)
+            == ["improve", "question", "claude", "open", "read"])
+        // The most used first, the rest in catalog order.
+        var usage = CommandUsage()
+        for _ in 0..<3 { usage.record("python", now: now) }
+        usage.record("sh", now: now)
+        usage.record("japanese", now: now - 30 * 86400)  // long ago: less than sh today
+        #expect(Command.palette("", in: catalog, usage: usage, now: now).map(\.name)
+            == ["python", "sh", "japanese", "improve", "question"])
+        // Letters: names starting with them first, then names containing them; by use within each.
+        #expect(Command.palette("py", in: catalog, usage: usage, now: now).map(\.name) == ["python"])
+        #expect(Command.palette("p", in: catalog, usage: usage, now: now).map(\.name) == ["python", "japanese", "improve", "open", "reply"])
+        #expect(Command.palette("a", in: catalog, usage: usage, now: now).map(\.name) == ["japanese", "claude", "read", "calc"])
+        #expect(Command.palette("o", in: catalog, usage: usage, now: now).map(\.name) == ["open", "python", "improve", "question"])
+        #expect(Command.palette("zz", in: catalog, usage: usage, now: now).isEmpty)
     }
 }

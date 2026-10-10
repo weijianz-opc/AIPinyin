@@ -51,6 +51,7 @@ public struct Config: Codable, Equatable, Sendable {
         case .anthropic: return anthropic.resolved(for: .anthropic)
         case .gemini: return gemini.resolved(for: .gemini)
         case .openai: return openai.resolved(for: .openai)
+        case .hosted: return ProviderSettings().resolved(for: .hosted)
         }
     }
 
@@ -165,6 +166,14 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(openai, forKey: .openai)
     }
 
+    /// A new user's settings (no config file yet): the hosted service once it is set up, which needs
+    /// nothing but a Google sign-in. A file without `provider` (from before providers) stays on Bedrock.
+    public static var fresh: Config {
+        var config = Config.default
+        if HostedService.isConfigured { config.provider = .hosted }
+        return config
+    }
+
     public static var defaultURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/allinoneime/config.json")
@@ -176,7 +185,7 @@ public struct Config: Codable, Equatable, Sendable {
         do {
             data = try Data(contentsOf: url)
         } catch CocoaError.fileReadNoSuchFile {
-            return .default
+            return .fresh
         }
         do {
             return try JSONDecoder().decode(Config.self, from: data)

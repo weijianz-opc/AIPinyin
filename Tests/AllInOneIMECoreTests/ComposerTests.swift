@@ -909,7 +909,7 @@ struct ComposerTests {
         type("q", c)
         _ = c.handleKeyDown(enterKey)  // picks @question
         type("nihao", c)
-        #expect(c.markedText == "@question nihao")
+        #expect(c.markedText == "question › nihao" && c.draft == "@question ")  // shown without its "@"; nihao is pinyin
         #expect(c.handleKeyDown(enterKey).effects.first == .startCommand(.question, input: "你好", id: 1))
         _ = c.receive(ConversionResult(versions: [CandidateLine("你好是问候语。")]), isFinal: true, id: 1)
         #expect(commits(c.handleKeyDown(enterKey)) == ["你好是问候语。"])
@@ -1199,9 +1199,9 @@ struct ComposerTests {
         let (c, _) = composer(key: .optionTap)
         #expect(c.handleKeyDown(at) == .consumed([.updateMarkedText, .showPanel]))
         #expect(c.draft == "@" && c.markedText == "@" && c.paletteQuery == "" && c.wantsPanel)
-        #expect(c.paletteMatches == [.improve, .question, .claude, .open])
+        #expect(c.paletteMatches == [.improve, .question, .claude, .open, .read])
         type("q", c)
-        #expect(c.paletteMatches == [.question] && c.markedText == "@q")
+        #expect(c.paletteMatches == [.question] && c.markedText == "q" && c.draft == "@q")
         #expect(c.handleKeyDown(tab).effects == [.updateMarkedText, .showPanel])
         #expect(c.draft == "@question " && c.paletteQuery == nil && c.draftCommand == .question)
         // Space, a digit or the action key pick too; ↑↓ move the highlight.
@@ -1219,9 +1219,9 @@ struct ComposerTests {
         #expect(a.paletteHighlighted == 1)
         _ = a.handleKeyDown(upKey)
         _ = a.handleKeyDown(upKey)
-        #expect(a.paletteHighlighted == 3)
+        #expect(a.paletteHighlighted == 4)  // wraps around to the last
         _ = a.handleKeyDown(tab)
-        #expect(a.draft == "@open ")
+        #expect(a.draft == "@read ")
     }
 
     @Test func atMentionsStillReachTheApp() {
@@ -1276,7 +1276,7 @@ struct ComposerTests {
         #expect(open.engineState.isAsciiMode)
         #expect(send("i", "nihao").1.first == .startConversion(input: "你好", id: 1))  // @improve: the default
         let (marked, _) = send("q", "nihao")
-        #expect(marked.markedText == "@question 你好" && marked.activeCommand == .question)
+        #expect(marked.markedText == "question › 你好" && marked.activeCommand == .question)
         // Nothing after the command: the clipboard's text is asked for; without any, a hint, no request.
         let (e, _) = palette("q")
         _ = e.handleKeyDown(tab)
@@ -1301,21 +1301,22 @@ struct ComposerTests {
         let (p, _) = composer(key: .optionTap)
         p.commands = catalog
         _ = p.handleKeyDown(at)
-        #expect(p.paletteMatches.map(\.name) == ["improve", "question", "claude", "open", "python", "reply", "sh"])
+        // At most five: the built-in four and the first custom one (nothing used yet).
+        #expect(p.paletteMatches.map(\.name) == ["improve", "question", "claude", "open", "read"])
         // @python: code is typed as letters, the program runs, and Chinese comes back after.
         let py = start("py")
         #expect(py.draft == "@python " && py.engineState.isAsciiMode)
         type("print(1)", py)
         let run = tapOption(py, at: 5)
-        #expect(run.first == .startRun(catalog[4], input: "print(1)", id: 1) && py.activeCommand?.kind == .run)
+        #expect(run.first == .startRun(catalog.first { $0.name == "python" }!, input: "print(1)", id: 1) && py.activeCommand?.kind == .run)
         #expect(py.receive(ConversionResult(versions: [CandidateLine("1")]), isFinal: true, id: 1) == [.showPanel])
         #expect(py.choices.map(\.kind) == [.original, .answer] && py.highlighted == 1)
         #expect(commits(py.handleKeyDown(spaceKey)) == ["1"] && !py.engineState.isAsciiMode)
         // A prompt command goes to the model like @question, typed in pinyin.
-        let r = start("r")
+        let r = start("rep")  // "r" alone is @read first
         #expect(!r.engineState.isAsciiMode)
         type("nihao", r)
-        #expect(tapOption(r, at: 5).first == .startCommand(catalog[5], input: "你好", id: 1))
+        #expect(tapOption(r, at: 5).first == .startCommand(catalog.first { $0.name == "reply" }!, input: "你好", id: 1))
         // A terminal command starts its window with the text as one argument; nothing is inserted.
         let t = start("s")
         type("ls", t)
@@ -1330,7 +1331,147 @@ struct ComposerTests {
     @Test func commandsKnowTheirProgram() {
         let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
         let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
-        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, "python3", nil])
+        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, nil, "python3", nil])
+    }
+
+    @Test func theListPutsWhatIsRunMostFirst() {
+        let catalog = Command.catalog(["reply", "sh", "calc"].map { CustomCommand(name: $0, type: .prompt, prompt: "x") })
+        let (c, _) = composer(key: .optionTap)
+        c.commands = catalog
+        // Running @calc counts it, and says so to the controller (which keeps it).
+        _ = c.handleKeyDown(at)
+        type("ca", c)
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        #expect(tapOption(c, at: 5).contains(.commandUsed("calc")))
+        #expect(c.commandUsage.score("calc") > 0)
+        // Next time "@" lists it first; the digit picks from what's shown.
+        let (d, _) = composer(key: .optionTap)
+        d.commands = catalog
+        d.commandUsage = c.commandUsage
+        _ = d.handleKeyDown(at)
+        #expect(d.paletteMatches.map(\.name) == ["calc", "improve", "question", "claude", "open"])
+        _ = d.handleKeyDown(k("1"))
+        #expect(d.draft == "@calc ")
+        // A command beyond the five is found by its letters.
+        let (e, _) = composer(key: .optionTap)
+        e.commands = catalog
+        _ = e.handleKeyDown(at)
+        type("s", e)
+        #expect(e.paletteMatches.map(\.name) == ["sh", "question"])  // names starting with s first
+        // Picking from the list doesn't count: only running does.
+        _ = e.handleKeyDown(tab)
+        #expect(e.commandUsage.score("sh") == 0)
+    }
+
+    @Test func theListComesBackInsideATextForCommandsThatRunThere() {
+        let catalog = Command.catalog([CustomCommand(name: "reply", type: .prompt, prompt: "x"),
+                                       CustomCommand(name: "stock", type: .run, argv: ["stock", "{input}"])])
+        func started() -> (Composer, FakeEngine) {
+            let (c, e) = composer(ai: false, key: .enter)
+            c.commands = catalog
+            _ = c.handleKeyDown(at)
+            type("rep", c)
+            _ = c.handleKeyDown(tab)
+            type("nihao", c)
+            _ = c.handleKeyDown(spaceKey)
+            _ = c.handleKeyDown(at)
+            return (c, e)
+        }
+        let (c, e) = started()
+        #expect(c.draft == "@reply 你好@" && c.paletteQuery == "")
+        #expect(c.paletteMatches.map(\.name) == ["read", "stock"])  // only what runs inside a text
+        type("s", c)
+        #expect(c.draft == "@reply 你好@s" && c.paletteMatches.map(\.name) == ["stock"])
+        _ = c.handleKeyDown(tab)
+        #expect(c.draft == "@reply 你好@stock " && e.ascii)  // letters for the symbol
+        type("AAPL", c)
+        _ = c.handleKeyDown(spaceKey)
+        #expect(c.draft == "@reply 你好@stock AAPL " && !e.ascii)  // Chinese again for the rest
+        type("nihao", c)
+        _ = c.handleKeyDown(spaceKey)
+        #expect(c.draft == "@reply 你好@stock AAPL 你好")
+        #expect(c.paletteQuery == nil)
+
+        // Esc takes back only the "@…"; a letter no such command starts with is pinyin as usual.
+        let (d, _) = started()
+        type("s", d)
+        _ = d.handleKeyDown(escKey)
+        #expect(d.draft == "@reply 你好")
+        let (f, g) = started()
+        type("wo", f)
+        #expect(f.draft == "@reply 你好@" && g.input == "wo")
+        // Without a command at the start, "@" in a sentence stays text (mentions).
+        let (h, _) = composer(ai: true, key: .enter)
+        h.commands = catalog
+        type("nihao", h)
+        _ = h.handleKeyDown(spaceKey)
+        _ = h.handleKeyDown(at)
+        #expect(h.draft == "你好@" && h.paletteQuery == nil)
+    }
+
+    /// Slack turns an "@…" being typed into a mention and takes the composition: the text shown while
+    /// typing has no command "@", and a taken composition starts over instead of showing up twice.
+    @Test func noAtForSlackToTurnIntoAMention() {
+        let catalog = Command.catalog([CustomCommand(name: "stock", type: .run, argv: ["stock", "{input}"])])
+        let (c, _) = composer(ai: false, key: .enter)
+        c.commands = catalog
+        _ = c.handleKeyDown(at)
+        #expect(c.markedText == "@")  // alone it may be a mention
+        type("imp", c)
+        #expect(c.markedText == "imp" && c.markedCursor == 3)  // picking a command
+        _ = c.handleKeyDown(tab)
+        #expect(c.markedText == "improve › " && c.markedCursor == 10)
+        _ = c.handleKeyDown(backspaceKey)  // back to the name: still no "@"
+        #expect(c.draft == "@improve" && c.markedText == "improve")
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        #expect(c.markedText == "improve › nihao")
+        _ = c.handleKeyDown(spaceKey)
+        // A command inside the text, and a mention there (full-width: no mention list, sent as typed).
+        _ = c.handleKeyDown(at)
+        type("st", c)
+        #expect(c.markedText == "improve › 你好st")
+        _ = c.handleKeyDown(tab)
+        type("AAPL", c)
+        _ = c.handleKeyDown(spaceKey)
+        _ = c.handleKeyDown(at)
+        type("bob", c)  // pinyin again after the symbol
+        #expect(c.draft == "@improve 你好@stock AAPL @")
+        #expect(c.markedText == "improve › 你好stock › AAPL ＠bob")
+        // A sentence-mode draft is shown in the app too: its "@" full-width, inserted as typed.
+        let (m, _) = composer(ai: true, key: .enter)
+        type("nihao", m)
+        _ = m.handleKeyDown(spaceKey)
+        _ = m.handleKeyDown(at)
+        #expect(m.draft == "你好@" && m.markedText == "你好＠")
+        #expect(commits(m.handleKeyDown(KeyEvent(keyCode: VirtualKey.returnKey, characters: "\r", modifiers: .shift))) == ["你好@"])
+    }
+
+    @Test func aTakenCompositionStartsOver() {
+        // An app that reports its marked text: taken when it reports none while a draft is pending.
+        var watch = MarkedTextWatch()
+        #expect(!watch.appTookText(expected: "improve › 你好", reportedLength: nil))  // never seen it report: unknown
+        watch.didSet(expected: "improve › 你好", reportedLength: 12)
+        #expect(watch.appReportsMarkedText)
+        #expect(!watch.appTookText(expected: "improve › 你好", reportedLength: 12))
+        #expect(watch.appTookText(expected: "improve › 你好", reportedLength: 0))
+        #expect(watch.appTookText(expected: "improve › 你好", reportedLength: nil))
+        #expect(!watch.appTookText(expected: "", reportedLength: nil))  // nothing pending
+        watch.reset()
+        #expect(!watch.appTookText(expected: "x", reportedLength: nil))
+        // The composer then forgets the draft: nothing inserted, nothing sent, the panel hidden.
+        let (c, e) = composer(ai: false, key: .enter)
+        _ = c.handleKeyDown(at)
+        type("q", c)
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        let effects = c.appTookMarkedText()
+        #expect(effects == [.hidePanel] && commits(effects).isEmpty)
+        #expect(c.draft.isEmpty && c.markedText.isEmpty && c.phase == .idle && e.input.isEmpty)
+        // During a request it is cancelled.
+        let (t, _) = translating()
+        #expect(t.appTookMarkedText() == [.cancelConversion, .hidePanel] && t.phase == .idle)
     }
 
     @Test func claudeIsNotStartedWhileSecureInputIsOn() {
@@ -1342,7 +1483,7 @@ struct ComposerTests {
         let refused = tapOption(c, at: 5)
         #expect(refused.contains(.notice("系统安全输入已开启（密码框或锁屏），没有打开 Claude Code")))
         #expect(refused.contains(.updateMarkedText) && !refused.contains(.runInTerminal(prompt: "你好")))
-        #expect(c.markedText == "@claude 你好" && !c.isLevelTwo)
+        #expect(c.markedText == "claude › 你好" && c.draft == "@claude 你好" && !c.isLevelTwo)
         c.secureInputActive = { false }
         #expect(tapOption(c, at: 7).contains(.runInTerminal(prompt: "你好")))
     }

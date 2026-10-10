@@ -239,6 +239,11 @@ func printStatus() -> Int32 {
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
+// A script plugin's own process (started by the input method): nothing else runs, nothing else is printed.
+if arguments.first == "--run-plugin" {
+    exit(arguments.count > 1 ? PluginHost.run(directory: arguments[1]) : 2)
+}
+
 // Data from the AIPinyin days moves to the AllInOneIME folders before anything reads it.
 for (path, outcome) in LegacyData.migrate() where outcome != .nothingToMove {
     switch outcome {

@@ -1,5 +1,6 @@
 import AllInOneIMECore
 import AppKit
+import AuthenticationServices
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -22,6 +23,8 @@ struct SuggestedModel: Identifiable, Hashable {
             ]
         case .gemini:
             return [SuggestedModel(id: "gemini-3.8-flash", title: "Gemini 3.8 Flash", note: tr("默认", "Default"))]
+        case .hosted:
+            return []  // the service picks the model
         case .openai:
             // OpenAI's own; for another service (DeepSeek, Qwen, Ollama, …), "Custom…" and its base URL.
             return [
@@ -167,7 +170,7 @@ final class SettingsModel: ObservableObject {
         case .anthropic: return config.anthropic
         case .gemini: return config.gemini
         case .openai: return config.openai
-        case .bedrock: return ProviderSettings()
+        case .bedrock, .hosted: return ProviderSettings()
         }
     }
 
@@ -176,9 +179,112 @@ final class SettingsModel: ObservableObject {
         case .anthropic: config.anthropic = settings
         case .gemini: config.gemini = settings
         case .openai: config.openai = settings
-        case .bedrock: return
+        case .bedrock, .hosted: return
         }
         save()
+    }
+
+    // MARK: AllInOneIME Cloud (the hosted provider)
+
+    @Published private(set) var account: HostedAccount?
+    @Published private(set) var accountBusy = false
+    @Published private(set) var accountError: String?
+    private var authSession: ASWebAuthenticationSession?
+    private let presenter = AuthPresenter()
+
+    func refreshAccount() {
+        guard HostedService.isConfigured else { return }
+        Task { [weak self] in
+            do {
+                let account = try await HostedAccount.current()
+                self?.account = account
+                self?.accountError = nil
+            } catch {
+                self?.accountError = UIText.describe(error)
+            }
+        }
+    }
+
+    /// Signing in (or up) on the user pool's page in the system's authentication sheet, then the service's session.
+    func signIn(_ method: HostedSignIn.Method) {
+        let signIn = HostedSignIn()
+        accountBusy = true
+        accountError = nil
+        let session = ASWebAuthenticationSession(url: signIn.authorizationURL(method),
+                                                 callbackURLScheme: HostedService.callbackScheme) { [weak self] url, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.accountBusy = false }
+                if let error {
+                    // Closing the sheet is not an error worth showing.
+                    if (error as? ASWebAuthenticationSessionError)?.code != .canceledLogin {
+                        self.accountError = error.localizedDescription
+                    }
+                    return
+                }
+                guard let url, let code = signIn.code(from: url) else {
+                    self.accountError = tr("没有拿到登录结果", "The sign-in didn't come back")
+                    return
+                }
+                do {
+                    let idToken = try await signIn.idToken(for: code)
+                    self.account = try await HostedAccount.signIn(idToken: idToken)
+                    self.config.provider = .hosted
+                    self.save()
+                } catch {
+                    self.accountError = UIText.describe(error)
+                }
+            }
+        }
+        session.presentationContextProvider = presenter
+        session.prefersEphemeralWebBrowserSession = false
+        authSession = session
+        if !session.start() {
+            accountBusy = false
+            accountError = tr("无法打开登录页面", "Couldn't open the sign-in page")
+        }
+    }
+
+    func signOut() {
+        try? HostedAccount.signOut()
+        account = nil
+    }
+
+    func subscribe() {
+        guard let account, let sub = account.sub, let url = HostedService.checkoutURL(sub: sub, email: account.email) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func manageSubscription() {
+        guard let url = URL(string: HostedService.portalLink), !HostedService.portalLink.isEmpty else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    // MARK: Plugins
+
+    @Published private(set) var plugins: [InstalledPlugin] = []
+    @Published private(set) var skippedPlugins: [PluginStore.Skipped] = []
+    @Published private(set) var pluginError: String?
+
+    func refreshPlugins() {
+        (plugins, skippedPlugins) = PluginStore.load()
+    }
+
+    func uninstall(_ plugin: InstalledPlugin) {
+        guard persists else { return }
+        do {
+            try PluginStore.uninstall(plugin)
+            pluginError = nil
+        } catch {
+            pluginError = tr("无法删除插件：", "Couldn't remove the plugin: ") + error.localizedDescription
+        }
+        refreshPlugins()
+    }
+
+    /// Opens the plugins folder (made first), where a plugin folder can be put by hand.
+    func openPluginsFolder() {
+        try? FileManager.default.createDirectory(at: PluginStore.directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(PluginStore.directory)
     }
 
     // MARK: Account
@@ -323,6 +429,10 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @State private var customModel = false
     @State private var customProviderModel = false
+    @State private var pluginToRemove: InstalledPlugin?
+    /// The custom command being added or edited (the editor sheet), and the one about to be deleted.
+    @State private var commandEdit: CommandEdit?
+    @State private var commandToDelete: Int?
     /// The API key being typed (a saved key is never shown again: it stays in the keychain).
     @State private var newKey = ""
 
@@ -414,6 +524,58 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
 
+            Section(tr("自定义 @ 命令", "Custom @ Commands")) {
+                ForEach(Array(model.config.customCommands.enumerated()), id: \.offset) { index, command in
+                    HStack {
+                        Text("@" + command.name).font(.body.monospaced())
+                        Text(UIText.customKind(command)).foregroundStyle(.secondary)
+                        if let summary = command.summary {
+                            Text(summary).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Button(tr("编辑", "Edit")) { commandEdit = CommandEdit(index: index, command: command) }
+                        Button(tr("删除", "Delete")) { commandToDelete = index }
+                    }
+                }
+                Button(tr("添加命令…", "Add Command…")) {
+                    commandEdit = CommandEdit(index: nil, command: CustomCommand(name: "", type: .prompt))
+                }
+                Text(tr("保存后，在任意输入框开头打 @ 加名字就能用，和 @improve 一样。",
+                        "Once saved, type @ and its name at the start of any text field, like @improve."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!model.canSave)
+
+            Section(tr("插件", "Plugins")) {
+                ForEach(model.plugins, id: \.name) { plugin in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("@" + plugin.name).font(.body.monospaced())
+                            Text(plugin.manifest.summary?.text(chinese: UIText.chinese) ?? "").foregroundStyle(.secondary).lineLimit(1)
+                            Spacer()
+                            Button(tr("删除", "Remove")) { pluginToRemove = plugin }
+                        }
+                        Text(pluginDetail(plugin)).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(model.skippedPlugins, id: \.folder) { skipped in
+                    Label(tr("没有加载 \(skipped.folder)：", "Not loaded, \(skipped.folder): ") + skipped.reason,
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if model.plugins.isEmpty, model.skippedPlugins.isEmpty {
+                    Text(tr("还没有插件。插件是别人写好的 @ 命令，比如 @stock 查股价；装好后和其他命令一样用。",
+                            "No plugins yet. Plugins are ready-made @ commands, like @stock for stock quotes; once installed they work like any command."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button(tr("打开插件文件夹", "Open Plugins Folder")) { model.openPluginsFolder() }
+                    Button(tr("刷新", "Refresh")) { model.refreshPlugins() }
+                }
+                if let error = model.pluginError { Text(error).foregroundStyle(.red) }
+            }
+            .disabled(!model.canSave)
+
             Section(tr("语音输入", "Voice Input")) {
                 Toggle(tr("按住右 ⌥ 说话，松开结束", "Hold right ⌥ to talk, release to stop"), isOn: $model.config.voiceInput)
                     .disabled(!model.canSave)
@@ -441,12 +603,14 @@ struct SettingsView: View {
 
             Section(tr("AI 服务", "AI Provider")) {
                 Picker(tr("服务", "Provider"), selection: $model.config.provider) {
-                    ForEach(Provider.allCases, id: \.self) { provider in
+                    ForEach(Provider.offered, id: \.self) { provider in
                         Text(UIText.name(provider)).tag(provider)
                     }
                 }
                 if model.config.provider == .bedrock {
                     bedrockSettings
+                } else if model.config.provider == .hosted {
+                    hostedSettings
                 } else {
                     apiKeySettings(model.config.provider)
                 }
@@ -505,6 +669,41 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 520, idealWidth: 560, minHeight: 360, idealHeight: 760)
         // Text fields save on Return; everything else (pickers, steppers, toggles) saves on change.
+        .sheet(item: $commandEdit) { edit in
+            CommandEditor(edit: edit, others: model.config.customCommands.enumerated()
+                            .filter { $0.offset != edit.index }.map(\.element),
+                          plugins: model.plugins.map(\.name)) { command in
+                if let index = edit.index {
+                    model.config.customCommands[index] = command
+                } else {
+                    model.config.customCommands.append(command)
+                }
+                model.save()
+            }
+        }
+        .confirmationDialog(tr("删除这个命令？", "Delete this command?"),
+                            isPresented: Binding(get: { commandToDelete != nil }, set: { if !$0 { commandToDelete = nil } })) {
+            Button(tr("删除", "Delete"), role: .destructive) {
+                if let index = commandToDelete, model.config.customCommands.indices.contains(index) {
+                    model.config.customCommands.remove(at: index)
+                    model.save()
+                }
+                commandToDelete = nil
+            }
+        } message: {
+            if let index = commandToDelete, model.config.customCommands.indices.contains(index) {
+                Text("@" + model.config.customCommands[index].name)
+            }
+        }
+        .confirmationDialog(tr("删除这个插件？", "Remove this plugin?"),
+                            isPresented: Binding(get: { pluginToRemove != nil }, set: { if !$0 { pluginToRemove = nil } })) {
+            Button(tr("删除", "Remove"), role: .destructive) {
+                if let plugin = pluginToRemove { model.uninstall(plugin) }
+                pluginToRemove = nil
+            }
+        } message: {
+            if let plugin = pluginToRemove { Text("@" + plugin.name) }
+        }
         .onChange(of: model.config.awsProfile) { model.save() }
         .onChange(of: model.config.provider) {
             customProviderModel = false
@@ -520,7 +719,9 @@ struct SettingsView: View {
         .onChange(of: model.config.voiceInput) { model.save() }
         .onChange(of: model.config.actionKey) { model.save() }
         .onAppear {
+            model.refreshPlugins()
             model.refreshKeys()
+            model.refreshAccount()
             model.refreshVoice()
             model.refreshJargon()
         }
@@ -623,6 +824,49 @@ struct SettingsView: View {
         Text(model.credentialStatus).font(.caption).foregroundStyle(.secondary)
     }
 
+    /// AllInOneIME Cloud: the Google account, today's free requests, the subscription.
+    @ViewBuilder
+    private var hostedSettings: some View {
+        if let account = model.account {
+            LabeledContent(tr("账号", "Account")) {
+                HStack {
+                    Text(account.email ?? "").textSelection(.enabled)
+                    Button(tr("退出", "Sign Out")) { model.signOut() }
+                }
+            }
+            LabeledContent(tr("今天免费", "Free today")) {
+                Text("\(account.freeRemaining) / \(account.freeLimit)").monospacedDigit()
+            }
+            LabeledContent(tr("订阅剩余", "Subscription")) {
+                Text(account.isSubscribed || account.credits > 0 ? "\(account.credits)" : tr("未订阅", "None")).monospacedDigit()
+            }
+            HStack {
+                // Until Stripe is set up (no payment link), there is nothing to subscribe to.
+                if account.isSubscribed, !HostedService.portalLink.isEmpty {
+                    Button(tr("管理订阅", "Manage Subscription")) { model.manageSubscription() }
+                } else if !account.isSubscribed, !HostedService.paymentLink.isEmpty {
+                    Button(tr("订阅：$3/月 3000 次", "Subscribe: $3/month for 3000")) { model.subscribe() }
+                }
+                Button(tr("刷新", "Refresh")) { model.refreshAccount() }
+            }
+            Text(tr("先用每天的免费次数，用完再用订阅的次数。付款在浏览器里完成，完成后点「刷新」。",
+                    "The day's free requests are used first, then the subscription's. Payment happens in the browser; click Refresh afterwards."))
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            HStack {
+                if HostedService.googleEnabled {
+                    Button(tr("用 Google 登录", "Sign in with Google")) { model.signIn(.google) }.disabled(model.accountBusy)
+                }
+                Button(tr("用邮箱登录 / 注册", "Sign in / Sign up with Email")) { model.signIn(.email) }.disabled(model.accountBusy)
+                if model.accountBusy { ProgressView().controlSize(.small) }
+            }
+            Text(tr("登录后每天免费 20 次，不用自己的 AWS 或 API key。",
+                    "Signed in, you get 20 free requests a day, without an AWS account or API key of your own."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        if let error = model.accountError { Text(error).foregroundStyle(.red) }
+    }
+
     /// An API-key provider: the model, the key (kept in the keychain), the base URL and the effort.
     @ViewBuilder
     private func apiKeySettings(_ provider: Provider) -> some View {
@@ -693,6 +937,7 @@ struct SettingsView: View {
         case .anthropic: return "claude-sonnet-5-5"
         case .gemini: return "gemini-3.8-flash"
         case .openai: return "deepseek-chat"
+        case .hosted: return ""
         case .bedrock: return "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         }
     }
@@ -724,6 +969,21 @@ struct SettingsView: View {
                 settings.model = choice
                 model.setProviderSettings(settings, for: provider)
             })
+    }
+
+    /// "1.0.0 · sends what you type after @stock to query1.finance.yahoo.com · local".
+    private func pluginDetail(_ plugin: InstalledPlugin) -> String {
+        var parts = [plugin.manifest.version]
+        switch plugin.manifest.type {
+        case .script:
+            let hosts = plugin.manifest.hosts.joined(separator: ", ")
+            parts.append(hosts.isEmpty ? tr("不联网", "no network")
+                         : tr("@\(plugin.name) 后面的内容会发到 \(hosts)", "sends the text after @\(plugin.name) to \(hosts)"))
+        case .prompt:
+            parts.append(tr("AI 指令，发给你选的 AI 服务", "an AI instruction, sent to your AI provider"))
+        }
+        if plugin.isLocal { parts.append(tr("本地插件（未经审核）", "local (not reviewed)")) }
+        return parts.joined(separator: " · ")
     }
 
     private var modelSelection: Binding<String> {
@@ -788,6 +1048,13 @@ final class SettingsWindow {
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
+    }
+}
+
+/// Where the Google sign-in sheet is shown: the settings window.
+final class AuthPresenter: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        MainActor.assumeIsolated { NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor() }
     }
 }
 

@@ -5,16 +5,16 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>AllInOneIMESettings</string>
+	<string>AllInOneIMEInstaller</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.aipinyin.settings</string>
+	<string>com.aipinyin.installer</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<!-- Matches the bundle's file name, so Finder shows the localized name (Settings-*.lproj). -->
+	<!-- Matches the bundle's file name, so Finder shows the localized name (Installer-*.lproj). -->
 	<key>CFBundleName</key>
-	<string>AllInOneIME Settings</string>
+	<string>Install AllInOneIME</string>
 	<key>CFBundleDisplayName</key>
-	<string>AllInOneIME Settings</string>
+	<string>Install AllInOneIME</string>
 	<key>LSHasLocalizedDisplayName</key>
 	<true/>
 	<key>CFBundlePackageType</key>
@@ -29,8 +29,6 @@
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
-	<key>LSUIElement</key>
-	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

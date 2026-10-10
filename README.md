@@ -21,7 +21,7 @@
 | 按键 | 作用 |
 |---|---|
 | 打拼音、空格 / 数字 | 选词，和普通拼音输入法一样 |
-| `@`（句子开头） | 弹出命令列表，打字母筛选，⏎、Tab、空格或数字选中 |
+| `@`（句子开头） | 弹出命令列表：最多 5 个，最近常用的在前；其他的打字母找（名字开头的优先，也找名字里含这些字母的）。⏎、Tab、空格或数字选中 |
 | ⏎ | 执行命令。拼音没选完也可以直接按，会先像按空格一样选完 |
 | 空格、⏎ / 数字 | 出结果后：上屏高亮项 / 对应项，0 是原文 |
 | ⌘C | 复制高亮的结果（`@open` 是复制路径），候选框不关 |
@@ -41,6 +41,7 @@
 | `@question` | 提问，答案出现在候选里，⏎ 或空格上屏，⌘C 复制 |
 | `@claude` | 在「终端」里打开 Claude Code，你写的话就是第一句，之后在终端里接着聊、让它干活。什么都不上屏 |
 | `@open` | 边打边列出匹配的文件、文件夹和 App（聚焦搜索）。以 `~/`、`/` 开头就是路径，Tab 补全，进文件夹；⏎ 打开，⌘C 复制路径 |
+| `@read` | 读网页的标题和正文（最多 6000 字，网页、纯文本、PDF 都行）。主要放在句子中间给 AI 当上下文：`@question 用一句话总结 @read https://…` |
 
 例：`@q` ⏎，打 `什么是量子计算`，⏎。选好命令后按住右 ⌥ 说话也行。`@open` 会临时切到英文字母，用完回到中文。
 
@@ -55,8 +56,9 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
 
 ### 自己加命令
 
-在配置文件（`~/.config/allinoneime/config.json`）里加 `customCommands`，就能有自己的 `@` 命令，排在内置命令后面。
-命令名只能用英文字母，不能和内置命令重名；改完保存，下一句就生效。
+在设置的「自定义 @ 命令」里点「添加命令…」：起个名字，选它做什么（AI 指令、运行程序、在终端运行），也可以从例子开始。
+命令排在内置命令后面，名字只能用英文字母，不能和内置命令重名；保存后下一句就能用。
+它们存在配置文件（`~/.config/allinoneime/config.json`）的 `customCommands` 里，也可以直接改：
 
 ```json
 "customCommands": [
@@ -81,6 +83,18 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
 - 找不到 `argv` 里的程序时（比如没装 `python3`），这个命令不显示，`@python …` 照常当文字上屏；装好后切换一下输入框就会出现。
 
 `run` 和 `terminal` 会在你的 Mac 上执行代码：只放你自己写的、信得过的命令；它们同样只在按执行键时运行，安全输入时不运行。
+
+### 插件
+
+插件是别人写好的 `@` 命令，不是人人都要的放在这里，比如 `@stock AAPL 600519 700` 查股价。
+装好后和其他命令一样用；设置的「插件」里能看到装了哪些、它会把内容发到哪里，也能删除。
+插件用 JavaScript 写，在单独的进程里运行：只能访问它声明的网站（HTTPS），读不到文件，也不能运行别的程序。
+插件库还在做，目前可以把插件文件夹放进 `~/.config/allinoneime/plugins/`（设置里「打开插件文件夹」）。
+写插件的说明见 [docs/plugins.md](docs/plugins.md)。
+
+查数据的命令（插件和「运行程序」）也可以写在句子中间：`@reply 告诉他 @stock AAPL 现在多少钱`。
+里面的先运行，结果替换回原文，再交给外面的命令。参数是紧跟的一个代码，后面再跟着的大写代码或数字也算（`@stock AAPL TSLA`、`@stock 600519 700`）；
+小写的普通单词会结束参数（`@stock SNDK is good to buy` 只查 SNDK）。要明确圈定就用「」或引号：`@stock「aapl tsla」`。
 
 ### 执行键
 
@@ -154,10 +168,36 @@ two-way door：可以随时撤回的决定
 
 按住约 0.2 秒后才开始录音，所以轻点右 ⌥ 不会打开麦克风（执行键设成「单按 ⌥」时，轻点就是执行）。按住时如果按了别的键（比如 ⌥ 组合键、⌥←），就当作快捷键，也不会录音。录音中按其他键会取消录音。
 
-## 安装（从源码）
+## 安装
 
-运行需要 macOS 14 以上，语音输入要 macOS 26 以上。编译需要 Xcode 26 以上，因为语音输入用到 macOS 26 SDK。
-目前只在 macOS 27 + Xcode 27、Apple Silicon 上测试过。
+运行需要 macOS 14 以上，语音输入要 macOS 26 以上。安装包是通用版，Apple 芯片和 Intel 的 Mac 都能用；
+目前只在 macOS 27、Apple 芯片上测试过（Intel 版只在 Rosetta 下跑过自测）。
+
+1. 从 [Releases](https://github.com/weijianz-opc/AllInOneIME/releases/latest) 下载 `AllInOneIME-<版本>.dmg`（只从这里下载），双击打开。
+2. 双击里面的「安装 AllInOneIME」，点「安装」。输入法装到 `~/Library/Input Methods`，
+   「AllInOneIME 设置」装到 `~/Applications`（英文系统里叫 AllInOneIME Settings）。只装给当前用户，不需要管理员密码。
+3. 安装包还没有经过 Apple 公证，macOS 验证不了它是谁做的，第一次打开时会说无法验证「安装 AllInOneIME」：
+   点「完成」（macOS 14 上是「取消」），打开 系统设置 → 隐私与安全性，在页面下方点「仍要打开」，再确认一次。
+   每个新版本的安装程序都要这样放行一次。
+
+装好后 AllInOneIME 已经启用，也在你的输入法列表里，用 Ctrl+空格 切换
+（🌐 键要在 系统设置 → 键盘 里把「按下 🌐 键时」设成「更改输入法」才会切换）。
+如果安装程序提示要手动添加，说明这台 Mac 不让程序启用，就自己加一次：
+系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME。
+
+Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再运行一次安装程序，它会把 AllInOneIME 加回输入法列表。
+
+更新：用新版的 DMG 再装一次，不用先卸载，设置、黑话库和学到的词都保留。升级前看一下 [更新日志](CHANGELOG.md)，里面有每个版本的变化和升级须知。
+
+以前装过 AI 拼音（AIPinyin）的话，直接安装就行：旧的 AIPinyin.app 和「AI 拼音设置」会被删掉，
+输入法列表里那一项会换成新名字，不用重新添加。设置、黑话库和学到的词第一次启动时搬到新目录
+（`~/.config/allinoneime` 等），旧目录留一个指向新目录的链接。
+
+卸载：打开「安装 AllInOneIME」，点「卸载…」。设置和学到的词会保留。
+
+### 从源码编译
+
+编译需要 Xcode 26 以上，因为语音输入用到 macOS 26 SDK。
 
 ```sh
 git clone https://github.com/weijianz-opc/AllInOneIME.git
@@ -165,24 +205,8 @@ cd AllInOneIME
 make install
 ```
 
-`make install` 会下载 librime 和雾凇拼音词库并校验，编译后安装到 `~/Library/Input Methods`，
-并在 `~/Applications` 放一个「AllInOneIME 设置」（英文系统里叫 AllInOneIME Settings）。
-
-`make install` 会启用 AllInOneIME，并把它加进你的输入法列表，之后用 Ctrl+空格 切换
-（🌐 键要在 系统设置 → 键盘 里把「按下 🌐 键时」设成「更改输入法」才会切换）。
-如果最后提示要手动添加，说明这台 Mac 不让程序启用，就自己加一次：
-系统设置 → 键盘 → 文字输入 › 输入法「编辑…」→ 左下角 + → 简体中文 → AllInOneIME。
-
-Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再运行一次 `make install`，
-它会把 AllInOneIME 加回输入法列表。`make status` 里的 `listed:` 一行显示它在不在列表里。
-
-以前装过 AI 拼音（AIPinyin）的话，直接 `make install` 就行：它会删掉旧的 AIPinyin.app 和「AI 拼音设置」，
-输入法列表里那一项会换成新名字，不用重新添加。设置、黑话库和学到的词第一次启动时搬到新目录
-（`~/.config/allinoneime` 等），旧目录留一个指向新目录的链接。
-
-升级前看一下 [更新日志](CHANGELOG.md)，里面有每个版本的变化和升级须知。装的是哪个版本，看 `make status` 的 `version:` 一行。
-
-卸载：`make uninstall`。
+`make install` 会下载 librime 和雾凇拼音词库并校验，编译后装到同样的位置，同样加进输入法列表。
+`make status` 显示装的是哪个版本（`version:`）、在不在输入法列表里（`listed:`）。卸载：`make uninstall`。
 
 ## 配置 AI
 
@@ -230,6 +254,7 @@ Ctrl+空格 切不到 AllInOneIME，或者切过去一会儿又变回 U.S.：再
 ## 隐私
 
 - 打拼音完全在本地。只有 `@improve`、`@question`（或整句模式下的句子）按执行键时，那一句话才会发到你选的 AI 服务（你自己的 Bedrock，或你填了 key 的服务）。勾上「黑话」并设了黑话库时，词表也会一起发过去。
+- 用 AllInOneIME 云时，那一句话经过开发者的服务器，再发给模型服务商（目前经 OpenRouter）：服务器只记次数，不保存也不记录内容。登录只保存你的邮箱。
 - 语音只在按住右 ⌥ 时录音，在本机识别；只有在上面这些命令里，识别出的文字才会在你按执行键时发出去。
 - 只有在命令（或整句模式的草稿）里按 ⌃V 或 ⌘V，或者命令后面没写内容就按执行键时，输入法才读一次剪贴板里的文字；密码管理器标成隐藏的内容不读。读到的文字先显示在草稿里，同样要你再按执行键才发出去。新版 macOS 会问是否允许 AllInOneIME 读取剪贴板，选「允许」；不想每次都问，可以在 系统设置 → 隐私与安全性 里把 AllInOneIME 的粘贴权限设成总是允许。
 - 在密码框里（安全输入）不组字，也不能录音。只要系统处于安全输入状态（密码框、终端的安全键盘输入等），就不会发任何内容给 AI。
@@ -244,6 +269,7 @@ make realtest     # 在真实 App 的文本框里打字测试（需要屏幕已�
 make screenshots  # 重新生成 docs/ 里的截图
 make cli && .build/release/allinoneime-cli --styles 简洁,黑话 "我今天有点不舒服"   # 在终端里试翻译和改写
 make icon         # 从 Resources/AppIcon.png 重新生成 App 图标和菜单栏图标
+make dmg          # 发布用的安装包 build/AllInOneIME-<版本>.dmg（通用版；有 Developer ID 证书时签名，可以顺便公证）
 ```
 
 代码结构：
@@ -252,6 +278,7 @@ make icon         # 从 Resources/AppIcon.png 重新生成 App 图标和菜单�
 - `Sources/AllInOneIMERime`：librime 封装
 - `Sources/AllInOneIME`：InputMethodKit 输入法、候选框、设置窗口、语音识别
 - `Sources/AllInOneIMESettings`：「AllInOneIME 设置」启动器
+- `Sources/AllInOneIMEInstaller`：DMG 里的「安装 AllInOneIME」：安装、更新和卸载
 
 Bundle ID 仍是 `com.aipinyin.inputmethod.AIPinyin`：macOS 按它记住已添加的输入法和麦克风权限，改了就要重新添加和授权。
 

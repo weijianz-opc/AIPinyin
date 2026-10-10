@@ -761,6 +761,8 @@ enum SelfTest {
         }
         controller.clientOverride = client
         controller.saveSentenceMode = { _ in }  // leave the user's setting alone
+        controller.loadCommandUsage = { CommandUsage() }  // and the order of their command list
+        controller.saveCommandUsage = { _ in }
         controller.readClipboard = { nil }  // never the real clipboard; the ⌘V section supplies its text
         // The real config (model, styles, credentials) with the new options pinned to known values;
         // sections below change `settings` and the controller follows (nothing is written to disk).

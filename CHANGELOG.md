@@ -2,18 +2,36 @@
 
 中文 | [English](CHANGELOG.en.md)
 
-## 未发布
+## 0.3.0（2026-10-09）
 
 ### 新增
 
+- 安装包：从 [Releases](https://github.com/weijianz-opc/AllInOneIME/releases) 下载 `AllInOneIME-<版本>.dmg`，双击里面的「安装 AllInOneIME」就能安装、更新或卸载，不用再装 Xcode 编译。通用版，Apple 芯片和 Intel 的 Mac 都能用。只装给当前用户，不需要管理员密码。安装包还没有经过 Apple 公证，第一次打开要在 系统设置 → 隐私与安全性 里点「仍要打开」；只从 Releases 下载。
+- `@read 网址`：读网页的标题和正文（网页、纯文本、PDF），放在句子中间给 AI 当上下文，比如 `@question 用一句话总结 @read https://…`。
+- 句子中间也能用查数据的命令：`@reply 告诉他 @stock AAPL 现在多少钱`，里面的先运行，结果替换回原文，再交给外面的命令。
+- 插件：别人写好的 `@` 命令（JavaScript，在单独的进程里运行，只能访问它声明的网站），第一个是 `@stock` 查股价。设置里有「插件」一栏。
+- 命令列表最多显示 5 个，最近常用的排在前面；其他命令打字母找。
+- AllInOneIME 云：用邮箱注册登录，每天免费 20 次，订阅 $3/月 3000 次（Stripe），不需要自己的 AWS 或 API key。服务端是开发者自己运行的服务（不在这个仓库里）。
 - 除了 Amazon Bedrock，也能用 Claude API、Gemini API 和兼容 OpenAI 的服务（DeepSeek、Qwen、Ollama 等）：在设置的「AI 服务」里选，API key 存在钥匙串里。
-- 自己加 `@` 命令：在配置文件的 `customCommands` 里写，三种：`prompt`（发给 AI，用你的指令）、`run`（在后台运行程序，比如 `python3 -c`，输出可以上屏）、`terminal`（在终端里运行）。见 README 的「自己加命令」。
+- 自己加 `@` 命令：在设置的「自定义 @ 命令」里添加（也可以直接写配置文件的 `customCommands`），三种：`prompt`（发给 AI，用你的指令）、`run`（在后台运行程序，比如 `python3 -c`，输出可以上屏）、`terminal`（在终端里运行）。见 README 的「自己加命令」。
 - 在命令里（或整句模式的草稿里）按 ⌃V，把剪贴板里的文字接到已经打的字后面，哪个 App 里都能用，终端也行。⌘V 在终端（Ghostty 等）和备忘录里会被 App 自己拿去粘贴，在那里用 ⌃V。
+- 开发：`make dmg` 生成发布用的安装包（有 Developer ID 证书时签名，设了 `NOTARY_PROFILE` 时顺便公证）。
+
+### 改动
+
+- 输入法里带上了许可证（`LICENSE`、`THIRD_PARTY_NOTICES.md`）。`THIRD_PARTY_NOTICES.md` 补上了编进 librime 的库（Boost、glog、LevelDB、yaml-cpp、OpenCC、Lua 等）的许可证全文。
 
 ### 修复
 
+- Slack 等 App 里用 @ 命令时，App 会把正在输入的「@improve …」当成提及收走，接着草稿又显示一遍，文字重复。现在输入中的命令不显示 `@`（显示为 `improve › 你好`，草稿里其他的 `@` 显示成全角），App 自己收走输入时就从头开始，不再重复；执行和上屏的内容不变。
+- `@claude` 的内容以 `-` 开头时（比如 `--dangerously-skip-permissions`），会被 Claude Code 当成命令行选项；现在一律当作第一句话。
 - 候选框里很长的一行（比如 `@question` 的长答案）有时会少画最后一行，现在完整显示。
 - 设置窗口里 `@improve` 的说明改得更清楚：「打中文 → 翻译成英文 / 改写；打英文 → 英文润色 / 改写」。
+
+### 升级须知
+
+- 从源码装的（`make install`）可以直接用安装包更新，反过来也一样：bundle ID 没变，设置、学到的词和输入法列表里那一项都保留。
+- 安装包里的 App 是临时（ad-hoc）签名，换成安装包、或者以后每次更新后，macOS 可能会再问一次麦克风权限。
 
 ## 0.2.0（2026-10-09）
 

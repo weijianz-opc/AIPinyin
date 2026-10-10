@@ -52,6 +52,7 @@ enum UIText {
     static func name(_ provider: Provider) -> String {
         switch provider {
         case .openai: return tr("兼容 OpenAI 的服务", "OpenAI-compatible API")
+        case .hosted: return tr("AllInOneIME 云（登录即用）", "AllInOneIME Cloud (sign in)")
         default: return provider.displayName
         }
     }
@@ -87,12 +88,16 @@ enum UIText {
 
     /// What a command does, in the palette: "提问，答案可以直接上屏" / "Ask a question; insert the answer".
     static func summary(_ command: Command) -> String {
+        if let plugin = command.plugin {
+            return plugin.manifest.summary?.text(chinese: chinese) ?? tr("插件", "Plugin")
+        }
         if let custom = command.custom { return custom.summary ?? customKind(custom) }
         switch command {
         case .improve: return tr("润色 / 翻译，和不加命令一样", "Polish / translate, as without a command")
         case .question: return tr("提问，答案可以直接上屏", "Ask a question; insert the answer")
         case .claude: return tr("在终端里开 Claude Code，接着聊", "Start Claude Code in Terminal")
         case .open: return tr("找文件、文件夹或 App 并打开", "Find a file, folder or app and open it")
+        case .read: return tr("读网页正文，可放在句中给 AI 当上下文", "Read a web page; inside a sentence, context for the AI")
         default: return ""
         }
     }
@@ -108,6 +113,7 @@ enum UIText {
 
     /// What the action key does with a command draft, after "⏎ →".
     static func action(_ command: Command, input: Language, config: Config) -> String {
+        if command.plugin != nil, command.kind == .run { return tr("运行插件", "run the plugin") }
         switch command.custom?.type {
         case .prompt?: return tr("AI 生成", "generate")
         case .run?: return tr("运行", "run")
@@ -119,18 +125,32 @@ enum UIText {
         case .question: return tr("提问", "ask")
         case .claude: return tr("在终端打开 Claude Code", "open Claude Code in Terminal")
         case .open: return tr("搜索并打开", "search and open")
+        case .read: return tr("读网页", "read the page")
         default: return ""
         }
     }
 
     /// The row comment of an answer: "回答" / "answer", "Claude".
     static func answerLabel(_ command: Command?) -> String {
-        if command?.kind == .run { return tr("输出", "output") }
+        if command?.kind == .run { return command?.plugin.map { "@" + $0.name } ?? tr("输出", "output") }
         return command == .claude ? "Claude" : tr("回答", "answer")
     }
 
     /// An error as the settings window shows it.
     static func describe(_ error: Error) -> String {
+        if let error = error as? WebReader.ReadError {
+            switch error {
+            case let .invalidURL(text): return tr("不是网址：\(text)", "Not a web address: \(text)")
+            case let .http(status): return tr("网页返回 HTTP \(status)", "The page answered HTTP \(status)")
+            case let .unsupported(type): return tr("读不了这种内容（\(type)）", "Can't read this kind of content (\(type))")
+            case .empty: return tr("网页上没有找到文字（要靠 JavaScript 显示的网页读不了）",
+                                   "No text found on the page (pages that need JavaScript can't be read)")
+            case .tooLarge: return tr("网页太大（超过 2 MB）", "The page is larger than 2 MB")
+            }
+        }
+        if let error = error as? CommandPipelineError, case let .inner(name, underlying) = error, name == "read" {
+            return "@read" + tr("：", ": ") + underlying
+        }
         if let error = error as? CommandRunner.RunError {
             switch error {
             case let .notFound(program): return tr("找不到程序 \(program)", "Program not found: \(program)")
@@ -152,6 +172,10 @@ enum UIText {
             case let .refused(p): return tr("\(name(p)) 拒绝了这个请求", "The \(name(p)) declined this request")
             case let .invalidResponse(p, detail):
                 return tr("\(name(p)) 的响应无法解析：\(detail)", "Couldn't read the \(name(p)) response: \(detail)")
+            case .signedOut: return tr("请先在设置里登录 AllInOneIME 云", "Sign in to AllInOneIME Cloud in the settings")
+            case .quotaExhausted:
+                return tr("今天的免费次数用完了：可以在设置里订阅，或者填自己的 API key",
+                          "No requests left today: subscribe, or add your own API key in the settings")
             }
         }
         guard !chinese else { return AllInOneIMEInputController.describe(error) }

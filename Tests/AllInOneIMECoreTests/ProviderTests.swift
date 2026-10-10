@@ -162,4 +162,78 @@ struct ProviderTests {
             for try await _ in noKey.convert("你好") {}
         }
     }
+
+    @Test func hostedRequestAndEvents() throws {
+        let r = try HTTPProviders.makeRequest(body, provider: .hosted, settings: ProviderSettings(model: "hosted", baseURL: "https://svc.test/"),
+                                              key: "v1.session", maxTokens: 1000, timeout: 15)
+        #expect(r.url?.absoluteString == "https://svc.test/chat")
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer v1.session")
+        let j = try json(r)
+        #expect(j["model"] == nil)  // the service picks it
+        #expect((j["system"] as? [[String: String]])?.first?["text"] == "You are the writing assistant.")
+        #expect((j["messages"] as? [[String: Any]])?.count == 3)
+        #expect((j["inferenceConfig"] as? [String: Any])?["maxTokens"] as? Int == 1000)
+        #expect(try HTTPProviders.events(fromData: #"{"text":"EN: Hi"}"#, provider: .hosted) == [.textDelta("EN: Hi")])
+        #expect(try HTTPProviders.events(fromData: #"{"stop":"end_turn"}"#, provider: .hosted) == [.messageStop(reason: "end_turn")])
+        #expect(throws: ProviderError.stream(provider: .hosted, type: "ThrottlingException", message: "The model request failed")) {
+            try HTTPProviders.events(fromData: #"{"error":{"type":"ThrottlingException","message":"The model request failed"}}"#, provider: .hosted)
+        }
+        #expect(HTTPProviders.httpError(provider: .hosted, status: 401, body: []) == .signedOut)
+        #expect(HTTPProviders.httpError(provider: .hosted, status: 402, body: []) == .quotaExhausted)
+    }
+
+    @Test func signInUsesPKCE() throws {
+        let signIn = HostedSignIn(domain: "aio.auth.us-east-1.amazoncognito.com", clientId: "client-1")
+        func items(_ url: URL) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                .map { ($0.name, $0.value ?? "") })
+        }
+        let email = signIn.authorizationURL(.email)
+        #expect(email.absoluteString.hasPrefix("https://aio.auth.us-east-1.amazoncognito.com/oauth2/authorize?"))
+        let q = items(email)
+        #expect(q["client_id"] == "client-1" && q["redirect_uri"] == "allinoneime://auth" && q["response_type"] == "code")
+        #expect(q["scope"] == "openid email" && q["code_challenge_method"] == "S256" && q["state"] == signIn.state)
+        #expect(q["code_challenge"] != signIn.verifier && (q["code_challenge"]?.count ?? 0) == 43)
+        #expect(q["identity_provider"] == nil)  // the pool's page: email, with sign-up
+        #expect(items(signIn.authorizationURL(.google))["identity_provider"] == "Google")  // straight to Google
+        let back = try #require(URL(string: "allinoneime://auth?code=abc-123&state=\(signIn.state)"))
+        #expect(signIn.code(from: back) == "abc-123")
+        let forged = try #require(URL(string: "allinoneime://auth?code=abc-123&state=other"))
+        #expect(signIn.code(from: forged) == nil)  // not the answer to this sign-in
+    }
+
+    @Test func checkoutCarriesTheUser() throws {
+        let url = try #require(HostedService.checkoutURL(sub: "1001", email: "a+b@example.com", link: "https://buy.stripe.com/test_123"))
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(items.first { $0.name == "client_reference_id" }?.value == "1001")
+        #expect(items.first { $0.name == "prefilled_email" }?.value == "a+b@example.com")
+        #expect(HostedService.checkoutURL(sub: "1", email: nil, link: "") == nil)
+        let payload = Data(#"{"sub":"1001","email":"a@example.com","exp":9999999999}"#.utf8).base64URL
+        #expect(HostedAccount.sessionSubject("v1.\(payload).mac") == "1001")
+        #expect(HostedAccount.sessionSubject("garbage") == nil)
+    }
+
+    /// The whole way through the converter, against a stubbed service.
+    @Test func convertsThroughTheHostedService() async throws {
+        let host = "hosted.test"
+        let sse = #"data: {"text":"EN: Thanks a lot.\nEN: Appreciate it.\nEN: Thank you!\n"}"# + "\n\n" + #"data: {"stop":"end_turn"}"# + "\n\n"
+        StubURLProtocol.register(host: host, .init(status: 200, headers: ["Content-Type": "text/event-stream"], chunks: [Data(sse.utf8)]))
+        var config = Config.default
+        config.provider = .hosted
+        config.rewriteStyles = []
+        let fixed = config
+        // The hosted base URL comes from HostedService; here the stub's host stands in for it.
+        let request = try HTTPProviders.makeRequest(body, provider: .hosted, settings: ProviderSettings(baseURL: "https://\(host)"),
+                                                    key: "v1.s", maxTokens: 10, timeout: 5)
+        var texts: [String] = []
+        for try await event in SSEStream.events(request, provider: .hosted, session: StubURLProtocol.session()) {
+            if case let .textDelta(text) = event { texts.append(text) }
+        }
+        #expect(texts.joined() == "EN: Thanks a lot.\nEN: Appreciate it.\nEN: Thank you!\n")
+        // Signed out: a clear error, nothing sent.
+        let converter = Converter(client: BedrockClient(session: StubURLProtocol.session()), loadConfig: { fixed }, loadKey: { _ in nil })
+        await #expect(throws: ProviderError.signedOut) {
+            for try await _ in converter.convert("你好") {}
+        }
+    }
 }

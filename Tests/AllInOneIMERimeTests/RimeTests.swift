@@ -163,6 +163,38 @@ struct RimeEngineTests {
         composer.engine?.clearComposition()
     }
 
+    /// With real librime: a second "@" inside a command's text brings up the commands that run there,
+    /// letters for the symbol, Chinese again after it.
+    @Test func commandInsideATextWithTheRealEngine() throws {
+        let engine = try RimeFixture.session()
+        let composer = Composer(engine: engine)
+        composer.commands = Command.catalog([CustomCommand(name: "stock", type: .run, argv: ["stock", "{input}"])])
+        let at = KeyEvent(keyCode: 0x13, characters: "@", modifiers: .shift)
+        _ = composer.handleKeyDown(at)
+        _ = composer.handleKeyDown(key("q"))
+        _ = composer.handleKeyDown(enter)
+        for ch in "nihao" { _ = composer.handleKeyDown(key(ch)) }
+        _ = composer.handleKeyDown(space)
+        _ = composer.handleKeyDown(at)
+        #expect(composer.draft == "@question 你好@")
+        #expect(composer.paletteMatches.map(\.name) == ["read", "stock"])
+        _ = composer.handleKeyDown(key("s"))
+        _ = composer.handleKeyDown(KeyEvent(keyCode: VirtualKey.tab, characters: "\t"))
+        #expect(composer.draft == "@question 你好@stock " && composer.engineState.isAsciiMode)
+        for ch in "AAPL" { _ = composer.handleKeyDown(KeyEvent(keyCode: 0, characters: String(ch), modifiers: .shift)) }
+        _ = composer.handleKeyDown(space)
+        #expect(composer.draft == "@question 你好@stock AAPL " && !composer.engineState.isAsciiMode)
+        for ch in "zenmeyang" { _ = composer.handleKeyDown(key(ch)) }
+        let effects = composer.handleKeyDown(enter).effects
+        guard case let .startPlan(outer, plan, _)? = effects.first else {
+            Issue.record("expected a plan: \(effects)")
+            return
+        }
+        #expect(outer == .question && plan.inner.map(\.argument) == ["AAPL"])
+        #expect(plan.input(outputs: ["QUOTE"]) == "你好QUOTE 怎么样")
+        composer.engine?.clearComposition()
+    }
+
     /// Sentence mode with real librime: Return converts the pinyin still being typed and sends it;
     /// ⇧Return keeps the letters as typed.
     @Test func returnActsWithTheRealEngine() throws {

@@ -25,6 +25,35 @@ enum Settings {
     }
 }
 
+/// The installed plugins, scanned again when a text field becomes active (installing or removing one
+/// shows up there) and at most every 30 seconds otherwise.
+enum LivePlugins {
+    private static var cached: (at: Date, result: (plugins: [InstalledPlugin], skipped: [PluginStore.Skipped]))?
+
+    static func current(rescan: Bool = false) -> [InstalledPlugin] {
+        if !rescan, let cached, Date().timeIntervalSince(cached.at) < 30 { return cached.result.plugins }
+        let result = PluginStore.load()
+        cached = (Date(), result)
+        return result.plugins
+    }
+}
+
+/// How much each @ command is used (the order of the command list), shared by every text field and kept
+/// across launches.
+enum CommandUsageStore {
+    private static let key = "commandUsage"
+    static var usage: CommandUsage = {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let usage = try? JSONDecoder().decode(CommandUsage.self, from: data) else { return CommandUsage() }
+        return usage
+    }()
+
+    static func save(_ new: CommandUsage) {
+        usage = new
+        if let data = try? JSONEncoder().encode(new) { UserDefaults.standard.set(data, forKey: key) }
+    }
+}
+
 /// The config file as of now, re-read only when it changed (checked by modification date).
 /// A file that doesn't parse reads as the defaults here; conversions report the error.
 enum LiveConfig {
@@ -65,6 +94,8 @@ final class AllInOneIMEInputController: IMKInputController {
         return composer
     }()
     private var session: RimeSession?
+    /// Whether the app still has the text being typed (Slack may take it into a mention on its own).
+    private var markedWatch = MarkedTextWatch()
     private var conversionTask: Task<Void, Never>?
     private var lastElapsed: TimeInterval?
     private var lastFromCache = false
@@ -76,6 +107,9 @@ final class AllInOneIMEInputController: IMKInputController {
     var converter: Converter = sharedConverter
     /// Persists the sentence mode switch (the self-test replaces this so it leaves the setting alone).
     var saveSentenceMode: (Bool) -> Void = { Settings.sentenceMode = $0 }
+    /// The command usage as kept, and keeping it (the self-test leaves the user's alone).
+    var loadCommandUsage: () -> CommandUsage = { CommandUsageStore.usage }
+    var saveCommandUsage: (CommandUsage) -> Void = { CommandUsageStore.save($0) }
     /// Whether secure event input is on anywhere; no text is sent to the model then.
     /// (The self-test replaces this to exercise both states.)
     var secureInputActive: () -> Bool = { SecureInput.isOn }
@@ -105,6 +139,8 @@ final class AllInOneIMEInputController: IMKInputController {
     private var programCheck = 0
     /// A custom `run` command: runs its program in the background (the self-test supplies its own).
     var runProgram: (CustomCommand, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { CommandRunner.run($0, input: $1) }
+    /// A script plugin: runs in this program's own child process (`--run-plugin`).
+    var runPlugin: (InstalledPlugin, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { PluginRunner.run($0, input: $1) }
     /// ⌘C on a result (the self-test leaves the clipboard alone).
     var copyText: (String) -> Void = { text in
         NSPasteboard.general.clearContents()
@@ -165,6 +201,7 @@ final class AllInOneIMEInputController: IMKInputController {
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
         MainActor.assumeIsolated {
+            markedWatch.reset()  // another text field, maybe another app
             ensureEngine()
             applySettings()
             // Terminals paste on ⌘V whatever the input method does: there ⌘V stays theirs.
@@ -231,7 +268,7 @@ final class AllInOneIMEInputController: IMKInputController {
         composer.englishAI = config.englishAI
         composer.voiceEnabled = config.voiceInput && VoiceInput.isSupported
         composer.actionKey = config.actionKey
-        setCommands(Command.catalog(config.customCommands), recheck: true)
+        setCommands(Command.catalog(config.customCommands, plugins: LivePlugins.current(rescan: true)), recheck: true)
         // The interface language (config `uiLanguage`, else the system's) for the panel, notices and menu.
         UIText.choice = config.uiLanguage
         composer.messages = UIText.chinese ? .chinese : .english
@@ -289,9 +326,20 @@ final class AllInOneIMEInputController: IMKInputController {
             return false
         }
         secureNoticeShown = false
+        // The app took the text being typed without saying so (Slack, on an "@…"): start over rather than
+        // show the draft again, doubled. This key is dropped, so ⏎ doesn't send half a sentence.
+        if composer.isComposing, let target,
+           markedWatch.appTookText(expected: composer.markedText, reportedLength: Self.markedLength(target)) {
+            log.notice("the app took the marked text: starting over")
+            perform(composer.appTookMarkedText(), client: client)
+            return true
+        }
         ensureEngine()
         // Commands added to the config apply from the next sentence on (the file is re-read only when it changed).
-        if !composer.isComposing { setCommands(Command.catalog(loadSettings().customCommands)) }
+        if !composer.isComposing {
+            setCommands(Command.catalog(loadSettings().customCommands, plugins: LivePlugins.current()))
+            composer.commandUsage = loadCommandUsage()  // another text field may have run commands
+        }
         let response = composer.handleKeyDown(KeyEvent(
             keyCode: event.keyCode, characters: event.characters ?? "",
             charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
@@ -357,6 +405,10 @@ final class AllInOneIMEInputController: IMKInputController {
             case let .startCommand(command, input, id):
                 if refusedForSecureInput(id: id, client: target) { break }
                 startConversion(input, id: id, command: command)
+            case let .startPlan(outer, plan, id):
+                // Inner commands run programs or reach the network: refused during secure input like any.
+                if refusedForSecureInput(id: id, client: target, running: true) { break }
+                startConversion("", id: id, command: outer, plan: plan)
             case let .startRun(command, input, id):
                 if refusedForSecureInput(id: id, client: target, running: true) { break }
                 startConversion(input, id: id, command: command)
@@ -380,6 +432,8 @@ final class AllInOneIMEInputController: IMKInputController {
                     log.error("@claude: could not start Terminal: \(String(describing: error), privacy: .public)")
                     showNotice(UIText.describe(error), client: target)
                 }
+            case .commandUsed:
+                saveCommandUsage(composer.commandUsage)
             case let .launchInTerminal(argv):
                 do {
                     try launchInTerminal(argv)
@@ -569,6 +623,13 @@ final class AllInOneIMEInputController: IMKInputController {
         let cursor = String(text.prefix(composer.markedCursor)).utf16.count
         client.setMarkedText(
             attributed, selectionRange: NSRange(location: cursor, length: 0), replacementRange: Self.notFound)
+        markedWatch.didSet(expected: text, reportedLength: Self.markedLength(client))
+    }
+
+    /// The length of the app's marked text, or nil when it reports none.
+    static func markedLength(_ client: IMKTextInput) -> Int? {
+        let range = client.markedRange()
+        return range.location == NSNotFound ? nil : range.length
     }
 
     private func markAttributes(style: Int, range: NSRange) -> [NSAttributedString.Key: Any] {
@@ -606,17 +667,28 @@ final class AllInOneIMEInputController: IMKInputController {
     /// Streams level two for `input`: the improve conversion, a `.generate` command's answer, or what a
     /// `.run` command's program printed.
     @MainActor
-    private func startConversion(_ input: String, id: Int, command: Command? = nil) {
+    private func startConversion(_ input: String, id: Int, command: Command? = nil, plan: CommandPlan? = nil) {
         conversionTask?.cancel()
         lastElapsed = nil
         lastFromCache = false
-        // Custom command names are the user's own: kept out of the public log.
-        log.notice("conversion \(id) started (\(input.count) chars\(command.map { ", @\($0.custom == nil ? $0.name : "custom")" } ?? "", privacy: .public))")
+        // Plugin names are public (from the library); custom command names are the user's own.
+        func logged(_ command: Command) -> String { command.custom == nil || command.plugin != nil ? command.name : "custom" }
+        let inner = plan.map { ", inside: " + $0.inner.map { "@" + logged($0.command) }.joined(separator: " ") } ?? ""
+        log.notice("conversion \(id) started (\(input.count) chars\(command.map { ", @\(logged($0))" } ?? "")\(inner), privacy: .public))")
+        let (runPlugin, runProgram, converter) = (self.runPlugin, self.runProgram, self.converter)
+        // Not tied to the main actor: the pipeline calls it from its own task.
+        let streamFor: @Sendable (Command?, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { command, input in
+            if command == .read { return WebReader.stream(input) }
+            if let command, command.kind == .run, let plugin = command.plugin { return runPlugin(plugin, input) }
+            if let command, command.kind == .run, let custom = command.custom { return runProgram(custom, input) }
+            return command.map { converter.generate($0, input: input) } ?? converter.convert(input)
+        }
         let stream: AsyncThrowingStream<ConversionUpdate, Error>
-        if let command, command.kind == .run, let custom = command.custom {
-            stream = runProgram(custom, input)
+        if let plan, !plan.isEmpty {
+            // The commands inside the text first (together), then this one on the text with their outputs.
+            stream = CommandPipeline.run(plan, inner: { streamFor($0, $1) }, outer: { streamFor(command, $0) })
         } else {
-            stream = command.map { converter.generate($0, input: input) } ?? converter.convert(input)
+            stream = streamFor(command, input)
         }
         conversionTask = Task { @MainActor [weak self] in
             do {
@@ -648,6 +720,8 @@ final class AllInOneIMEInputController: IMKInputController {
         case let ProviderError.stream(provider, type, _): return "\(provider.rawValue) stream \(type)"
         case let ProviderError.missingKey(provider): return "\(provider.rawValue) no key"
         case let ProviderError.refused(provider): return "\(provider.rawValue) refused"
+        case ProviderError.signedOut: return "hosted signed out"
+        case ProviderError.quotaExhausted: return "hosted quota exhausted"
         case let urlError as URLError: return "url \(urlError.code.rawValue)"
         default: return String(describing: type(of: error))
         }
