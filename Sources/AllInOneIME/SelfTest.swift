@@ -170,7 +170,7 @@ enum SelfTest {
         press(c, client, "@", code: 0x13, flags: .shift)  // ⇧2
         type("i", c, client)
         press(c, client, "\t", code: VirtualKey.tab)
-        return client.marked == "@improve "
+        return client.marked == "improve › "
     }
 
     /// The hint shown under a draft in `input`, for the current action key and interface language.
@@ -394,7 +394,7 @@ enum SelfTest {
         let sentence = "this is a blocker bug your team need fix it asap"
         improve(controller, client)
         type(sentence, controller, client)
-        check(client.marked == "@improve " + sentence && controller.composer.isLatinDraft,
+        check(client.marked == "improve › " + sentence && controller.composer.isLatinDraft,
               "English collects into the @improve draft (\(client.marked))")
         check(space(controller, client) && controller.composer.draft.hasSuffix(" ") && !controller.composer.isLevelTwo,
               "Space after a word is a space")
@@ -582,7 +582,7 @@ enum SelfTest {
         if dictate(chineseAudio, snapshotName: "8-voice") {
             let draft = controller.composer.draft
             check(draft.hasPrefix(before) && draft.wordingKey.contains("不舒服"), "transcript continues the draft: \(draft)")
-            check(client.marked == draft, "draft shown inline")
+            check(client.marked == draft.replacingOccurrences(of: "@improve ", with: "improve › "), "draft shown inline")
             act(controller, client)
             if finishConversion(controller, "voice → translation") {
                 check(controller.composer.choices.filter { $0.kind == .version }.count == 3, "3 English versions of the spoken sentence")
@@ -660,12 +660,12 @@ enum SelfTest {
         settle()
         at()
         let commands = controller.panelModel().rows.map(\.text)
-        check(client.marked == "@" && commands == ["@improve", "@question", "@claude", "@open"],
+        check(client.marked == "@" && commands == ["@improve", "@question", "@claude", "@open", "@read"],
               "@ opens the command palette (\(commands))")
         readmeSnapshot("10-palette", controller, client, in: snapshotDirectory)
         type("q", controller, client)
         _ = enter(controller, client)
-        check(client.marked == "@question ", "⏎ picks @question ('\(client.marked)')")
+        check(client.marked == "question › ", "⏎ picks @question ('\(client.marked)')")
         type("shenmeshiliangzijisuan", controller, client)  // 什么是量子计算: what is quantum computing
         _ = enter(controller, client)  // converts the pinyin and asks
         if finishConversion(controller, "@question") {
@@ -697,7 +697,7 @@ enum SelfTest {
         _ = space(controller, client)
         type("nihao", controller, client)
         _ = enter(controller, client)
-        check(terminal.count == 1 && client.marked == "@claude 你好",
+        check(terminal.count == 1 && client.marked == "claude › 你好",
               "@claude doesn't start Claude Code while secure input is on (\(client.marked))")
         controller.secureInputActive = secureInput
         _ = enter(controller, client)
@@ -1017,7 +1017,7 @@ enum SelfTest {
         press(controller, client, "@", code: 0x13, flags: .shift)
         type("i", controller, client)
         _ = enter(controller, client)
-        check(client.marked == "@improve ", "@i ⏎ picks @improve ('\(client.marked)')")
+        check(client.marked == "improve › ", "@i ⏎ picks @improve ('\(client.marked)')")
         type("wojintianyoudianbushufu", controller, client)
         check(controller.panelModel().footer == "空格 选词 · ⏎ 翻译成英文 / 改写", "the footer names the command (\(controller.panelModel().footer))")
         readmeSnapshot("1b-sentence-pinyin", controller, client, in: snapshotDirectory)
@@ -1042,8 +1042,8 @@ enum SelfTest {
         _ = enter(controller, client)
         let insertedBefore = client.inserted.count
         check(press(controller, client, "v", code: 0x09, flags: .command), "⌘V in the command is the input method's (the app doesn't paste)")
-        _ = pump(timeout: 1) { client.marked != "@improve " }  // the clipboard is read once the key is answered
-        check(client.marked == "@improve 这个项目的进度太慢了我们需要尽快想办法" && client.inserted.count == insertedBefore,
+        _ = pump(timeout: 1) { client.marked != "improve › " }  // the clipboard is read once the key is answered
+        check(client.marked == "improve › 这个项目的进度太慢了我们需要尽快想办法" && client.inserted.count == insertedBefore,
               "the clipboard's text goes into the command, as one line ('\(client.marked)')")
         _ = enter(controller, client)
         if finishConversion(controller, "@improve on pasted text") {
@@ -1069,8 +1069,8 @@ enum SelfTest {
         press(controller, client, "@", code: 0x13, flags: .shift)
         type("i", controller, client)
         _ = enter(controller, client)
-        check(enter(controller, client) && pump(timeout: 1) { client.marked != "@improve " }
-              && client.marked == "@improve 这个项目的进度太慢了我们需要尽快想办法" && !controller.composer.isLevelTwo,
+        check(enter(controller, client) && pump(timeout: 1) { client.marked != "improve › " }
+              && client.marked == "improve › 这个项目的进度太慢了我们需要尽快想办法" && !controller.composer.isLevelTwo,
               "⏎ on the empty command shows the clipboard's text in it (\(client.marked))")
         _ = enter(controller, client)
         _ = pump(timeout: 3) { controller.composer.phase == .choosing }
@@ -1086,7 +1086,7 @@ enum SelfTest {
         let insertedBeforeControlV = client.inserted.count
         check(press(controller, client, "v", code: 0x09, flags: .control)
               && pump(timeout: 1) { client.marked.hasSuffix("想办法") }
-              && client.marked == "@improve 你好这个项目的进度太慢了我们需要尽快想办法" && client.inserted.count == insertedBeforeControlV,
+              && client.marked == "improve › 你好这个项目的进度太慢了我们需要尽快想办法" && client.inserted.count == insertedBeforeControlV,
               "in a terminal ⌃V adds the clipboard's text after what was typed (\(client.marked))")
         _ = escape(controller, client)
         client.bundleIDOverride = nil
@@ -1129,7 +1129,7 @@ enum SelfTest {
         check(improve(controller, client), "@i Tab starts an @improve draft ('\(client.marked)')")
         type("nihao", controller, client)
         _ = space(controller, client)
-        check(client.marked == "@improve 你好" && controller.composer.draft == "@improve 你好",
+        check(client.marked == "improve › 你好" && controller.composer.draft == "@improve 你好",
               "Space confirms 你好 into the command (not inserted yet)")
         check(controller.panelModel().status == draftHint(controller, input: .chinese),
               "the hint names the action key (\(controller.panelModel().status))")
@@ -1156,7 +1156,7 @@ enum SelfTest {
         check(!press(controller, client, "a", code: 0x00), "letters go straight to the app")
         improve(controller, client)
         type("ok", controller, client)
-        check(client.marked == "@improve ok" && controller.composer.isLatinDraft, "after @improve, letters go into the command")
+        check(client.marked == "improve › ok" && controller.composer.isLatinDraft, "after @improve, letters go into the command")
         check(shiftEnter(controller, client) && client.inserted.last == "@improve ok" && client.marked.isEmpty,
               "⇧⏎ inserts the English command as typed")
         improve(controller, client)
@@ -1191,7 +1191,7 @@ enum SelfTest {
         snapshot("2b-sentence-draft", in: snapshotDirectory)
         let started = Date()
         check(act(controller, client), "the action key starts the translation")
-        check(panel.isVisible && client.marked == "@improve " + sentence, "panel visible, the command stays marked")
+        check(panel.isVisible && client.marked == "improve › " + sentence, "panel visible, the command stays marked")
         var streamingSnapshotTaken = false
         let finished = pump(timeout: 20) {
             if !streamingSnapshotTaken, case .translating = controller.composer.phase,
@@ -1238,7 +1238,7 @@ enum SelfTest {
         _ = space(controller, client)
         act(controller, client)  // translation starts
         type("ma", controller, client)  // keep typing instead of choosing
-        check(controller.composer.phase == .drafting && client.marked.hasPrefix("@improve 你好"), "back to the draft (\(client.marked))")
+        check(controller.composer.phase == .drafting && client.marked.hasPrefix("improve › 你好"), "back to the draft (\(client.marked))")
         _ = space(controller, client)
         check(controller.composer.draft == "@improve 你好吗", "sentence is now 你好吗 (\(controller.composer.draft))")
         _ = shiftEnter(controller, client)
@@ -1354,7 +1354,7 @@ enum SelfTest {
         // Space asks again (the model is still invalid, so it fails again).
         check(space(controller, client) && !failed() && pump(timeout: 15) { failed() }, "Space retries")
         _ = escape(controller, client)
-        check(controller.composer.phase == .drafting && client.marked == "@improve 测试", "Esc returns to the draft")
+        check(controller.composer.phase == .drafting && client.marked == "improve › 测试", "Esc returns to the draft")
         controller.commitComposition(client)
         check(client.inserted.last == "@improve 测试" && controller.composer.phase == .idle, "commitComposition inserts the draft")
 
