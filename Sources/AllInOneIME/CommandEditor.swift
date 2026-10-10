@@ -9,7 +9,7 @@ struct CommandEdit: Identifiable {
 }
 
 /// The form for one custom @ command: its name, what it does (an instruction for the AI, a program
-/// to run, or a program in Terminal) and how. Saving hands the finished definition back.
+/// to run, a program in Terminal, or a web page to open) and how. Saving hands the finished definition back.
 struct CommandEditor: View {
     let original: CommandEdit
     /// The other custom commands and the installed plugins (their names are taken).
@@ -28,6 +28,8 @@ struct CommandEditor: View {
     @State private var useStdin: Bool
     @State private var latin: Bool
     @State private var timeout: Double
+    /// `link`: the web address, with `{input}`.
+    @State private var url: String
     /// The program of the command line isn't on this Mac (looked up in the background).
     @State private var missingProgram: String?
 
@@ -45,6 +47,7 @@ struct CommandEditor: View {
         _useStdin = State(initialValue: c.stdin != nil)
         _latin = State(initialValue: c.typesLatin)
         _timeout = State(initialValue: c.timeout)
+        _url = State(initialValue: c.url ?? "")
     }
 
     /// The definition as the form has it now (nil: the command line has an open quote).
@@ -62,9 +65,11 @@ struct CommandEditor: View {
                 if useStdin { c.stdin = CustomCommand.placeholder + "\n" }
                 if timeout != CustomCommand.defaultTimeout { c.timeoutSeconds = timeout }
             }
+        case .link:
+            c.url = url.trimmingCharacters(in: .whitespaces)
         }
-        // Stored only when it differs from the type's default (Latin for programs, as typed for the AI).
-        if latin != (type != .prompt) { c.ascii = latin }
+        // Stored only when it differs from the type's default (Latin for programs, as typed for the AI and pages).
+        if latin != CustomCommand.typesLatinByDefault(type) { c.ascii = latin }
         return c
     }
 
@@ -90,9 +95,10 @@ struct CommandEditor: View {
                         Text(tr("AI 指令", "AI instruction")).tag(CustomCommand.CommandType.prompt)
                         Text(tr("运行程序", "Run a program")).tag(CustomCommand.CommandType.run)
                         Text(tr("在终端运行", "Run in Terminal")).tag(CustomCommand.CommandType.terminal)
+                        Text(tr("打开网页", "Open a web page")).tag(CustomCommand.CommandType.link)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: type) { latin = type != .prompt }
+                    .onChange(of: type) { latin = CustomCommand.typesLatinByDefault(type) }
                     TextField(tr("说明", "Description"), text: $summary,
                               prompt: Text(tr("命令列表里显示，可以不填", "Shown in the command list (optional)")))
                 }
@@ -105,6 +111,12 @@ struct CommandEditor: View {
                             .frame(minHeight: 90)
                         Text(tr("告诉 AI 怎么处理命令后面写的内容，比如「把用户的话写成一条礼貌简短的回复」。回答出现在候选里，⏎ 上屏。",
                                 "Tell the AI what to do with the text after the command, e.g. \"Write a short, polite reply to the user's message.\" The answer appears in the candidates; ⏎ inserts it."))
+                            .font(.caption).foregroundStyle(.secondary)
+                    case .link:
+                        TextField(tr("网址", "Address"), text: $url, prompt: Text("https://www.google.com/search?q={input}"))
+                            .font(.body.monospaced())
+                        Text(tr("{input} 换成命令后面写的内容（自动编码），放在 ? 后面。按执行键在浏览器打开，不上屏。只能用 https://。",
+                                "{input} becomes the text after the command (encoded), after the ?. The action key opens it in the browser; nothing is inserted. https:// only."))
                             .font(.caption).foregroundStyle(.secondary)
                     case .run, .terminal:
                         TextField(tr("命令", "Command"), text: $commandLine, prompt: Text("python3 -c {input}"))
@@ -128,7 +140,7 @@ struct CommandEditor: View {
                     }
                     Toggle(tr("用英文字母输入（写代码、路径时）", "Type English letters (for code and paths)"), isOn: $latin)
                 }
-                if type != .prompt {
+                if type == .run || type == .terminal {
                     Text(tr("「运行程序」和「在终端运行」会在你的 Mac 上执行命令：只加你自己写的、信得过的。它们只在你按执行键时运行，密码框里不运行。",
                             "Programs run on your Mac: add only commands you wrote and trust. They run only when you press the action key, never in password fields."))
                         .font(.caption).foregroundStyle(.secondary)
@@ -167,11 +179,12 @@ struct CommandEditor: View {
         useStdin = example.stdin != nil
         latin = example.typesLatin
         timeout = example.timeout
+        url = example.url ?? ""
     }
 
     /// Looks the command line's program up in the user's shell PATH (the first time, the shell is asked).
     private func checkProgram() async {
-        guard type != .prompt, let program = CustomCommand.arguments(fromCommandLine: commandLine)?.first, !program.isEmpty else {
+        guard type == .run || type == .terminal, let program = CustomCommand.arguments(fromCommandLine: commandLine)?.first, !program.isEmpty else {
             missingProgram = nil
             return
         }
@@ -187,6 +200,11 @@ struct CommandEditor: View {
         case .emptyPrompt: return tr("写上给 AI 的指令", "Write the instruction for the AI")
         case .emptyCommand: return tr("写上要运行的命令", "Write the command to run")
         case .unbalancedQuote: return tr("命令里有引号没有配对", "A quote in the command isn't closed")
+        case .link(.empty): return tr("写上要打开的网址", "Write the address to open")
+        case .link(.notHTTPS): return tr("网址要以 https:// 开头", "The address must start with https://")
+        case .link(.placeholderCount): return tr("网址里要有一个 {input}", "Put {input} in the address once")
+        case .link(.placeholderNotInQuery): return tr("{input} 要放在 ? 后面", "Put {input} after the ? in the address")
+        case .link(.invalid): return tr("网址格式不对", "The address isn't valid")
         }
     }
 
@@ -200,6 +218,8 @@ struct CommandEditor: View {
             CustomCommand(name: "py", type: .run, summary: tr("运行 Python", "Run Python"), argv: ["python3", "-c", CustomCommand.placeholder]),
             CustomCommand(name: "calc", type: .run, summary: tr("计算器", "Calculator"), argv: ["bc", "-l"],
                           stdin: CustomCommand.placeholder + "\n"),
+            CustomCommand(name: "google", type: .link, summary: tr("用 Google 搜索", "Search with Google"),
+                          url: "https://www.google.com/search?q=" + CustomCommand.placeholder),
             CustomCommand(name: "sh", type: .terminal, summary: tr("在终端运行", "Run in Terminal"),
                           argv: ["zsh", "-c", CustomCommand.placeholder + "; exec zsh"]),
         ]

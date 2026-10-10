@@ -27,6 +27,8 @@ public struct Command: Hashable, Sendable {
         case agents
         /// Opens the settings window (`@settings`), right when it is picked.
         case settings
+        /// Opens a web address with the text in it (`LinkTemplate`) in the browser; nothing is inserted.
+        case link
     }
 
     init(name: String, kind: Kind, custom: CustomCommand? = nil, plugin: InstalledPlugin? = nil) {
@@ -66,8 +68,14 @@ public struct Command: Hashable, Sendable {
     /// `run` or `terminal` command; nil when it needs none.
     public var program: String? {
         if self == .claude { return "claude" }
-        guard let custom, custom.type != .prompt else { return nil }
+        guard let custom, custom.type == .run || custom.type == .terminal else { return nil }
         return custom.argv?.first
+    }
+
+    /// A `link` command's address, with `{input}` (`LinkTemplate`).
+    public var linkTemplate: String? {
+        guard kind == .link else { return nil }
+        return custom?.url ?? plugin?.manifest.url
     }
 
     /// The built-in commands, then the installed plugins, then the user's valid ones
@@ -85,6 +93,8 @@ public struct Command: Hashable, Sendable {
                 let definition = CustomCommand(name: plugin.name, type: .prompt, summary: plugin.manifest.summary?.en,
                                                prompt: plugin.manifest.prompt, ascii: plugin.manifest.ascii)
                 return Command(name: plugin.name, kind: .generate, custom: definition, plugin: plugin)
+            case .link:
+                return Command(name: plugin.name, kind: .link, plugin: plugin)
             }
         }
         return builtins + fromPlugins + custom.compactMap { definition in
@@ -95,6 +105,7 @@ public struct Command: Hashable, Sendable {
             case .prompt: kind = .generate
             case .run: kind = .run
             case .terminal: kind = .terminal
+            case .link: kind = .link
             }
             return Command(name: name, kind: kind, custom: definition)
         }
@@ -124,12 +135,14 @@ public struct Command: Hashable, Sendable {
 /// - `run`: `argv` runs in the background (no shell) with `{input}` replaced by the text, or the text
 ///   on standard input (`stdin`); what it prints can be inserted.
 /// - `terminal`: `argv` runs in a new Terminal window; nothing is inserted.
+/// - `link`: `url` (with `{input}` in its query) opens in the browser with the text in it; nothing is
+///   inserted (`LinkTemplate`): `{ "name": "google", "type": "link", "url": "https://www.google.com/search?q={input}" }`.
 ///
 /// `{input}` always stays inside the one argument it is written in: the text is never parsed by a
 /// shell unless `argv` itself says so (`["zsh", "-c", "{input}"]`).
 public struct CustomCommand: Codable, Hashable, Sendable {
     public enum CommandType: String, Codable, Sendable {
-        case prompt, run, terminal
+        case prompt, run, terminal, link
     }
 
     /// Letters only, as typed after "@" (digits pick from the command list).
@@ -152,10 +165,12 @@ public struct CustomCommand: Codable, Hashable, Sendable {
     /// name, "blue", or "#RRGGBB"); unset, one for its type.
     public var icon: String?
     public var color: String?
+    /// `link`: the web address, with `{input}` in its query (`LinkTemplate`).
+    public var url: String?
 
     public init(name: String, type: CommandType, summary: String? = nil, prompt: String? = nil,
                 argv: [String]? = nil, stdin: String? = nil, ascii: Bool? = nil, timeoutSeconds: Double? = nil,
-                icon: String? = nil, color: String? = nil) {
+                icon: String? = nil, color: String? = nil, url: String? = nil) {
         self.name = name
         self.type = type
         self.summary = summary
@@ -166,6 +181,7 @@ public struct CustomCommand: Codable, Hashable, Sendable {
         self.timeoutSeconds = timeoutSeconds
         self.icon = icon
         self.color = color
+        self.url = url
     }
 
     public static let placeholder = "{input}"
@@ -177,10 +193,14 @@ public struct CustomCommand: Codable, Hashable, Sendable {
         switch type {
         case .prompt: return !(prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .run, .terminal: return !(argv?.first ?? "").isEmpty
+        case .link: return LinkTemplate.problem(url) == nil
         }
     }
 
-    public var typesLatin: Bool { ascii ?? (type != .prompt) }
+    public var typesLatin: Bool { ascii ?? Self.typesLatinByDefault(type) }
+
+    /// Programs take code and paths, typed as Latin letters; the AI and web pages take text as typed.
+    public static func typesLatinByDefault(_ type: CommandType) -> Bool { type == .run || type == .terminal }
 
     public var timeout: Double { max(timeoutSeconds ?? Self.defaultTimeout, 0.1) }
 
@@ -223,6 +243,8 @@ extension CustomCommand {
         case emptyCommand
         /// A quote in the command line isn't closed.
         case unbalancedQuote
+        /// A `link` command's address can't be used.
+        case link(LinkTemplate.Problem)
     }
 
     /// The first problem with this definition among `others` (the other custom commands) and the
@@ -240,6 +262,8 @@ extension CustomCommand {
             if (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .emptyPrompt }
         case .run, .terminal:
             if (argv?.first ?? "").isEmpty { return .emptyCommand }
+        case .link:
+            if let problem = LinkTemplate.problem(url) { return .link(problem) }
         }
         return nil
     }

@@ -437,6 +437,10 @@ final class AllInOneIMEInputController: IMKInputController {
                 }
                 log.notice("opening an @open result")
                 openItem(path)
+            case let .openLink(url):
+                // The site is public (a plugin's or the user's own template); the text in it is not.
+                log.notice("link command: opening \(url.host ?? "-", privacy: .public) in the browser")
+                openItem(url.absoluteString)
             case let .startBackgroundAgent(prompt):
                 Task { @MainActor [weak self] in
                     do {
@@ -722,6 +726,8 @@ final class AllInOneIMEInputController: IMKInputController {
         // Not tied to the main actor: the pipeline calls it from its own task.
         let streamFor: @Sendable (Command?, String) -> AsyncThrowingStream<ConversionUpdate, Error> = { command, input in
             if command == .read { return WebReader.stream(input) }
+            // A link opens once the commands inside its text have run: their outputs go in it as they are.
+            if let command, command.kind == .link { return LinkTemplate.passThrough(input) }
             if let command, command.kind == .run, let plugin = command.plugin { return runPlugin(plugin, input) }
             if let command, command.kind == .run, let custom = command.custom { return runProgram(custom, input) }
             return command.map { converter.generate($0, input: input) } ?? converter.convert(input)
@@ -932,11 +938,13 @@ final class AllInOneIMEInputController: IMKInputController {
                 let polishing = Language.of(composer.sentText) == config.outputLanguage
                 let loading = command?.kind == .generate ? tr("AI 回答中…", "Answering…")
                     : command?.kind == .run ? tr("运行中…", "Running…")
+                    : command?.kind == .link ? tr("运行句中的命令，然后在浏览器打开…", "Running the commands inside, then opening the browser…")
                     : command == .open ? tr("搜索中…", "Searching…")
                     : command == .tasks ? tr("读取后台任务…", "Reading the background tasks…")
                     : polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")
                 model.status = choices.count <= 1 ? .loading(loading) : .none
                 model.footer = command == .open ? tr("搜索中… · Esc 返回", "Searching… · Esc back")
+                    : command?.kind == .link ? tr("完成后在浏览器打开 · Esc 返回", "Opens in the browser when done · Esc back")
                     : tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
             case .choosing where command == .tasks:
                 model.footer = tr("⏎ 在终端打开 · 数字选择 · ⌘C 复制回复 · Esc 返回",
