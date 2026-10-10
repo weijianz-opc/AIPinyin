@@ -125,7 +125,7 @@ struct LinkTests {
     let at = KeyEvent(keyCode: 0x13, characters: "@", charactersIgnoringModifiers: "@", modifiers: .shift)
 
     func composer(_ commands: [Command]) -> Composer {
-        let c = Composer(engine: FakeEngine(), sentenceMode: false)
+        let c = Composer(engine: FakeEngine())
         c.setInputMode(.english)
         c.commands = commands
         return c

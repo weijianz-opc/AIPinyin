@@ -39,13 +39,13 @@ enum UIText {
     }
 
     /// "单按 ⌥" / "tap ⌥", "按空格" / "press Space", …
-    static func howToPress(_ key: ActionKey, english: Bool = false) -> String {
-        guard !chinese else { return key.howToPress(english: english) }
+    static func howToPress(_ key: ActionKey) -> String {
+        guard !chinese else { return key.howToPress() }
         switch key {
         case .enter: return "press Return"
         case .optionTap: return "tap ⌥"
         case .optionSpace: return "press ⌥Space"
-        case .space: return english ? "press Space twice" : "press Space"
+        case .space: return "press Space"
         }
     }
 
@@ -96,7 +96,7 @@ enum UIText {
         }
         if let custom = command.custom { return custom.summary ?? customKind(custom) }
         switch command {
-        case .improve: return tr("润色 / 翻译，和不加命令一样", "Polish / translate, as without a command")
+        case .improve: return tr("润色 / 翻译，再给几种改写", "Polish / translate, plus rewrites")
         case .question: return tr("提问，答案可以直接上屏", "Ask a question; insert the answer")
         case .claude: return tr("交给 Claude Code 去做", "Hand it to Claude Code")
         case .open: return tr("找文件、文件夹或 App 并打开", "Find a file, folder or app and open it")

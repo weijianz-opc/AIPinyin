@@ -75,7 +75,7 @@ struct CommandPlanTests {
     }
 
     @Test func composerRunsAPlan() {
-        let c = Composer(engine: FakeEngine(), sentenceMode: false)
+        let c = Composer(engine: FakeEngine())
         c.setInputMode(.english)
         c.commands = catalog
         // "@reply 告诉他 @stock AAPL" typed in English mode, then the action key (Return).

@@ -115,7 +115,7 @@ extension ComposerTests {
 
     /// "@imessage " picked from the list, "zs" typed, two contacts found.
     func imessage(key: ActionKey = .enter) -> (Composer, FakeEngine) {
-        let (c, e) = composer(ai: false, key: key)
+        let (c, e) = composer(key: key)
         _ = c.handleKeyDown(at)
         type("ime", c)
         _ = c.handleKeyDown(tab)
@@ -125,7 +125,7 @@ extension ComposerTests {
     }
 
     @Test func imessagePicksARecipientThenConfirmsBeforeSending() {
-        let (c, e) = composer(ai: false, key: .enter)
+        let (c, e) = composer(key: .enter)
         _ = c.handleKeyDown(at)
         type("ime", c)
         _ = c.handleKeyDown(tab)
@@ -179,7 +179,7 @@ extension ComposerTests {
         _ = r.handleKeyDown(backspaceKey)
         #expect(r.messageRecipient == nil && r.draft == "@imessage " && r.recipientQuery == "")
         // While a number is typed, digits are part of it.
-        let (n, _) = composer(ai: false, key: .enter)
+        let (n, _) = composer(key: .enter)
         _ = n.handleKeyDown(at)
         type("ime", n)
         _ = n.handleKeyDown(tab)
@@ -190,7 +190,7 @@ extension ComposerTests {
     }
 
     @Test func imessageNeedsARecipient() {
-        let (c, _) = composer(ai: false, key: .enter)
+        let (c, _) = composer(key: .enter)
         _ = c.handleKeyDown(at)
         type("ime", c)
         _ = c.handleKeyDown(tab)
@@ -204,7 +204,7 @@ extension ComposerTests {
     }
 
     @Test func imessageRunsCommandsInsideTheMessageFirst() {
-        let (c, _) = composer(ai: false, key: .enter)
+        let (c, _) = composer(key: .enter)
         let stock = CustomCommand(name: "stock", type: .run, argv: ["stock", "{input}"])
         c.commands = Command.catalog([stock])
         _ = c.handleKeyDown(at)

@@ -16,15 +16,6 @@ struct MainThreadBox<T>: @unchecked Sendable {
     init(_ value: T) { self.value = value }
 }
 
-/// Settings stored in the input method's user defaults.
-enum Settings {
-    /// Sentence mode (`Composer.sentenceMode`), off unless turned on.
-    static var sentenceMode: Bool {
-        get { UserDefaults.standard.object(forKey: "sentenceMode") as? Bool ?? false }
-        set { UserDefaults.standard.set(newValue, forKey: "sentenceMode") }
-    }
-}
-
 /// The installed plugins, scanned again when a text field becomes active (installing or removing one
 /// shows up there) and at most every 30 seconds otherwise.
 enum LivePlugins {
@@ -89,7 +80,7 @@ enum LiveJargon {
 final class AllInOneIMEInputController: IMKInputController {
     /// The input state machine. It asks `secureInputActive` before starting Claude Code.
     lazy var composer: Composer = {
-        let composer = Composer(sentenceMode: Settings.sentenceMode)
+        let composer = Composer()
         composer.secureInputActive = { [weak self] in self?.secureInputActive() ?? false }
         return composer
     }()
@@ -105,8 +96,6 @@ final class AllInOneIMEInputController: IMKInputController {
     /// Shown once each time composing gets paused for secure input.
     private var secureNoticeShown = false
     var converter: Converter = sharedConverter
-    /// Persists the sentence mode switch (the self-test replaces this so it leaves the setting alone).
-    var saveSentenceMode: (Bool) -> Void = { Settings.sentenceMode = $0 }
     /// The command usage as kept, and keeping it (the self-test leaves the user's alone).
     var loadCommandUsage: () -> CommandUsage = { CommandUsageStore.usage }
     var saveCommandUsage: (CommandUsage) -> Void = { CommandUsageStore.save($0) }
@@ -118,8 +107,6 @@ final class AllInOneIMEInputController: IMKInputController {
     var clientOverride: IMKTextInput?
     /// The settings the controller follows (the self-test supplies its own).
     var loadSettings: () -> Config = { LiveConfig.current }
-    /// Sentence mode as saved (the self-test supplies its own).
-    var loadSentenceMode: () -> Bool = { Settings.sentenceMode }
     /// `@open`: finds files and apps, and opens the one picked (the self-test opens nothing).
     var searchFiles: (String) async -> [SearchResult] = { await FileSearch.run($0) }
     /// Opens an `@open` result: a web address in the default browser, anything else as a file.
@@ -279,14 +266,11 @@ final class AllInOneIMEInputController: IMKInputController {
         applySettings()
     }
 
-    /// Takes over the current settings: sentence mode, English drafts, voice key, action key, and the
-    /// default input mode (applied to new sessions, and again when the setting changes; a Shift toggle
-    /// otherwise sticks).
+    /// Takes over the current settings: voice key, action key, and the default input mode (applied to
+    /// new sessions, and again when the setting changes; a Shift toggle otherwise sticks).
     @MainActor
     func applySettings() {
         let config = loadSettings()
-        composer.sentenceMode = loadSentenceMode()
-        composer.englishAI = config.englishAI
         composer.voiceEnabled = config.voiceInput && VoiceInput.isSupported
         composer.actionKey = config.actionKey
         composer.claudeInBackground = config.claudeInBackground
@@ -529,8 +513,6 @@ final class AllInOneIMEInputController: IMKInputController {
                 hidePanelIfOwned()
             case let .notice(text):
                 showNotice(text, client: target)
-            case let .sentenceModeChanged(on):
-                saveSentenceMode(on)
             case let .armVoice(delay):
                 voiceArmToken += 1
                 let token = voiceArmToken
@@ -903,7 +885,7 @@ final class AllInOneIMEInputController: IMKInputController {
         }
     }
 
-    /// Short status message ("英" English mode, "整句模式：关" sentence mode off, …): its own small
+    /// Short status message ("英" English mode, "已复制" copied, …): its own small
     /// panel when nothing else is shown, otherwise the right side of the footer.
     @MainActor
     private func showNotice(_ text: String, client: IMKTextInput?) {
@@ -946,16 +928,15 @@ final class AllInOneIMEInputController: IMKInputController {
     /// The hint under a pending draft: "单按 ⌥ → 翻译成英文 / 改写", "Tap ⌥ → translate to English / rewrite" …
     @MainActor
     func draftHint(config: Config) -> String {
+        guard let command = composer.draftCommand else { return "" }  // a draft always starts with one
         let key = composer.actionKey
         let how = key != .space ? UIText.name(key)
             : composer.spaceActs ? UIText.name(ActionKey.space) : tr("连按两次空格", "Space twice")
-        let input = Language.of(composer.sentText)
         // A command with nothing after it: the action key takes the clipboard's text.
-        if composer.draftCommand != nil, composer.sentText.isEmpty {
+        if composer.sentText.isEmpty {
             return "\(how) → " + tr("用剪贴板里的文字", "use the clipboard text")
         }
-        return "\(how) → " + (composer.draftCommand.map { UIText.action($0, input: input, config: config) }
-            ?? UIText.action(input: input, config: config))
+        return "\(how) → " + UIText.action(command, input: Language.of(composer.sentText), config: config)
     }
 
     /// A long answer as the panel shows it (the whole text is inserted).
@@ -1062,7 +1043,7 @@ final class AllInOneIMEInputController: IMKInputController {
                 model.status = .hint("🎙 " + (heard.isEmpty ? tr("正在听…", "Listening…") : heard))
                 // The action key while right ⌥ is still held (⌥Return, or Space = ⌥Space): stop and run it.
                 let key = composer.actionKey
-                let runs = composer.sentenceMode || composer.draftCommand != nil
+                let runs = composer.draftCommand != nil
                 model.footer = runs && (key == .optionSpace || key == .enter)
                     ? (key == .enter ? tr("松开右 ⌥ 结束 · ⏎ 直接执行 · Esc 取消", "Release right ⌥ to stop · ⏎ run now · Esc cancel")
                                      : tr("松开右 ⌥ 结束 · 空格 直接执行 · Esc 取消", "Release right ⌥ to stop · Space run now · Esc cancel"))
@@ -1086,10 +1067,6 @@ final class AllInOneIMEInputController: IMKInputController {
                 let input: Language = composer.sentText.containsHan || !composer.engineState.isAsciiMode ? .chinese : .english
                 let action = UIText.action(command, input: input, config: config)
                 model.footer = tr("空格 选词 · \(UIText.name(key)) \(action)", "Space picks · \(UIText.name(key)) to \(action)")
-            } else if composer.sentenceMode {
-                let action = config.outputLanguage == .chinese ? tr("润色", "polish") : tr("翻译", "translate")
-                model.footer = key == .space ? tr("空格 选词 · 整句打完再按空格\(action)", "Space picks · Space again when done to \(action)")
-                    : tr("空格 选词 · \(UIText.name(key)) \(action)", "Space picks · \(UIText.name(key)) to \(action)")
             } else {
                 model.footer = tr("空格 选词 · 开头打 @ 用命令", "Space picks · type @ first for commands")
             }
@@ -1130,11 +1107,9 @@ final class AllInOneIMEInputController: IMKInputController {
             if let note = composer.recipientNote { model.status = .hint(note) }
             model.footer = tr("⏎ / Tab 选择收件人 · ↑↓ · Esc 取消", "⏎ / Tab pick the recipient · ↑↓ · Esc cancel")
         } else if !composer.draft.isEmpty {
+            // An @ command with what follows it (a command being typed is the palette, above).
             model.status = .hint(draftHint(config: config))
-            let asTyped = composer.actionKey == .enter ? "⇧⏎" : "⏎"
-            model.footer = composer.draftCommand != nil ? tr("⌃V 粘贴 · ⌫ 删字 · Esc 清除", "⌃V paste · ⌫ delete · Esc clear")
-                : composer.isLatinDraft ? tr("\(asTyped) 直接上屏 · ⌫ 删字", "\(asTyped) insert as typed · ⌫ delete")
-                : tr("\(asTyped) 上屏原文 · ⌫ 删字 · Esc 清除", "\(asTyped) insert as typed · ⌫ delete · Esc clear")
+            model.footer = tr("⌃V 粘贴 · ⌫ 删字 · Esc 清除", "⌃V paste · ⌫ delete · Esc clear")
         }
         if let notice { model.detail = notice }
         return model
@@ -1151,11 +1126,6 @@ final class AllInOneIMEInputController: IMKInputController {
         settings.target = self
         menu.addItem(settings)
         menu.addItem(.separator())
-        let ai = NSMenuItem(title: tr("整句模式（⇧空格）", "Sentence Mode (⇧Space)"),
-                            action: #selector(toggleSentenceMode(_:)), keyEquivalent: "")
-        ai.target = self
-        ai.state = Settings.sentenceMode ? .on : .off
-        menu.addItem(ai)
         let model = config.map { tr("模型：", "Model: ") + ($0.settings(for: $0.provider).model ?? "") } ?? tr("配置文件有误", "The config file has an error")
         let info = NSMenuItem(title: model, action: nil, keyEquivalent: "")
         info.isEnabled = false
@@ -1235,12 +1205,6 @@ final class AllInOneIMEInputController: IMKInputController {
         deploy.target = self
         menu.addItem(deploy)
         return menu
-    }
-
-    @objc func toggleSentenceMode(_ sender: Any?) {
-        MainActor.assumeIsolated {
-            perform(composer.setSentenceMode(!composer.sentenceMode), client: nil)
-        }
     }
 
     /// IMK hands menu actions an info dictionary holding the chosen item (a plain NSMenuItem when
