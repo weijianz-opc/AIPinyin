@@ -25,6 +25,8 @@ public struct Command: Hashable, Sendable {
         case run
         /// The background Claude Code tasks (`@tasks`): picking one opens it.
         case agents
+        /// Opens the settings window (`@settings`), right when it is picked.
+        case settings
     }
 
     init(name: String, kind: Kind, custom: CustomCommand? = nil, plugin: InstalledPlugin? = nil) {
@@ -51,7 +53,10 @@ public struct Command: Hashable, Sendable {
     /// The background tasks `@claude` started: how they're doing and what they replied.
     public static let tasks = Command(name: "tasks", kind: .agents)
 
-    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .tasks]
+    /// The settings window.
+    public static let settings = Command(name: "settings", kind: .settings)
+
+    public static let builtins: [Command] = [.improve, .question, .claude, .open, .read, .tasks, .settings]
 
     /// The text after the command is typed as Latin letters (file names, paths, code): picking the
     /// command switches the engine to English, and Chinese comes back when the command is done.

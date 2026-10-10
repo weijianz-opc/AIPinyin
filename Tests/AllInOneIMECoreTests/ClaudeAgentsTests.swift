@@ -103,4 +103,16 @@ struct ClaudeAgentsTests {
         for ch in "nihao" { _ = d.handleKeyDown(k(String(ch))) }
         #expect(d.handleKeyDown(enter).effects.contains(.runInTerminal(prompt: "你好")))
     }
+
+    @Test func settingsOpensRightAway() {
+        let at = KeyEvent(keyCode: 0x13, characters: "@", charactersIgnoringModifiers: "@", modifiers: .shift)
+        let c = Composer(engine: FakeEngine())
+        _ = c.handleKeyDown(at)
+        for ch in "set" { _ = c.handleKeyDown(k(String(ch))) }
+        #expect(c.paletteMatches.map(\.name) == ["settings"])
+        // Picked (Tab, Space, Return or its digit): the window opens, nothing is left to type.
+        let effects = c.handleKeyDown(KeyEvent(keyCode: VirtualKey.tab, characters: "\t")).effects
+        #expect(effects.contains(.openSettings) && effects.contains(.commandUsed("settings")))
+        #expect(c.draft.isEmpty && c.phase == .idle && commits(effects).allSatisfy(\.isEmpty))
+    }
 }

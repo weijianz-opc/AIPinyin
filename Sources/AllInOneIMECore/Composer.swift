@@ -71,6 +71,8 @@ public final class Composer {
         case startBackgroundAgent(prompt: String)
         /// List the background tasks (`@tasks`); they arrive via `receiveSearch`.
         case listAgents(id: Int)
+        /// Show the settings window (`@settings`).
+        case openSettings
         /// Run a custom `run` command's program on `input`; what it prints arrives via `receive`.
         case startRun(Command, input: String, id: Int)
         /// A command was run (`commandUsage` has it): keep the usage for the order of the command list.
@@ -374,7 +376,7 @@ public final class Composer {
                 out.append(Choice(label: "1", kind: .answer, text: line.text, isComplete: line.isComplete))
             }
             return out
-        case .convert?, .terminal?, nil:
+        case .convert?, .terminal?, .settings?, nil:
             break
         }
         let original = sentText
@@ -965,6 +967,10 @@ public final class Composer {
     /// rest of the sentence follows.
     private func complete(_ matches: [Command], at index: Int? = nil) -> [Effect] {
         let command = matches[index ?? paletteHighlighted]
+        // Nothing to write after it: picked, it's done (only at the start of a draft).
+        if command.kind == .settings, palette?.nested != true {
+            return finish(committing: "") + [.openSettings, used(command)]
+        }
         let nested = palette?.nested == true
         draft = (palette.map { String(draft[..<$0.at]) } ?? "") + "@\(command.name) "
         paletteHighlight = 0
@@ -1247,6 +1253,9 @@ public final class Composer {
     private func startAction() -> Response {
         let parsed = Command.parse(draft, in: commands)
         let input = sentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if parsed?.command.kind == .settings, !isLevelTwo {
+            return .consumed(finish(committing: "") + [.openSettings, used(parsed!.command)])
+        }
         // The task list needs nothing after the command.
         if parsed?.command.kind == .agents, !isLevelTwo {
             requestCounter += 1

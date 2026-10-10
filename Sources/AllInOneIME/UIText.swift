@@ -99,6 +99,7 @@ enum UIText {
         case .open: return tr("找文件、文件夹或 App 并打开", "Find a file, folder or app and open it")
         case .read: return tr("读网页正文，可放在句中给 AI 当上下文", "Read a web page; inside a sentence, context for the AI")
         case .tasks: return tr("后台 Claude 任务的进度和回复", "Background Claude tasks: progress and replies")
+        case .settings: return tr("打开设置", "Open the settings")
         default: return ""
         }
     }
@@ -129,6 +130,7 @@ enum UIText {
         case .open: return tr("搜索并打开", "search and open")
         case .read: return tr("读网页", "read the page")
         case .tasks: return tr("查看后台任务", "show the background tasks")
+        case .settings: return tr("打开设置", "open the settings")
         default: return ""
         }
     }

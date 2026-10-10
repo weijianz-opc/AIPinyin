@@ -443,6 +443,8 @@ final class AllInOneIMEInputController: IMKInputController {
                         self?.showNotice(UIText.describe(error), client: nil)
                     }
                 }
+            case .openSettings:
+                SettingsWindow.shared.show()
             case let .listAgents(id):
                 conversionTask?.cancel()
                 conversionTask = Task { @MainActor [weak self] in

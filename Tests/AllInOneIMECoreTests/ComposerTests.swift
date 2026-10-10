@@ -1318,11 +1318,11 @@ struct ComposerTests {
         type("nihao", r)
         #expect(tapOption(r, at: 5).first == .startCommand(catalog.first { $0.name == "reply" }!, input: "你好", id: 1))
         // A terminal command starts its window with the text as one argument; nothing is inserted.
-        let t = start("s")
+        let t = start("sh")  // "s" alone is @settings first
         type("ls", t)
         let terminal = tapOption(t, at: 5)
         #expect(terminal.contains(.launchInTerminal(argv: ["zsh", "-c", "ls"])) && commits(terminal).isEmpty && !t.isLevelTwo)
-        let refused = start("s")
+        let refused = start("sh")
         type("ls", refused)
         refused.secureInputActive = { true }
         #expect(!tapOption(refused, at: 5).contains { if case .launchInTerminal = $0 { return true } else { return false } })
@@ -1331,7 +1331,7 @@ struct ComposerTests {
     @Test func commandsKnowTheirProgram() {
         let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
         let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
-        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, nil, nil, "python3", nil])
+        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, nil, nil, nil, "python3", nil])
     }
 
     @Test func theListPutsWhatIsRunMostFirst() {
@@ -1358,7 +1358,7 @@ struct ComposerTests {
         e.commands = catalog
         _ = e.handleKeyDown(at)
         type("s", e)
-        #expect(e.paletteMatches.map(\.name) == ["sh", "question", "tasks"])  // names starting with s first
+        #expect(e.paletteMatches.map(\.name) == ["settings", "sh", "question", "tasks"])  // names starting with s first
         // Picking from the list doesn't count: only running does.
         _ = e.handleKeyDown(tab)
         #expect(e.commandUsage.score("sh") == 0)

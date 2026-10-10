@@ -18,7 +18,7 @@ struct CommandTests {
         #expect(Command.matching("Q") == [.question])
         #expect(Command.matching("cl") == [.claude])
         #expect(Command.matching("x").isEmpty)
-        #expect(Command.builtins.map(\.kind) == [.convert, .generate, .terminal, .search, .run, .agents])
+        #expect(Command.builtins.map(\.kind) == [.convert, .generate, .terminal, .search, .run, .agents, .settings])
     }
 
     let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
@@ -34,7 +34,7 @@ struct CommandTests {
             CustomCommand(name: "empty", type: .prompt, prompt: "  "),     // nothing to tell the model
             CustomCommand(name: "noargv", type: .run),
         ])
-        #expect(catalog.map(\.name) == ["improve", "question", "claude", "open", "read", "tasks", "python", "reply", "sh"])
+        #expect(catalog.map(\.name) == ["improve", "question", "claude", "open", "read", "tasks", "settings", "python", "reply", "sh"])
         #expect(catalog.suffix(3).map(\.kind) == [.run, .generate, .terminal])
         #expect(Command.matching("p", in: catalog).map(\.name) == ["python"])
         #expect(Command.parse("@python print(1)", in: catalog)?.command.custom == python)
