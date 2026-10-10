@@ -554,6 +554,9 @@ enum SelfTest {
         controller.openItem = { opened.append($0) }
         controller.runInTerminal = { terminal.append($0) }
         controller.copyText = { copied.append($0) }
+        controller.programInstalled = { _ in true }  // @claude runs here even without Claude Code
+        controller.setCommands(Command.catalog(controller.loadSettings().customCommands), recheck: true)
+        controller.composer.commands = Command.catalog(controller.loadSettings().customCommands)
         defer {
             controller.openItem = { NSWorkspace.shared.open(URL(fileURLWithPath: $0)) }
             controller.runInTerminal = { try TerminalLauncher.claude($0) }
@@ -758,6 +761,8 @@ enum SelfTest {
         }
         controller.clientOverride = client
         controller.saveSentenceMode = { _ in }  // leave the user's setting alone
+        controller.loadCommandUsage = { CommandUsage() }  // and the order of their command list
+        controller.saveCommandUsage = { _ in }
         controller.readClipboard = { nil }  // never the real clipboard; the ⌘V section supplies its text
         // The real config (model, styles, credentials) with the new options pinned to known values;
         // sections below change `settings` and the controller follows (nothing is written to disk).

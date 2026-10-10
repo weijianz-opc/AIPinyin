@@ -10,19 +10,21 @@ let usage = """
     Settings come from ~/.config/allinoneime/config.json; flags override them.
 
     options:
+      --provider NAME  bedrock, anthropic, gemini or openai (API keys: the keychain, else ANTHROPIC_API_KEY, …)
       --profile NAME   AWS profile
       --region REGION  Bedrock region
-      --model ID       model / inference profile ID
+      --model ID       model (for Bedrock: model / inference profile ID)
       --output en|zh   language of the three main versions (other input is translated, same is polished)
       --styles A,B     rewrite presets, e.g. 简洁,黑话 (presets: \(RewriteStyle.catalog.map(\.name).joined(separator: " ")))
       --jargon FILE    your own jargon list for 黑话 (one term per line, optional "：meaning")
       --raw            also print the raw model output
       --bench          convert built-in samples in one process and report latency
-      --dump FILE      save the raw event-stream response bytes to FILE (test fixtures)
+      --dump FILE      save the raw event-stream response bytes to FILE (test fixtures; Bedrock)
       --version        print the version and exit
     """
 
 struct Options {
+    var provider: Provider?
     var profile: String?
     var region: String?
     var model: String?
@@ -44,6 +46,12 @@ func parseOptions() -> Options {
     }
     while let arg = args.popFirst() {
         switch arg {
+        case "--provider":
+            let raw = value(arg)
+            guard let provider = Provider(rawValue: raw) else {
+                fail("--provider must be one of \(Provider.allCases.map(\.rawValue).joined(separator: ", ")), not \(raw)")
+            }
+            options.provider = provider
         case "--profile": options.profile = value(arg)
         case "--region": options.region = value(arg)
         case "--model": options.model = value(arg)
@@ -164,7 +172,16 @@ do {
 }
 if let p = options.profile { config.awsProfile = p }
 if let r = options.region { config.region = r }
-if let m = options.model { config.modelId = m }
+if let p = options.provider { config.provider = p }
+if let m = options.model {
+    switch config.provider {
+    case .bedrock: config.modelId = m
+    case .anthropic: config.anthropic.model = m
+    case .gemini: config.gemini.model = m
+    case .openai: config.openai.model = m
+    case .hosted: fail("the hosted service picks its own model")
+    }
+}
 if let o = options.output { config.outputLanguage = o }
 if let s = options.styles { config.rewriteStyles = s }
 if let j = options.jargon { config.jargonFile = j }
@@ -174,10 +191,15 @@ let input = options.words.joined(separator: " ")
 let jargon = JargonLibrary.load(from: config.jargonURL)
 if options.jargon != nil, jargon.isEmpty { fail("no entries in \(config.jargonURL.path)") }
 
-print("model \(config.modelId) · profile \(config.awsProfile) · region \(config.region ?? "(from profile)") · output \(config.outputLanguage.rawValue)")
+if config.provider == .bedrock {
+    print("model \(config.modelId) · profile \(config.awsProfile) · region \(config.region ?? "(from profile)") · output \(config.outputLanguage.rawValue)")
+} else {
+    print("\(config.provider.displayName) · model \(config.settings(for: config.provider).model ?? "-") · output \(config.outputLanguage.rawValue)")
+}
 do {
     if let path = options.dumpPath {
         guard !input.isEmpty else { fail("--dump needs input text") }
+        guard config.provider == .bedrock else { fail("--dump records Bedrock responses only") }
         try await dumpRawResponse(input, config: config, to: path)
     } else if options.bench {
         let styles = RewriteStyle.resolve(config.rewriteStyles).map(\.name)

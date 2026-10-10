@@ -199,14 +199,17 @@ func printStatus() -> Int32 {
     do {
         let config = try Config.load()
         print("config:      \(Config.defaultURL.path)")
-        print("model:       \(config.modelId)")
-        do {
+        print("provider:    \(config.provider.displayName)")
+        print("model:       \(config.settings(for: config.provider).model ?? "-")")
+        if config.provider != .bedrock {
+            print("api key:     \(APIKeys.load(config.provider) == nil ? "✗ none" : "found")")
+        } else { do {
             let resolved = try AWSSharedConfig.load(profile: config.awsProfile)
             let region = config.region ?? resolved.region ?? "us-east-1"
             print("aws:         profile \(config.awsProfile), region \(region), credentials found")
         } catch {
             print("aws:         ✗ \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
-        }
+        } }
     } catch {
         print("config:      ✗ \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
     }
@@ -235,6 +238,11 @@ func printStatus() -> Int32 {
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
+
+// A script plugin's own process (started by the input method): nothing else runs, nothing else is printed.
+if arguments.first == "--run-plugin" {
+    exit(arguments.count > 1 ? PluginHost.run(directory: arguments[1]) : 2)
+}
 
 // Data from the AIPinyin days moves to the AllInOneIME folders before anything reads it.
 for (path, outcome) in LegacyData.migrate() where outcome != .nothingToMove {

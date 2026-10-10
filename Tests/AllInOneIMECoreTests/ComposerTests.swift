@@ -1284,6 +1284,132 @@ struct ComposerTests {
         #expect(e.pasted(nil, id: 1) == [.notice("在命令后面写上内容")] && !e.isLevelTwo)
     }
 
+    @Test func customCommandsGoToTheirCommand() {
+        let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
+        let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
+        let sh = CustomCommand(name: "sh", type: .terminal, argv: ["zsh", "-c", "{input}"])
+        let catalog = Command.catalog([python, reply, sh])
+        func start(_ name: String) -> Composer {
+            let (c, _) = composer(englishAI: true, key: .optionTap)
+            c.commands = catalog
+            _ = c.handleKeyDown(at)
+            type(name, c)
+            _ = c.handleKeyDown(tab)
+            return c
+        }
+        // The palette offers them after the built-in ones.
+        let (p, _) = composer(key: .optionTap)
+        p.commands = catalog
+        _ = p.handleKeyDown(at)
+        // At most five: the built-in four and the first custom one (nothing used yet).
+        #expect(p.paletteMatches.map(\.name) == ["improve", "question", "claude", "open", "python"])
+        // @python: code is typed as letters, the program runs, and Chinese comes back after.
+        let py = start("py")
+        #expect(py.draft == "@python " && py.engineState.isAsciiMode)
+        type("print(1)", py)
+        let run = tapOption(py, at: 5)
+        #expect(run.first == .startRun(catalog[4], input: "print(1)", id: 1) && py.activeCommand?.kind == .run)
+        #expect(py.receive(ConversionResult(versions: [CandidateLine("1")]), isFinal: true, id: 1) == [.showPanel])
+        #expect(py.choices.map(\.kind) == [.original, .answer] && py.highlighted == 1)
+        #expect(commits(py.handleKeyDown(spaceKey)) == ["1"] && !py.engineState.isAsciiMode)
+        // A prompt command goes to the model like @question, typed in pinyin.
+        let r = start("r")
+        #expect(!r.engineState.isAsciiMode)
+        type("nihao", r)
+        #expect(tapOption(r, at: 5).first == .startCommand(catalog[5], input: "你好", id: 1))
+        // A terminal command starts its window with the text as one argument; nothing is inserted.
+        let t = start("s")
+        type("ls", t)
+        let terminal = tapOption(t, at: 5)
+        #expect(terminal.contains(.launchInTerminal(argv: ["zsh", "-c", "ls"])) && commits(terminal).isEmpty && !t.isLevelTwo)
+        let refused = start("s")
+        type("ls", refused)
+        refused.secureInputActive = { true }
+        #expect(!tapOption(refused, at: 5).contains { if case .launchInTerminal = $0 { return true } else { return false } })
+    }
+
+    @Test func commandsKnowTheirProgram() {
+        let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
+        let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
+        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, "python3", nil])
+    }
+
+    @Test func theListPutsWhatIsRunMostFirst() {
+        let catalog = Command.catalog(["reply", "sh", "calc"].map { CustomCommand(name: $0, type: .prompt, prompt: "x") })
+        let (c, _) = composer(key: .optionTap)
+        c.commands = catalog
+        // Running @calc counts it, and says so to the controller (which keeps it).
+        _ = c.handleKeyDown(at)
+        type("ca", c)
+        _ = c.handleKeyDown(tab)
+        type("nihao", c)
+        #expect(tapOption(c, at: 5).contains(.commandUsed("calc")))
+        #expect(c.commandUsage.score("calc") > 0)
+        // Next time "@" lists it first; the digit picks from what's shown.
+        let (d, _) = composer(key: .optionTap)
+        d.commands = catalog
+        d.commandUsage = c.commandUsage
+        _ = d.handleKeyDown(at)
+        #expect(d.paletteMatches.map(\.name) == ["calc", "improve", "question", "claude", "open"])
+        _ = d.handleKeyDown(k("1"))
+        #expect(d.draft == "@calc ")
+        // A command beyond the five is found by its letters.
+        let (e, _) = composer(key: .optionTap)
+        e.commands = catalog
+        _ = e.handleKeyDown(at)
+        type("s", e)
+        #expect(e.paletteMatches.map(\.name) == ["sh", "question"])  // names starting with s first
+        // Picking from the list doesn't count: only running does.
+        _ = e.handleKeyDown(tab)
+        #expect(e.commandUsage.score("sh") == 0)
+    }
+
+    @Test func theListComesBackInsideATextForCommandsThatRunThere() {
+        let catalog = Command.catalog([CustomCommand(name: "reply", type: .prompt, prompt: "x"),
+                                       CustomCommand(name: "stock", type: .run, argv: ["stock", "{input}"])])
+        func started() -> (Composer, FakeEngine) {
+            let (c, e) = composer(ai: false, key: .enter)
+            c.commands = catalog
+            _ = c.handleKeyDown(at)
+            type("rep", c)
+            _ = c.handleKeyDown(tab)
+            type("nihao", c)
+            _ = c.handleKeyDown(spaceKey)
+            _ = c.handleKeyDown(at)
+            return (c, e)
+        }
+        let (c, e) = started()
+        #expect(c.draft == "@reply 你好@" && c.paletteQuery == "")
+        #expect(c.paletteMatches.map(\.name) == ["stock"])  // only what runs inside a text
+        type("s", c)
+        #expect(c.draft == "@reply 你好@s" && c.paletteMatches.map(\.name) == ["stock"])
+        _ = c.handleKeyDown(tab)
+        #expect(c.draft == "@reply 你好@stock " && e.ascii)  // letters for the symbol
+        type("AAPL", c)
+        _ = c.handleKeyDown(spaceKey)
+        #expect(c.draft == "@reply 你好@stock AAPL " && !e.ascii)  // Chinese again for the rest
+        type("nihao", c)
+        _ = c.handleKeyDown(spaceKey)
+        #expect(c.draft == "@reply 你好@stock AAPL 你好")
+        #expect(c.paletteQuery == nil)
+
+        // Esc takes back only the "@…"; a letter no such command starts with is pinyin as usual.
+        let (d, _) = started()
+        type("s", d)
+        _ = d.handleKeyDown(escKey)
+        #expect(d.draft == "@reply 你好")
+        let (f, g) = started()
+        type("wo", f)
+        #expect(f.draft == "@reply 你好@" && g.input == "wo")
+        // Without a command at the start, "@" in a sentence stays text (mentions).
+        let (h, _) = composer(ai: true, key: .enter)
+        h.commands = catalog
+        type("nihao", h)
+        _ = h.handleKeyDown(spaceKey)
+        _ = h.handleKeyDown(at)
+        #expect(h.draft == "你好@" && h.paletteQuery == nil)
+    }
+
     @Test func claudeIsNotStartedWhileSecureInputIsOn() {
         let (c, _) = palette("c")
         _ = c.handleKeyDown(tab)

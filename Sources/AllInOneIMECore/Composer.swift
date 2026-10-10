@@ -65,6 +65,15 @@ public final class Composer {
         case open(path: String)
         /// Start a Claude Code session in a terminal window with `prompt` as its first message (`@claude`).
         case runInTerminal(prompt: String)
+        /// Run `argv` in a new terminal window (a custom `terminal` command).
+        case launchInTerminal(argv: [String])
+        /// Run a custom `run` command's program on `input`; what it prints arrives via `receive`.
+        case startRun(Command, input: String, id: Int)
+        /// A command was run (`commandUsage` has it): keep the usage for the order of the command list.
+        case commandUsed(String)
+        /// A text with commands inside it (`CommandPlan`): run the inner ones, then `outer` (nil: improve)
+        /// on the result; it arrives via `receive`.
+        case startPlan(outer: Command?, plan: CommandPlan, id: Int)
         /// Put `text` on the clipboard (⌘C on a result).
         case copy(String)
         /// Read the clipboard's text for the draft (⌘V) and hand it to `pasted(_:id:)`, after the key
@@ -111,7 +120,7 @@ public final class Composer {
             case version
             /// A rewrite in the sentence's own language; the value is the style's Chinese name ("简洁", …).
             case rewrite(String)
-            /// What a `.generate` command (`@question`, `@claude`) wrote.
+            /// What a `.generate` command (`@question`) wrote, or a `.run` command's program printed.
             case answer
             /// A file or app found by `@open`; picking it opens it instead of inserting anything.
             case file(path: String)
@@ -147,6 +156,10 @@ public final class Composer {
         public var openedTerminal: String
         /// @claude while secure input is on: Claude Code isn't started.
         public var secureInputTerminal: String
+        /// A custom terminal command was started in its own window.
+        public var ranInTerminal: String
+        /// A custom terminal command while secure input is on: nothing is started.
+        public var secureInputCommand: String
         /// ⌘V in a draft with more on the clipboard than `Composer.maxPasteLength`.
         public var pasteTooLong: String
         /// ⌘V in a draft with no text on the clipboard (or reading it isn't allowed).
@@ -158,6 +171,8 @@ public final class Composer {
             typeAfterCommand: "在命令后面写上内容", nothingFound: "没有找到", copied: "已复制",
             openedTerminal: "已在终端打开 Claude Code",
             secureInputTerminal: "系统安全输入已开启（密码框或锁屏），没有打开 Claude Code",
+            ranInTerminal: "已在终端运行",
+            secureInputCommand: "系统安全输入已开启（密码框或锁屏），没有运行命令",
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
             nothingToPaste: "剪贴板里没有能用的文字")
         public static let english = Messages(
@@ -167,19 +182,29 @@ public final class Composer {
             typeAfterCommand: "Type something after the command", nothingFound: "Nothing found", copied: "Copied",
             openedTerminal: "Opened Claude Code in Terminal",
             secureInputTerminal: "Secure input is on (a password field or the lock screen): Claude Code was not opened",
+            ranInTerminal: "Running in Terminal",
+            secureInputCommand: "Secure input is on (a password field or the lock screen): the command was not run",
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
             nothingToPaste: "No text on the clipboard to use")
     }
     /// The command of the request in level two (nil: improve, as without one).
     public private(set) var activeCommand: Command?
+    /// The commands "@" offers: the built-in ones and the user's (`Command.catalog`).
+    public var commands: [Command] = Command.builtins
+    /// How much each command is used: the list shows the most used first (set by the controller,
+    /// shared by its text fields).
+    public var commandUsage = CommandUsage()
     /// Files and apps found for `@open`.
     public private(set) var searchResults: [SearchResult] = []
     /// Results for the `@open` text as it is typed (`liveQuery`), and the highlighted one.
     public private(set) var liveResults: [SearchResult] = []
     private var liveResultsQuery: String?
     public private(set) var liveHighlight = 0
-    /// `@open` switched the engine to Latin letters for file names and paths; Chinese comes back after.
+    /// A command that types Latin letters (`@open`, code) switched the engine to them; Chinese comes back after.
     private var restoreChineseAfterOpen = false
+    /// Letters were switched on for a command inside the text, whose argument starts at this offset:
+    /// Chinese comes back at the first space after it.
+    private var nestedLatinFrom: Int?
     /// Highlighted row of the command palette.
     private var paletteHighlight = 0
     /// The ⌘V whose clipboard text the draft is waiting for (`pasted`), and the last one's id.
@@ -292,7 +317,7 @@ public final class Composer {
                 Choice(label: String($0.offset + 1), kind: .file(path: $0.element.path), text: $0.element.name,
                        isComplete: true)
             }
-        case .generate?:
+        case .generate?, .run?:
             var out = [Choice(label: "0", kind: .original, text: sentText, isComplete: true)]
             if let line = result.versions.first {
                 out.append(Choice(label: "1", kind: .answer, text: line.text, isComplete: line.isComplete))
@@ -336,22 +361,37 @@ public final class Composer {
     /// What level two works on: the draft, or for a command draft ("@question 量子计算") the text after
     /// the command.
     public var sentText: String {
-        Command.parse(draft).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) } ?? draft
+        Command.parse(draft, in: commands).map { $0.content.trimmingCharacters(in: .whitespacesAndNewlines) } ?? draft
     }
 
     /// The command at the start of the draft, once its name is complete ("@question …").
-    public var draftCommand: Command? { Command.parse(draft)?.command }
+    public var draftCommand: Command? { Command.parse(draft, in: commands)?.command }
 
     /// While a command name is typed after "@" at the start of the draft: the letters so far.
-    public var paletteQuery: String? {
-        guard !isLevelTwo, voice == .off, !engineState.isComposing, draft.hasPrefix("@"),
-              draft.dropFirst().allSatisfy({ $0.isASCII && $0.isLetter })
-        else { return nil }
-        return String(draft.dropFirst())
+    public var paletteQuery: String? { palette?.query }
+
+    /// The "@letters" being typed: at the start of the draft, or (`nested`) inside a command's text
+    /// (`@reply 告诉他 @st`, not inside a word), where the commands that can run inside a text are offered.
+    private var palette: (query: String, nested: Bool, at: String.Index)? {
+        guard !isLevelTwo, voice == .off, !engineState.isComposing, let at = draft.lastIndex(of: "@") else { return nil }
+        let query = draft[draft.index(after: at)...]
+        guard query.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+        if at == draft.startIndex { return (String(query), false, at) }
+        let before = draft[draft.index(before: at)]
+        guard draftCommand != nil, !(before.isASCII && (before.isLetter || before.isNumber)) else { return nil }
+        return (String(query), true, at)
+    }
+
+    /// The commands the list can offer: all of them at the start, inside a text the ones that run there.
+    private var paletteCommands: [Command] {
+        palette?.nested == true ? commands.filter(CommandPlan.canBeInner) : commands
     }
 
     /// Commands offered for `paletteQuery`, and the highlighted one.
-    public var paletteMatches: [Command] { paletteQuery.map(Command.matching) ?? [] }
+    /// At most `Command.paletteLimit`: the most used, or what matches the letters (`Command.palette`).
+    public var paletteMatches: [Command] {
+        paletteQuery.map { Command.palette($0, in: paletteCommands, usage: commandUsage) } ?? []
+    }
     public var paletteHighlighted: Int { min(paletteHighlight, max(paletteMatches.count - 1, 0)) }
 
     /// The `@open` text while it is typed, for results as you type (`receiveLive`).
@@ -823,22 +863,26 @@ public final class Composer {
     /// starts with, inserts the "@…" as typed and then acts as usual, so "@name" mentions still reach
     /// the app. Nil outside the palette.
     private func handlePaletteKey(_ event: KeyEvent) -> Response? {
-        guard let query = paletteQuery else { return nil }
-        let matches = Command.matching(query)
+        guard let (query, nested, at) = palette else { return nil }
+        let matches = paletteMatches
         let plain = event.modifiers.subtracting([.capsLock, .shift]).isEmpty
+        // Inside a text, leaving the list just goes on with the draft (nil: the key acts as usual).
+        func leave() -> Response? { nested ? nil : commitPalette(then: event) }
         switch event.keyCode {
         case VirtualKey.tab where plain:
-            return matches.isEmpty ? commitPalette(then: event) : .consumed(complete(matches))
+            return matches.isEmpty ? leave() : .consumed(complete(matches))
         case VirtualKey.space where plain:
             // "@ " is just an at sign and a space.
-            return query.isEmpty || matches.isEmpty ? commitPalette(then: event) : .consumed(complete(matches))
+            return query.isEmpty || matches.isEmpty ? leave() : .consumed(complete(matches))
         case VirtualKey.returnKey, VirtualKey.keypadEnter:
-            // Picks, like Tab; "@" alone goes in as typed.
-            return query.isEmpty || matches.isEmpty ? .consumed(finish(committing: draft)) : .consumed(complete(matches))
+            // Picks, like Tab; "@" alone goes in as typed (inside a text, Return runs the command as usual).
+            if query.isEmpty || matches.isEmpty { return nested ? nil : .consumed(finish(committing: draft)) }
+            return .consumed(complete(matches))
         case VirtualKey.escape:
-            draft = ""
+            // Removes the "@…" (inside a text, only that).
+            draft = nested ? String(draft[..<at]) : ""
             setLevelOnePhase()
-            return .consumed([.updateMarkedText, .hidePanel])
+            return .consumed([.updateMarkedText, draft.isEmpty ? .hidePanel : .showPanel])
         case VirtualKey.delete where plain:
             draft.removeLast()
             paletteHighlight = 0
@@ -852,7 +896,7 @@ public final class Composer {
             break
         }
         if plain, let text = event.printableText, text.count == 1, let c = text.first, c.isASCII {
-            if c.isLetter, !Command.matching(query + text).isEmpty {
+            if c.isLetter, !Command.palette(query + text, in: paletteCommands, usage: commandUsage).isEmpty {
                 draft += text
                 paletteHighlight = 0
                 return .consumed([.updateMarkedText, .showPanel])
@@ -861,19 +905,23 @@ public final class Composer {
                 return .consumed(complete(matches, at: n - 1))
             }
         }
-        return commitPalette(then: event)
+        return leave()
     }
 
-    /// Picks a palette command: the draft becomes "@name ", and the rest of the sentence follows.
+    /// Picks a palette command: the draft becomes "@name " (inside a text, the "@…" typed does), and the
+    /// rest of the sentence follows.
     private func complete(_ matches: [Command], at index: Int? = nil) -> [Effect] {
         let command = matches[index ?? paletteHighlighted]
-        draft = "@\(command.rawValue) "
+        let nested = palette?.nested == true
+        draft = (palette.map { String(draft[..<$0.at]) } ?? "") + "@\(command.name) "
         paletteHighlight = 0
-        // File names and paths are typed as letters; the input mode comes back when @open is done.
-        if command == .open, let engine, !engine.snapshot().isAsciiMode {
+        // File names, paths and code are typed as letters; the input mode comes back when the command is
+        // done (inside a text: once its argument is typed and a space follows).
+        if command.typesLatin, let engine, !engine.snapshot().isAsciiMode {
             engine.setAsciiMode(true)
             restoreChineseAfterOpen = true
             engineState = engine.snapshot()
+            nestedLatinFrom = nested ? draft.count : nil
         }
         setLevelOnePhase()
         return [.updateMarkedText, .showPanel]
@@ -908,6 +956,11 @@ public final class Composer {
     private func appendTyped(_ text: String, afterVoice: Bool = false) {
         if draft.isEmpty { draftStartedLatin = engineState.isAsciiMode }
         draft += afterVoice ? appendix(text) : text  // "hello world" + "and" → "hello world and"
+        // The argument of a command inside the text is done: back to Chinese for the rest of the sentence.
+        if let from = nestedLatinFrom, text == " ", draft.count > from + 1 {
+            nestedLatinFrom = nil
+            restoreInputModeAfterOpen()
+        }
     }
 
     /// Keys with a meaning for the draft itself, when the engine has nothing left to convert.
@@ -995,9 +1048,11 @@ public final class Composer {
         restoreInputModeAfterOpen()
     }
 
-    /// Back to Chinese once the draft is no longer an `@open` (it switched to letters for the path).
+    /// Back to Chinese once the draft is no longer a command typed in letters (`@open`, code).
     private func restoreInputModeAfterOpen() {
-        guard restoreChineseAfterOpen, draft.isEmpty || draftCommand != .open, let engine else { return }
+        if draft.isEmpty { nestedLatinFrom = nil }
+        guard restoreChineseAfterOpen, draft.isEmpty || draftCommand?.typesLatin != true && nestedLatinFrom == nil,
+              let engine else { return }
         restoreChineseAfterOpen = false
         engine.setAsciiMode(false)
         engineState = engine.snapshot()
@@ -1137,16 +1192,23 @@ public final class Composer {
     }
 
     private func startAction() -> Response {
-        let parsed = Command.parse(draft)
+        let parsed = Command.parse(draft, in: commands)
         let input = sentText.trimmingCharacters(in: .whitespacesAndNewlines)
         // A command with nothing after it takes the clipboard's text (shown in the draft first; the
         // action key again runs it). This works where ⌘V can't (terminals paste on their own).
         if input.isEmpty, parsed != nil, !isLevelTwo { return .consumed([requestClipboard(forEmptyCommand: true)]) }
         guard !input.isEmpty else { return parsed == nil ? .consumed() : .consumed([.notice(messages.typeAfterCommand)]) }
         if let command = parsed?.command, command.kind == .terminal {
-            guard !secureInputActive() else { return .consumed([.updateMarkedText, .notice(messages.secureInputTerminal)]) }
+            guard !secureInputActive() else {
+                return .consumed([.updateMarkedText, .notice(command.custom == nil ? messages.secureInputTerminal : messages.secureInputCommand)])
+            }
             // The session runs in its own window: nothing to wait for or insert here.
-            return .consumed(finish(committing: "") + [.runInTerminal(prompt: input), .notice(messages.openedTerminal)])
+            let usage = used(command)
+            if let custom = command.custom {
+                return .consumed(finish(committing: "") + [.launchInTerminal(argv: custom.arguments(for: input)),
+                                                           .notice(messages.ranInTerminal), usage])
+            }
+            return .consumed(finish(committing: "") + [.runInTerminal(prompt: input), .notice(messages.openedTerminal), usage])
         }
         requestCounter += 1
         phase = .translating(id: requestCounter)
@@ -1155,12 +1217,24 @@ public final class Composer {
         highlightOverride = nil
         activeCommand = parsed?.command
         let start: Effect
+        // Commands inside the text (`@stock AAPL`) run first; not inside a search's text.
+        let plan = parsed?.command.kind == .search ? nil : CommandPlan.make(input, commands: commands)
         switch parsed?.command {
+        case _ where plan?.isEmpty == false:
+            start = .startPlan(outer: parsed?.command, plan: plan!, id: requestCounter)
         case let command? where command.kind == .generate: start = .startCommand(command, input: input, id: requestCounter)
+        case let command? where command.kind == .run: start = .startRun(command, input: input, id: requestCounter)
         case .open?: start = .search(query: input, id: requestCounter)
         default: start = .startConversion(input: input, id: requestCounter)
         }
-        return .consumed([start, .updateMarkedText, .showPanel])
+        let usage = ((parsed.map { [$0.command] } ?? []) + (plan?.inner.map(\.command) ?? [])).map(used)
+        return .consumed([start, .updateMarkedText, .showPanel] + usage)
+    }
+
+    /// Counts a run of `command` for the order of the command list.
+    private func used(_ command: Command) -> Effect {
+        commandUsage.record(command.name)
+        return .commandUsed(command.name)
     }
 
     // MARK: - Action key

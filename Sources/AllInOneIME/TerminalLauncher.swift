@@ -13,17 +13,22 @@ enum TerminalLauncher {
     /// Opens a new Terminal window in the home folder that runs `claude <prompt>`. The script deletes
     /// itself when it starts; the prompt is passed as one quoted argument, never as shell code.
     static func claude(_ prompt: String) throws {
-        let command = shellQuote(claudePath ?? "claude")
+        try launch([claudePath ?? "claude", prompt], name: "claude")
+    }
+
+    /// Opens a new Terminal window in the home folder that runs `argv` (a custom `terminal` command),
+    /// each argument quoted as one word. The login shell sets up PATH, so `argv[0]` may be a bare name.
+    static func launch(_ argv: [String], name: String = "command") throws {
         let script = """
             #!/bin/zsh -l
             rm -f -- "$0"
             cd ~ || exit 1
-            exec \(command) \(shellQuote(prompt))
+            exec \(argv.map(shellQuote).joined(separator: " "))
 
             """
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AllInOneIME", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent("claude-\(UUID().uuidString).command")
+        let url = folder.appendingPathComponent("\(name)-\(UUID().uuidString).command")
         try Data(script.utf8).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")

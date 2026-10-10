@@ -134,7 +134,10 @@ struct ConfigTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("allinoneime-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("config.json")
-        #expect(try Config.load(from: url) == .default)
+        // No file yet: a new user, on the hosted service once it is set up (an old file without
+        // `provider` stays on Bedrock: ProviderTests.configKeepsProviderSettings).
+        #expect(try Config.load(from: url) == .fresh)
+        #expect(Config.fresh.provider == (HostedService.isConfigured ? .hosted : .bedrock))
 
         var c = Config.default
         c.awsProfile = "work"

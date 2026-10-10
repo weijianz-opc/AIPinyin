@@ -1,0 +1,14 @@
+{
+  "name": "stock",
+  "version": "1.0.0",
+  "api": 1,
+  "minAppVersion": "0.2.0",
+  "type": "script",
+  "summary": { "en": "Stock quotes: @stock AAPL 600519 700", "zh": "股票行情：@stock AAPL 600519 700" },
+  "script": "main.js",
+  "hosts": ["query1.finance.yahoo.com"],
+  "timeoutSeconds": 10,
+  "ascii": true,
+  "author": "weijianz-opc",
+  "homepage": "https://github.com/weijianz-opc/AllInOneIME-plugins"
+}

@@ -7,6 +7,12 @@
 ### Added
 
 - An installer: download `AllInOneIME-<version>.dmg` from [Releases](https://github.com/weijianz-opc/AllInOneIME/releases) and double-click "Install AllInOneIME" in it to install, update or uninstall; no more building with Xcode. Universal: it works on Macs with Apple silicon and Intel. It installs for the current user only, with no administrator password. The installer isn't notarized by Apple yet: the first time, click Open Anyway in System Settings → Privacy & Security; download it only from Releases.
+- Commands that fetch something work inside a sentence: `@reply 告诉他 @stock AAPL 现在多少钱` runs @stock first and puts its output in place.
+- Plugins: ready-made `@` commands (JavaScript in a separate process that can reach only the sites it declares); the first is `@stock` for stock quotes. A "Plugins" section in the settings.
+- The command list shows at most 5, the most used lately first; type letters for the others.
+- AllInOneIME Cloud: sign up with an email for 20 free requests a day, or subscribe for 3000 a month at $3 (Stripe), without an AWS account or API key of your own. The service is run by the developer (not in this repository).
+- Besides Amazon Bedrock: the Claude API, the Gemini API and OpenAI-compatible services (DeepSeek, Qwen, Ollama, …), chosen under "AI Provider" in the settings; API keys are kept in the keychain.
+- Your own `@` commands, added under "Custom @ Commands" in the settings (or in the config's `customCommands`), of three types: `prompt` (goes to the AI with your instruction), `run` (runs a program in the background, e.g. `python3 -c`; its output can be inserted) and `terminal` (runs in Terminal). See "Your own commands" in the README.
 - ⌃V in a command (or in a sentence-mode draft) appends the clipboard text after what you've typed, in any app, terminals included. In terminals (Ghostty etc.) and Notes, the app takes ⌘V and pastes it itself; use ⌃V there.
 - Development: `make dmg` builds the release installer (signed if there's a Developer ID certificate, and notarized too if `NOTARY_PROFILE` is set).
 

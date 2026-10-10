@@ -3,12 +3,19 @@ import Foundation
 /// User-editable settings stored as JSON at `~/.config/allinoneime/config.json`.
 /// Every key is optional in the file; missing keys fall back to `Config.default`.
 public struct Config: Codable, Equatable, Sendable {
+    /// Where requests go: Amazon Bedrock (the settings below), or an API-key provider with its own
+    /// settings (`anthropic`, `gemini`, `openai`).
+    public var provider: Provider
     /// Profile name in ~/.aws/credentials (static access keys).
     public var awsProfile: String
     /// Bedrock region. `nil` means: use the profile's region from ~/.aws/config, else us-east-1.
     public var region: String?
     /// Bedrock model or inference-profile ID used with the Converse API.
     public var modelId: String
+    /// The Claude API, the Gemini API and an OpenAI-compatible API (the key is in `APIKeys`).
+    public var anthropic: ProviderSettings
+    public var gemini: ProviderSettings
+    public var openai: ProviderSettings
     public var maxTokens: Int
     /// `nil` omits the field (some models on Bedrock reject `temperature`).
     public var temperature: Double?
@@ -34,6 +41,24 @@ public struct Config: Codable, Equatable, Sendable {
     public var actionKey: ActionKey
     /// Language of the settings window; nil follows the system.
     public var uiLanguage: Language?
+    /// The user's own @ commands, after the built-in ones (see `CustomCommand`).
+    public var customCommands: [CustomCommand]
+
+    /// The settings of an API-key provider, with its defaults filled in.
+    public func settings(for provider: Provider) -> ProviderSettings {
+        switch provider {
+        case .bedrock: return ProviderSettings(model: modelId, temperature: temperature)
+        case .anthropic: return anthropic.resolved(for: .anthropic)
+        case .gemini: return gemini.resolved(for: .gemini)
+        case .openai: return openai.resolved(for: .openai)
+        case .hosted: return ProviderSettings().resolved(for: .hosted)
+        }
+    }
+
+    /// The model requests go to, with the provider (it is part of the cache keys).
+    public var activeModel: String {
+        provider == .bedrock ? modelId : "\(provider.rawValue):\(settings(for: provider).model ?? "")"
+    }
 
     /// `jargonFile` with "~" expanded, or `JargonLibrary.defaultURL`.
     public var jargonURL: URL {
@@ -49,8 +74,14 @@ public struct Config: Codable, Equatable, Sendable {
         rewriteStyles: [String] = RewriteStyle.defaultNames,
         outputLanguage: Language = .english, defaultInput: Language = .chinese,
         englishAI: Bool = true, voiceInput: Bool = true, jargonFile: String? = nil,
-        actionKey: ActionKey = .enter, uiLanguage: Language? = nil
+        actionKey: ActionKey = .enter, uiLanguage: Language? = nil, customCommands: [CustomCommand] = [],
+        provider: Provider = .bedrock, anthropic: ProviderSettings = ProviderSettings(),
+        gemini: ProviderSettings = ProviderSettings(), openai: ProviderSettings = ProviderSettings()
     ) {
+        self.provider = provider
+        self.anthropic = anthropic
+        self.gemini = gemini
+        self.openai = openai
         self.awsProfile = awsProfile
         self.region = region
         self.modelId = modelId
@@ -65,6 +96,7 @@ public struct Config: Codable, Equatable, Sendable {
         self.jargonFile = jargonFile
         self.actionKey = actionKey
         self.uiLanguage = uiLanguage
+        self.customCommands = customCommands
     }
 
     public static let `default` = Config(
@@ -80,7 +112,8 @@ public struct Config: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case awsProfile, region, modelId, maxTokens, temperature, timeoutSeconds, rewriteStyles
-        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage
+        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage, customCommands
+        case provider, anthropic, gemini, openai
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +136,11 @@ public struct Config: Codable, Equatable, Sendable {
         jargonFile = try c.decodeIfPresent(String.self, forKey: .jargonFile)
         actionKey = try c.decodeIfPresent(ActionKey.self, forKey: .actionKey) ?? d.actionKey
         uiLanguage = try c.decodeIfPresent(Language.self, forKey: .uiLanguage)
+        customCommands = try c.decodeIfPresent([CustomCommand].self, forKey: .customCommands) ?? d.customCommands
+        provider = try c.decodeIfPresent(Provider.self, forKey: .provider) ?? d.provider
+        anthropic = try c.decodeIfPresent(ProviderSettings.self, forKey: .anthropic) ?? d.anthropic
+        gemini = try c.decodeIfPresent(ProviderSettings.self, forKey: .gemini) ?? d.gemini
+        openai = try c.decodeIfPresent(ProviderSettings.self, forKey: .openai) ?? d.openai
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -121,6 +159,19 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(jargonFile, forKey: .jargonFile)  // null: the default file
         try c.encode(actionKey, forKey: .actionKey)
         try c.encode(uiLanguage, forKey: .uiLanguage)  // null: follow the system
+        try c.encode(customCommands, forKey: .customCommands)
+        try c.encode(provider, forKey: .provider)
+        try c.encode(anthropic, forKey: .anthropic)
+        try c.encode(gemini, forKey: .gemini)
+        try c.encode(openai, forKey: .openai)
+    }
+
+    /// A new user's settings (no config file yet): the hosted service once it is set up, which needs
+    /// nothing but a Google sign-in. A file without `provider` (from before providers) stays on Bedrock.
+    public static var fresh: Config {
+        var config = Config.default
+        if HostedService.isConfigured { config.provider = .hosted }
+        return config
     }
 
     public static var defaultURL: URL {
@@ -134,7 +185,7 @@ public struct Config: Codable, Equatable, Sendable {
         do {
             data = try Data(contentsOf: url)
         } catch CocoaError.fileReadNoSuchFile {
-            return .default
+            return .fresh
         }
         do {
             return try JSONDecoder().decode(Config.self, from: data)
