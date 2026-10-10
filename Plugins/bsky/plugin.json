@@ -1,0 +1,12 @@
+{
+  "name": "bsky",
+  "version": "1.0.0",
+  "api": 1,
+  "minAppVersion": "0.5.0",
+  "type": "link",
+  "url": "https://bsky.app/intent/compose?text={input}",
+  "summary": {"en": "Post to Bluesky: opens the composer with your text", "zh": "发到 Bluesky：打开发帖框，文字已填好"},
+  "author": "weijianz-opc",
+  "icon": "cloud.fill",
+  "color": "#1185FE"
+}

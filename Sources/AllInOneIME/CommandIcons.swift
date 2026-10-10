@@ -7,7 +7,7 @@ import AppKit
 enum CommandIcons {
     static func icon(for command: Command) -> CandidateView.Icon {
         if let plugin = command.plugin {
-            return CandidateView.Icon(symbol: plugin.manifest.icon ?? "puzzlepiece.extension.fill",
+            return CandidateView.Icon(symbol: plugin.manifest.icon ?? (plugin.manifest.type == .link ? "link" : "puzzlepiece.extension.fill"),
                                       color: color(plugin.manifest.color) ?? .systemPink)
         }
         if let custom = command.custom {
@@ -16,6 +16,7 @@ enum CommandIcons {
             case .prompt: (symbol, fallback) = ("text.bubble.fill", .systemIndigo)
             case .run: (symbol, fallback) = ("chevron.left.forwardslash.chevron.right", .systemBrown)
             case .terminal: (symbol, fallback) = ("apple.terminal.fill", NSColor(white: 0.25, alpha: 1))
+            case .link: (symbol, fallback) = ("link", .systemBlue)
             }
             return CandidateView.Icon(symbol: custom.icon ?? symbol, color: color(custom.color) ?? fallback)
         }

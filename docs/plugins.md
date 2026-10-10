@@ -18,11 +18,40 @@ A folder in `~/.config/allinoneime/plugins/<name>/`:
     "author": "weijianz-opc", "homepage": "https://github.com/weijianz-opc/AllInOneIME-plugins",
     "icon": "chart.line.uptrend.xyaxis", "color": "green" }
   ```
-  `type` is `script` (JavaScript, below) or `prompt` (an AI instruction in `prompt`, like a custom command).
+  `type` is `script` (JavaScript, below), `prompt` (an AI instruction in `prompt`, like a custom command) or
+  `link` (a web address opened in the browser, below).
   `icon` (an SF Symbol name) and `color` (`blue`, `green`, … or `#RRGGBB`) draw it in the command list.
 - `main.js` for a script plugin: `function run(input) { return "one line" }`. A `throw` is the error shown.
 - `install.json`, written when installed from the library: `{version, files: {name: sha256}, source: "registry"}`.
   A folder without it is a **local** plugin (an author's, not reviewed).
+
+## Link plugins
+
+A `link` plugin runs no code: the text after the command goes into a web address, which opens in the default
+browser. Nothing is inserted; the draft is cleared, as when `@open` opens something. Made for "share" and
+"compose" pages, where the user posts it themselves, signed in as usual:
+
+```json
+{ "name": "x", "version": "1.0.0", "api": 1, "minAppVersion": "0.5.0", "type": "link",
+  "url": "https://x.com/intent/post?text={input}",
+  "summary": {"en": "Post to X: opens the composer with your text", "zh": "发到 X：打开发帖框，文字已填好"},
+  "author": "weijianz-opc", "icon": "bird", "color": "#000000" }
+```
+
+- `url` is required: `https://`, with `{input}` exactly once, in the query or the fragment (after `?` or `#`), so
+  the text can never choose the host or the path. Its host is the plugin's host ("the text after @x goes to
+  x.com"); `script` and `hosts` aren't used.
+- The text is percent-encoded as a query value: everything but `A–Z a–z 0–9 - . _ ~` as UTF-8, a space as `%20`
+  (not `+`), a newline as `%0A`. At most 4000 characters (longer: an error, and the draft stays).
+- Nothing after the command: like any command, the action key takes the clipboard's text (with none, it asks
+  for some); the page never opens empty from the input method.
+- Not a command inside a text (it fetches nothing), but it can be the outer one: `@x 今天 @stock AAPL 涨了` runs
+  `@stock` first and opens the link with its output in the text.
+- Refused during secure input, like every command.
+- Custom commands have the same type (`{"name": "google", "type": "link", "url": "https://www.google.com/search?q={input}"}`,
+  or "Open a web page" in Settings → Custom @ Commands).
+
+[Plugins/](../Plugins/) in the repository has `@x`, `@threads`, `@bsky` and `@weibo`; the library publishes them.
 
 ## How a script runs
 

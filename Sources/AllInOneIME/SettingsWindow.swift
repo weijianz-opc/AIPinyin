@@ -987,6 +987,9 @@ struct SettingsView: View {
                          : tr("@\(plugin.name) 后面的内容会发到 \(hosts)", "sends the text after @\(plugin.name) to \(hosts)"))
         case .prompt:
             parts.append(tr("AI 指令，发给你选的 AI 服务", "an AI instruction, sent to your AI provider"))
+        case .link:
+            let host = plugin.manifest.destinationHosts.joined(separator: ", ")
+            parts.append(tr("@\(plugin.name) 后面的内容会在浏览器里打开 \(host)", "opens \(host) in the browser with the text after @\(plugin.name)"))
         }
         if plugin.isLocal { parts.append(tr("本地插件（未经审核）", "local (not reviewed)")) }
         return parts.joined(separator: " · ")

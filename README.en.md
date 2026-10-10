@@ -62,7 +62,7 @@ first, as usual, before changing files or running commands. Without Claude Code 
 ### Your own commands
 
 In the settings, under "Custom @ Commands", click "Add Command…": give it a name and choose what it does (an AI
-instruction, a program, or a program in Terminal), or start from an example. Your commands come after the built-in
+instruction, a program, a program in Terminal, or a web page), or start from an example. Your commands come after the built-in
 ones; names are English letters only and can't be a built-in command's; they work from the next sentence.
 They're kept in `customCommands` in the config file (`~/.config/allinoneime/config.json`), which you can also edit:
 
@@ -71,7 +71,8 @@ They're kept in `customCommands` in the config file (`~/.config/allinoneime/conf
   { "name": "python", "type": "run", "argv": ["python3", "-c", "{input}"], "summary": "Run Python" },
   { "name": "calc", "type": "run", "argv": ["bc", "-l"], "stdin": "{input}\n" },
   { "name": "sh", "type": "terminal", "argv": ["zsh", "-c", "{input}"] },
-  { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." }
+  { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." },
+  { "name": "google", "type": "link", "url": "https://www.google.com/search?q={input}" }
 ]
 ```
 
@@ -80,9 +81,11 @@ They're kept in `customCommands` in the config file (`~/.config/allinoneime/conf
 | `prompt` | Goes to the AI with `prompt` as its instruction; the answer appears in the candidates, to insert or copy (⌘C) |
 | `run` | Runs `argv` in the background; what it prints appears in the candidates (several lines are inserted as printed). On an error, its last line is shown |
 | `terminal` | Runs `argv` in a new Terminal window; nothing is inserted |
+| `link` | Puts the text into the web address `url` and opens it in the default browser; nothing is inserted |
 
 - `{input}` becomes what you wrote after the command, and it always stays within the one argument it's in: no shell is involved. For a shell, say so, like `sh` above (`zsh -c`).
 - `stdin`: what goes to the program's standard input, with `{input}` replaced too.
+- A `link`'s `url` must be `https://`, with `{input}` once, after the `?` or `#`; the text is encoded (a space is `%20`, a newline `%0A`), 4000 characters at most.
 - `run` and `terminal` type English letters by default (like `@open`; Chinese comes back after), and full-width punctuation becomes ASCII: `print（“牛逼”）` → `print("牛逼")`. Set `"ascii": false` to keep text as typed.
 - Programs run in your home folder with your login shell's PATH (so Homebrew, pyenv and nvm installs are found). `run` stops a program after 10 seconds (`timeoutSeconds`) or when it prints too much; Esc stops it at any time.
 - `summary` is the description in the command list (optional).
@@ -95,7 +98,10 @@ They're kept in `customCommands` in the config file (`~/.config/allinoneime/conf
 Plugins are ready-made `@` commands for things not everyone needs, like `@stock AAPL 600519 700` for stock quotes.
 Installed, they work like any command; "Plugins" in the settings shows what's installed and where each sends your text,
 and removes them. Plugins are JavaScript run in a separate process: they can reach only the websites they declare
-(HTTPS), and can't read files or run other programs. The plugin library is on its way; for now a plugin folder goes in
+(HTTPS), and can't read files or run other programs. "Link" plugins run no code: they put the text into a web
+address and open it in the browser, like `@x nice weather today`, which opens X's composer with the text filled in;
+posting is up to you on the page. [Plugins/](Plugins/) in this repository has four (`@x`, `@threads`, `@bsky`,
+`@weibo`), not installed with the app. The plugin library is on its way; for now a plugin folder goes in
 `~/.config/allinoneime/plugins/` ("Open Plugins Folder" in the settings). Writing one: [docs/plugins.md](docs/plugins.md).
 
 Commands that fetch something (plugins and programs) also work inside a sentence: `@reply 告诉他 @stock AAPL 现在多少钱`.

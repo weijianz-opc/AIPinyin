@@ -7,6 +7,9 @@
 ### Added
 
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
+- A new plugin type, `link`: no code; the text after the command goes into a web address that opens in the default browser, and nothing is inserted. Commands inside the text (`@stock …`) run first and their output goes in; it doesn't run during secure input; 4000 characters at most.
+- Custom commands can open a web page too (`"type": "link"` with a `url` containing `{input}`), say `@google` to search.
+- `Plugins/` in the repository: `@x`, `@threads`, `@bsky` and `@weibo` open each site's composer with the text filled in. They aren't installed with the app (the plugin library will publish them); for now copy one into `~/.config/allinoneime/plugins/`.
 
 ## 0.4.0 (2026-10-09)
 

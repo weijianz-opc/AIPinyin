@@ -110,17 +110,19 @@ enum UIText {
         case .prompt: return tr("自定义 AI 指令", "Your own AI instruction")
         case .run: return tr("运行 ", "Run ") + (custom.argv?.first.map { ($0 as NSString).lastPathComponent } ?? "")
         case .terminal: return tr("在终端运行 ", "Run in Terminal: ") + (custom.argv?.first.map { ($0 as NSString).lastPathComponent } ?? "")
+        case .link: return tr("在浏览器打开 ", "Open in the browser: ") + (LinkTemplate.host(custom.url) ?? "")
         }
     }
 
     /// What the action key does with a command draft, after "⏎ →".
     static func action(_ command: Command, input: Language, config: Config) -> String {
         if command.plugin != nil, command.kind == .run { return tr("运行插件", "run the plugin") }
+        if command.kind == .link { return tr("在浏览器打开", "open in the browser") }
         switch command.custom?.type {
         case .prompt?: return tr("AI 生成", "generate")
         case .run?: return tr("运行", "run")
         case .terminal?: return tr("在终端运行", "run in Terminal")
-        case nil: break
+        case .link?, nil: break
         }
         switch command {
         case .improve: return action(input: input, config: config)

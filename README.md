@@ -58,7 +58,7 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
 
 ### 自己加命令
 
-在设置的「自定义 @ 命令」里点「添加命令…」：起个名字，选它做什么（AI 指令、运行程序、在终端运行），也可以从例子开始。
+在设置的「自定义 @ 命令」里点「添加命令…」：起个名字，选它做什么（AI 指令、运行程序、在终端运行、打开网页），也可以从例子开始。
 命令排在内置命令后面，名字只能用英文字母，不能和内置命令重名；保存后下一句就能用。
 它们存在配置文件（`~/.config/allinoneime/config.json`）的 `customCommands` 里，也可以直接改：
 
@@ -67,7 +67,8 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
   { "name": "python", "type": "run", "argv": ["python3", "-c", "{input}"], "summary": "运行 Python" },
   { "name": "calc", "type": "run", "argv": ["bc", "-l"], "stdin": "{input}\n" },
   { "name": "sh", "type": "terminal", "argv": ["zsh", "-c", "{input}"] },
-  { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." }
+  { "name": "reply", "type": "prompt", "prompt": "Write a short, polite reply to the user's message." },
+  { "name": "google", "type": "link", "url": "https://www.google.com/search?q={input}" }
 ]
 ```
 
@@ -76,9 +77,11 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
 | `prompt` | 发给 AI，`prompt` 是给它的指令；回答出现在候选里，可以上屏或 ⌘C 复制 |
 | `run` | 在后台运行 `argv`，打印的内容出现在候选里（多行照原样上屏）；出错时显示错误的最后一行 |
 | `terminal` | 在新的终端窗口里运行 `argv`，不上屏 |
+| `link` | 把内容填进网址 `url`，在默认浏览器里打开，不上屏 |
 
 - `{input}` 换成命令后面写的内容，而且永远只占它所在的那一个参数，不经过 shell。要用 shell 就像上面的 `sh` 那样明确写 `zsh -c`。
 - `stdin`：给程序标准输入的内容，`{input}` 同样会被替换。
+- `link` 的 `url` 必须是 `https://`，`{input}` 只能出现一次，而且要在 `?` 或 `#` 后面；内容会编码（空格是 `%20`，换行是 `%0A`），最多 4000 字。
 - `run` 和 `terminal` 默认用英文字母输入（像 `@open`，用完回到中文），全角标点会转成半角：`print（“牛逼”）` → `print("牛逼")`。不想这样就设 `"ascii": false`。
 - 程序在主目录里运行，用你的登录 shell 的 PATH（Homebrew、pyenv、nvm 装的都找得到）；`run` 默认 10 秒超时（`timeoutSeconds`），输出太多也会被停止，Esc 随时停止。
 - `summary` 是命令列表里的说明，可以不写。
@@ -91,6 +94,8 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
 插件是别人写好的 `@` 命令，不是人人都要的放在这里，比如 `@stock AAPL 600519 700` 查股价。
 装好后和其他命令一样用；设置的「插件」里能看到装了哪些、它会把内容发到哪里，也能删除。
 插件用 JavaScript 写，在单独的进程里运行：只能访问它声明的网站（HTTPS），读不到文件，也不能运行别的程序。
+也有不运行代码的「链接」插件：把内容填进网址，在浏览器里打开，比如 `@x 今天天气不错` 打开 X 的发帖框、文字已经填好，发不发由你在网页上决定。
+仓库的 [Plugins/](Plugins/) 里有 `@x`、`@threads`、`@bsky`、`@weibo` 四个，不随应用安装。
 插件库还在做，目前可以把插件文件夹放进 `~/.config/allinoneime/plugins/`（设置里「打开插件文件夹」）。
 写插件的说明见 [docs/plugins.md](docs/plugins.md)。
 
