@@ -58,9 +58,14 @@ enum TerminalLauncher {
     /// login" line), and types `exec <script>` into it once. Typed again, a line could reach the
     /// program the first one started. False when Terminal can't be told (no permission): nothing opened.
     private static func runWhenReady(_ script: URL, marker: URL) -> Bool {
-        guard let window = osascript(["tell application \"Terminal\"", "activate", "do script \"\"",
-                                      "return id of front window", "end tell"]),
-              let windowID = Int(window) else { return false }
+        // Terminal opens a window of its own when it starts: that one is used, not a second.
+        let terminalRunning = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Terminal").isEmpty == false
+        let open = terminalRunning
+            ? ["tell application \"Terminal\"", "activate", "do script \"\"", "return id of front window", "end tell"]
+            : ["tell application \"Terminal\"", "activate",
+               "repeat 50 times", "if (count of windows) > 0 then exit repeat", "delay 0.1", "end repeat",
+               "if (count of windows) = 0 then do script \"\"", "return id of front window", "end tell"]
+        guard let window = osascript(open), let windowID = Int(window) else { return false }
         let tab = "selected tab of window id \(windowID)"
         let started = Date()
         while Date().timeIntervalSince(started) < 8 {
