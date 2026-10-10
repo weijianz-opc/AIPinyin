@@ -5,16 +5,6 @@ import Testing
 extension ComposerTests {
     var pasteKey: KeyEvent { KeyEvent(keyCode: 0x09, characters: "v", charactersIgnoringModifiers: "v", modifiers: .command) }
 
-    /// "@improve " picked from the palette.
-    func improveDraft(key: ActionKey = .enter) -> (Composer, FakeEngine) {
-        let (c, e) = composer(ai: false, key: key)
-        _ = c.handleKeyDown(at)
-        type("i", c)
-        _ = c.handleKeyDown(tab)
-        #expect(c.draft == "@improve ")
-        return (c, e)
-    }
-
     /// ⌘V, then the clipboard's `text` arrives; returns the delivery's effects.
     @discardableResult
     func paste(_ text: String?, into c: Composer) -> [Composer.Effect] {
@@ -27,20 +17,20 @@ extension ComposerTests {
     }
 
     @Test func pastedTextJoinsACommandDraftAndTheActionKeyRunsOnIt() {
-        let (c, _) = improveDraft()
+        let (c, _) = improveDraft(key: .enter)
         // The key is answered at once (the app doesn't paste); the text follows.
         #expect(c.handleKeyDown(pasteKey) == .consumed([.updateMarkedText, .showPanel, .readClipboard(id: 1)]))
         #expect(c.pasted("这个方案我觉得还不够好，需要再改一下", id: 1) == [.updateMarkedText, .showPanel])
         #expect(c.draft == "@improve 这个方案我觉得还不够好，需要再改一下" && c.markedText == "improve › 这个方案我觉得还不够好，需要再改一下")
         #expect(c.handleKeyDown(enterKey).effects.first == .startConversion(input: "这个方案我觉得还不够好，需要再改一下", id: 1))
         // Other commands take it too; @open searches for it as you type.
-        let (q, _) = composer(ai: false, key: .enter)
+        let (q, _) = composer(key: .enter)
         _ = q.handleKeyDown(at)
         type("q", q)
         _ = q.handleKeyDown(tab)
         paste("What is a monad?", into: q)
         #expect(q.handleKeyDown(enterKey).effects.first == .startCommand(.question, input: "What is a monad?", id: 1))
-        let (o, _) = composer(ai: false, key: .enter)
+        let (o, _) = composer(key: .enter)
         _ = o.handleKeyDown(at)
         type("o", o)
         _ = o.handleKeyDown(tab)
@@ -50,13 +40,13 @@ extension ComposerTests {
 
     @Test func pastingContinuesWhatWasTypedLikeAnyPaste() {
         // Pinyin still pending is converted first; the text follows exactly (no space added).
-        let (c, _) = improveDraft()
+        let (c, _) = improveDraft(key: .enter)
         type("nihao", c)
         #expect(c.handleKeyDown(pasteKey).effects.first == .updateMarkedText && !c.engineState.isComposing)
         #expect(c.draft == "@improve 你好")
         _ = c.pasted("，最近怎么样", id: 1)
         #expect(c.draft == "@improve 你好，最近怎么样")
-        let (e, _) = english(ai: false, key: .enter)  // English before the draft: the mode can't change mid-way
+        let (e, _) = english(key: .enter)  // English before the draft: the mode can't change mid-way
         _ = e.handleKeyDown(at)
         type("i", e)
         _ = e.handleKeyDown(tab)
@@ -69,13 +59,13 @@ extension ComposerTests {
     }
 
     @Test func aCommandBeingTypedIsPickedFirst() {
-        let (c, _) = composer(ai: false, key: .enter)
+        let (c, _) = composer(key: .enter)
         _ = c.handleKeyDown(at)
         type("imp", c)
         paste("hello world", into: c)
         #expect(c.draft == "@improve hello world" && c.draftCommand == .improve && c.paletteQuery == nil)
         // "@" alone is an at sign (a mention): it goes in as typed and the app pastes after it.
-        let (m, _) = composer(ai: false, key: .enter)
+        let (m, _) = composer(key: .enter)
         _ = m.handleKeyDown(at)
         let r = m.handleKeyDown(pasteKey)
         #expect(!r.handled && commits(r) == ["@"] && !r.effects.contains(.readClipboard(id: 1)))
@@ -83,7 +73,7 @@ extension ComposerTests {
 
     @Test func linesBecomeOneLine() {
         func pasted(_ text: String) -> String {
-            let (c, _) = improveDraft()
+            let (c, _) = improveDraft(key: .enter)
             paste(text, into: c)
             return c.sentText
         }
@@ -97,38 +87,38 @@ extension ComposerTests {
 
     @Test func withoutADraftTheAppPastesAndWithoutTextANoticeSaysSo() {
         // Nothing pending, pinyin only, results showing: ⌘V is the app's (the clipboard isn't read).
-        let (idle, _) = composer(ai: false, key: .enter)
+        let (idle, _) = composer(key: .enter)
         #expect(idle.handleKeyDown(pasteKey) == .passThrough)
-        let (pinyin, _) = composer(ai: false, key: .enter)
+        let (pinyin, _) = composer(key: .enter)
         type("ni", pinyin)
         #expect(!pinyin.handleKeyDown(pasteKey).handled)
-        let (results, _) = improveDraft()
+        let (results, _) = improveDraft(key: .enter)
         type("nihao", results)
         _ = results.handleKeyDown(enterKey)
         #expect(results.isLevelTwo && !results.handleKeyDown(pasteKey).handled)
         // ⌘⇧V (paste and match style) and other shortcuts are unchanged.
-        let (s, _) = improveDraft()
-        let (ref, _) = improveDraft()
+        let (s, _) = improveDraft(key: .enter)
+        let (ref, _) = improveDraft(key: .enter)
         #expect(s.handleKeyDown(KeyEvent(keyCode: 0x09, characters: "v", charactersIgnoringModifiers: "V", modifiers: [.command, .shift]))
                 == ref.handleKeyDown(k("a", mods: .command)))
         // No text (an image, a password, not allowed): the draft stays, with a notice.
-        let (c, _) = improveDraft()
+        let (c, _) = improveDraft(key: .enter)
         #expect(paste(nil, into: c) == [.notice(c.messages.nothingToPaste)] && c.draft == "@improve ")
         #expect(paste(" \n\t ", into: c) == [.notice(c.messages.nothingToPaste)] && c.draft == "@improve ")
     }
 
     @Test func aPasteArrivingLateIsDroppedOnceTheDraftIsGone() {
-        let (c, _) = improveDraft()
+        let (c, _) = improveDraft(key: .enter)
         type("nihao", c)
         let r = c.handleKeyDown(pasteKey)
         #expect(r.effects.last == .readClipboard(id: 1))
         _ = c.handleKeyDown(enterKey)  // sent before the clipboard arrived
         #expect(c.pasted("late", id: 1).isEmpty && c.sentText == "你好")
-        let (d, _) = improveDraft()
+        let (d, _) = improveDraft(key: .enter)
         _ = d.handleKeyDown(pasteKey)
         _ = d.handleKeyDown(escKey)  // cleared
         #expect(d.pasted("late", id: 1).isEmpty && d.draft.isEmpty)
-        let (f, _) = improveDraft()
+        let (f, _) = improveDraft(key: .enter)
         _ = f.handleKeyDown(pasteKey)
         _ = f.handleKeyDown(pasteKey)  // only the latest ⌘V counts
         #expect(f.pasted("first", id: 1).isEmpty && f.pasted("second", id: 2) == [.updateMarkedText, .showPanel])
@@ -137,9 +127,9 @@ extension ComposerTests {
 
     @Test func terminalsKeepCommandVForThemselves() {
         // Terminals paste on ⌘V themselves: the input method stays out (no second copy in the draft).
-        let (c, _) = improveDraft()
+        let (c, _) = improveDraft(key: .enter)
         c.pastesIntoDraft = false
-        let (ref, _) = improveDraft()
+        let (ref, _) = improveDraft(key: .enter)
         #expect(c.handleKeyDown(pasteKey) == ref.handleKeyDown(k("a", mods: .command)))  // as before the paste feature
     }
 
@@ -152,7 +142,7 @@ extension ComposerTests {
     @Test func controlVPastesIntoTheCommandInEveryApp() {
         // Terminals included (no app pastes on ⌃V by itself), after text already typed.
         for terminal in [false, true] {
-            let (c, _) = improveDraft()
+            let (c, _) = improveDraft(key: .enter)
             c.pastesIntoDraft = !terminal
             type("nihao", c)
             let r = c.handleKeyDown(controlV)
@@ -163,7 +153,7 @@ extension ComposerTests {
             #expect(c.handleKeyDown(enterKey).effects.first == .startConversion(input: "你好，这个方案还不够好", id: 1))
         }
         // "@imp" picks its command first, as with ⌘V.
-        let (p, _) = composer(ai: false, key: .enter)
+        let (p, _) = composer(key: .enter)
         _ = p.handleKeyDown(at)
         type("imp", p)
         #expect(p.handleKeyDown(controlV).effects.last == .readClipboard(id: 1))
@@ -171,25 +161,25 @@ extension ComposerTests {
         #expect(p.draft == "@improve hello world")
         // Nothing pending, or "@" alone (a mention): ⌃V is the app's (a shell's literal next, a text
         // view's page down), and the clipboard isn't read.
-        let (idle, _) = composer(ai: false, key: .enter)
+        let (idle, _) = composer(key: .enter)
         #expect(idle.handleKeyDown(controlV) == .passThrough)
-        let (m, _) = composer(ai: false, key: .enter)
+        let (m, _) = composer(key: .enter)
         _ = m.handleKeyDown(at)
         let mention = m.handleKeyDown(controlV)
         #expect(commits(mention) == ["@"] && !mention.handled && !readsClipboard(mention.effects))
         // Results showing: not read either; ⌃⇧V is not ⌃V.
-        let (l, _) = improveDraft()
+        let (l, _) = improveDraft(key: .enter)
         type("nihao", l)
         _ = l.handleKeyDown(enterKey)
         #expect(l.isLevelTwo && !readsClipboard(l.handleKeyDown(controlV).effects))
-        let (s, _) = improveDraft()
+        let (s, _) = improveDraft(key: .enter)
         let shifted = KeyEvent(keyCode: 0x09, characters: "\u{16}", charactersIgnoringModifiers: "V", modifiers: [.control, .shift])
         #expect(!readsClipboard(s.handleKeyDown(shifted).effects) && s.draft == "@improve ")
     }
 
     @Test func theActionKeyOnAnEmptyCommandTakesTheClipboard() {
         for terminal in [false, true] {
-            let (c, _) = improveDraft()
+            let (c, _) = improveDraft(key: .enter)
             c.pastesIntoDraft = !terminal
             // The text is shown in the command first; the action key again runs it.
             #expect(c.handleKeyDown(enterKey) == .consumed([.readClipboard(id: 1)]) && !c.isLevelTwo)
@@ -202,26 +192,14 @@ extension ComposerTests {
         _ = t.handleKeyDown(tab)
         #expect(tapOption(t) == [.readClipboard(id: 1)])
         #expect(t.pasted(nil, id: 1) == [.notice(t.messages.typeAfterCommand)] && t.draft == "@improve ")
-        // A command with text after it runs as before; plain text in sentence mode isn't affected.
-        let (d, _) = improveDraft()
+        // A command with text after it runs as before.
+        let (d, _) = improveDraft(key: .enter)
         type("nihao", d)
         #expect(d.handleKeyDown(enterKey).effects.first == .startConversion(input: "你好", id: 1))
-        let (s, _) = composer(ai: true, key: .enter)
-        type("nihao", s)
-        _ = s.handleKeyDown(spaceKey)
-        #expect(s.handleKeyDown(enterKey).effects.first == .startConversion(input: "你好", id: 1))
-    }
-
-    @Test func sentenceModeDraftsTakeThePasteToo() {
-        let (c, _) = composer(ai: true, key: .enter)
-        type("nihao", c)
-        _ = c.handleKeyDown(spaceKey)
-        paste("世界", into: c)
-        #expect(c.draft == "你好世界" && c.handleKeyDown(enterKey).effects.first == .startConversion(input: "你好世界", id: 1))
     }
 
     @Test func tooMuchOnTheClipboardIsRefused() {
-        let (c, _) = improveDraft()
+        let (c, _) = improveDraft(key: .enter)
         let tooLong = [.notice(c.messages.pasteTooLong)] as [Composer.Effect]
         #expect(paste(String(repeating: "字", count: Composer.maxPasteLength + 1), into: c) == tooLong)
         #expect(paste(String(repeating: "长", count: Composer.maxPasteLength * 9), into: c) == tooLong)  // refused unread

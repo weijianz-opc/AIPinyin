@@ -51,7 +51,6 @@ struct SuggestedModel: Identifiable, Hashable {
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published var config: Config
-    @Published var sentenceMode: Bool
     @Published private(set) var loadError: String?
     @Published private(set) var saveError: String?
     @Published private(set) var profiles: [String] = []
@@ -68,7 +67,6 @@ final class SettingsModel: ObservableObject {
     }
 
     let configURL: URL
-    private let saveSentenceMode: (Bool) -> Void
     /// False for previews/screenshots: nothing is ever written.
     private let persists: Bool
     private var testTask: Task<Void, Never>?
@@ -76,14 +74,9 @@ final class SettingsModel: ObservableObject {
     /// profile is often named after its owner; the keys, region and Test Connection (测试连接) still use the real one.
     var profileShownAs: String?
 
-    init(configURL: URL = Config.defaultURL,
-         sentenceMode: Bool = Settings.sentenceMode,
-         saveSentenceMode: @escaping (Bool) -> Void = { Settings.sentenceMode = $0 },
-         persists: Bool = true) {
+    init(configURL: URL = Config.defaultURL, persists: Bool = true) {
         self.configURL = configURL
-        self.saveSentenceMode = saveSentenceMode
         self.persists = persists
-        self.sentenceMode = sentenceMode
         do {
             config = try Config.load(from: configURL)
         } catch {
@@ -105,11 +98,6 @@ final class SettingsModel: ObservableObject {
         } catch {
             saveError = tr("保存失败：", "Couldn't save: ") + error.localizedDescription
         }
-    }
-
-    func setSentenceMode(_ on: Bool) {
-        sentenceMode = on
-        saveSentenceMode(on)
     }
 
     /// Switches the window's language at once (nil: follow the system) and saves the choice.
@@ -469,9 +457,6 @@ struct SettingsView: View {
                 .disabled(!model.canSave)
                 Text(Self.actionKeyNote(model.config.actionKey))
                     .font(.caption).foregroundStyle(.secondary)
-                Toggle(tr("整句模式（⇧空格）", "Sentence mode (⇧Space)"),
-                       isOn: Binding(get: { model.sentenceMode }, set: { model.setSentenceMode($0) }))
-                Text(sentenceModeSummary).font(.caption).foregroundStyle(.secondary)
                 Toggle(tr("@claude 在后台运行，做完通知我", "@claude runs in the background and notifies me"),
                        isOn: $model.config.claudeInBackground)
                 Text(tr("开着：交给 Claude Code 后台去做，做完弹通知，点通知或用 @tasks 查看；关掉：在终端打开 Claude Code 接着聊。",
@@ -490,10 +475,6 @@ struct SettingsView: View {
                     Text(UIText.name(Language.chinese)).tag(Language.chinese)
                 }
                 .pickerStyle(.segmented)
-                Toggle(tr("整句模式下英文也进草稿（打完\(UIText.howToPress(model.config.actionKey, english: true))）",
-                          "Sentence mode: English too (\(UIText.howToPress(model.config.actionKey, english: true)) when done)"),
-                       isOn: $model.config.englishAI)
-                    .disabled(!model.sentenceMode)
                 Text(inputSummary).font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.canSave)
@@ -720,7 +701,6 @@ struct SettingsView: View {
         .onChange(of: model.config.timeoutSeconds) { model.save() }
         .onChange(of: model.config.defaultInput) { model.save() }
         .onChange(of: model.config.outputLanguage) { model.save() }
-        .onChange(of: model.config.englishAI) { model.save() }
         .onChange(of: model.config.voiceInput) { model.save() }
         .onChange(of: model.config.actionKey) { model.save() }
         .onChange(of: model.config.claudeInBackground) { model.save() }
@@ -751,16 +731,7 @@ struct SettingsView: View {
                       + "@claude opens Claude Code, @open finds files. When done, \(key).")
     }
 
-    /// Sentence mode, under its switch.
-    private var sentenceModeSummary: String {
-        let key = UIText.howToPress(model.config.actionKey)
-        let output = UIText.name(model.config.outputLanguage)
-        return tr("开启后不加 @ 也进草稿：整句打完\(key)就润色 / 翻译，1–3 是\(output)，后面是下方勾选的改写。",
-                  "On: every sentence collects into a draft, and \(key) polishes / translates it without @improve: "
-                      + "lines 1–3 in \(output), then the rewrites checked below.")
-    }
-
-    /// What @improve (and sentence mode) does for Chinese and for English input.
+    /// What @improve does for Chinese and for English input.
     private var inputSummary: String {
         let chinese = UIText.action(input: .chinese, config: model.config)
         let english = UIText.action(input: .english, config: model.config)
@@ -1042,9 +1013,10 @@ final class SettingsWindow {
             window.title = Self.title
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
-            // The whole form is about 1420 pt tall; on smaller screens it scrolls.
+            // The whole form is about 1620 pt tall (English, with a connection test result); on smaller
+            // screens it scrolls.
             let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 900
-            window.setContentSize(NSSize(width: 560, height: min(1430, visible - 60)))
+            window.setContentSize(NSSize(width: 560, height: min(1630, visible - 60)))
             window.center()
             self.window = window
         }

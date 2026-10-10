@@ -56,6 +56,8 @@ func runServer(showSettings: Bool = false) -> Never {
         exit(1)
     }
     log.info("IMKServer started: \(name, privacy: .public)")
+    // Older versions kept their sentence mode switch here (first as aiEnabled); nothing reads it now.
+    for key in ["sentenceMode", "aiEnabled"] { UserDefaults.standard.removeObject(forKey: key) }
     // Background @claude tasks: notifications, and tasks from before a restart watched again.
     MainActor.assumeIsolated { AgentMonitor.shared.setUp() }
     if showSettings {

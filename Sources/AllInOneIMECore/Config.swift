@@ -1,7 +1,8 @@
 import Foundation
 
 /// User-editable settings stored as JSON at `~/.config/allinoneime/config.json`.
-/// Every key is optional in the file; missing keys fall back to `Config.default`.
+/// Every key is optional in the file; missing keys fall back to `Config.default`. Keys of older
+/// versions that are gone are ignored, and not written back.
 public struct Config: Codable, Equatable, Sendable {
     /// Where requests go: Amazon Bedrock (the settings below), or an API-key provider with its own
     /// settings (`anthropic`, `gemini`, `openai`).
@@ -30,14 +31,12 @@ public struct Config: Codable, Equatable, Sendable {
     public var outputLanguage: Language
     /// Mode a new text field starts in: pinyin (Chinese) or English letters.
     public var defaultInput: Language
-    /// In sentence mode, English typed in English mode also collects into a draft that the action key
-    /// sends to the model (false: English letters go straight to the application).
-    public var englishAI: Bool
-    /// Hold the right Option key to dictate into the draft (on-device speech recognition).
+    /// Hold the right Option key to dictate (on-device speech recognition): the text is inserted, or
+    /// added to the @ command being written.
     public var voiceInput: Bool
     /// The user's own jargon list for the jargon (黑话) style (see `JargonLibrary`); nil = the default file.
     public var jargonFile: String?
-    /// The key that sends a finished sentence to the model.
+    /// The key that runs the @ command at the start of the draft.
     public var actionKey: ActionKey
     /// Language of the settings window; nil follows the system.
     public var uiLanguage: Language?
@@ -76,7 +75,7 @@ public struct Config: Codable, Equatable, Sendable {
         maxTokens: Int, temperature: Double?, timeoutSeconds: Double,
         rewriteStyles: [String] = RewriteStyle.defaultNames,
         outputLanguage: Language = .english, defaultInput: Language = .chinese,
-        englishAI: Bool = true, voiceInput: Bool = true, jargonFile: String? = nil,
+        voiceInput: Bool = true, jargonFile: String? = nil,
         actionKey: ActionKey = .enter, uiLanguage: Language? = nil, customCommands: [CustomCommand] = [],
         provider: Provider = .bedrock, anthropic: ProviderSettings = ProviderSettings(),
         gemini: ProviderSettings = ProviderSettings(), openai: ProviderSettings = ProviderSettings()
@@ -94,7 +93,6 @@ public struct Config: Codable, Equatable, Sendable {
         self.rewriteStyles = rewriteStyles
         self.outputLanguage = outputLanguage
         self.defaultInput = defaultInput
-        self.englishAI = englishAI
         self.voiceInput = voiceInput
         self.jargonFile = jargonFile
         self.actionKey = actionKey
@@ -116,7 +114,7 @@ public struct Config: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case awsProfile, region, modelId, maxTokens, temperature, timeoutSeconds, rewriteStyles
-        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage, customCommands, claudeInBackground
+        case outputLanguage, defaultInput, voiceInput, jargonFile, actionKey, uiLanguage, customCommands, claudeInBackground
         case provider, anthropic, gemini, openai
     }
 
@@ -135,7 +133,6 @@ public struct Config: Codable, Equatable, Sendable {
         rewriteStyles = try c.decodeIfPresent([String].self, forKey: .rewriteStyles) ?? d.rewriteStyles
         outputLanguage = try c.decodeIfPresent(Language.self, forKey: .outputLanguage) ?? d.outputLanguage
         defaultInput = try c.decodeIfPresent(Language.self, forKey: .defaultInput) ?? d.defaultInput
-        englishAI = try c.decodeIfPresent(Bool.self, forKey: .englishAI) ?? d.englishAI
         voiceInput = try c.decodeIfPresent(Bool.self, forKey: .voiceInput) ?? d.voiceInput
         jargonFile = try c.decodeIfPresent(String.self, forKey: .jargonFile)
         actionKey = try c.decodeIfPresent(ActionKey.self, forKey: .actionKey) ?? d.actionKey
@@ -159,7 +156,6 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(rewriteStyles, forKey: .rewriteStyles)
         try c.encode(outputLanguage, forKey: .outputLanguage)
         try c.encode(defaultInput, forKey: .defaultInput)
-        try c.encode(englishAI, forKey: .englishAI)
         try c.encode(voiceInput, forKey: .voiceInput)
         try c.encode(jargonFile, forKey: .jargonFile)  // null: the default file
         try c.encode(actionKey, forKey: .actionKey)

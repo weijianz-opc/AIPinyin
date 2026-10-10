@@ -107,10 +107,10 @@ struct ConfigTests {
     @Test func inputOutputAndVoiceSettings() throws {
         let missing = try decode("{}")
         #expect(missing.outputLanguage == .english && missing.defaultInput == .chinese)
-        #expect(missing.englishAI && missing.voiceInput)
-        let set = try decode(#"{"outputLanguage": "zh", "defaultInput": "en", "englishAI": false, "voiceInput": false}"#)
+        #expect(missing.voiceInput)
+        let set = try decode(#"{"outputLanguage": "zh", "defaultInput": "en", "voiceInput": false}"#)
         #expect(set.outputLanguage == .chinese && set.defaultInput == .english)
-        #expect(!set.englishAI && !set.voiceInput)
+        #expect(!set.voiceInput)
         #expect(throws: DecodingError.self) { try decode(#"{"outputLanguage": "fr"}"#) }
         #expect(Language.of("我check一下") == .chinese && Language.of("check it") == .english)
     }
@@ -145,7 +145,6 @@ struct ConfigTests {
         c.rewriteStyles = ["口语", "正式"]
         c.outputLanguage = .chinese
         c.defaultInput = .english
-        c.englishAI = false
         c.voiceInput = false
         c.actionKey = .optionSpace
         c.uiLanguage = .chinese
@@ -158,5 +157,24 @@ struct ConfigTests {
 
         try Data("{not json".utf8).write(to: url)
         #expect(throws: ConfigError.self) { try Config.load(from: url) }
+    }
+
+    /// A file from an older version still loads: a key that is gone (here the old switch for English
+    /// drafts; its name is split so a search for removed settings finds only the cleanup in main.swift)
+    /// is ignored, and saving doesn't write it back.
+    @Test func removedKeysInAnOldFileAreIgnored() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("allinoneime-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("config.json")
+        let removed = "english" + "AI"
+        try Data(#"{"awsProfile": "work", "\#(removed)": false, "voiceInput": false, "actionKey": "space"}"#.utf8).write(to: url)
+        var c = try Config.load(from: url)
+        #expect(c.awsProfile == "work" && !c.voiceInput && c.actionKey == .space)
+        c.outputLanguage = .chinese
+        try c.write(to: url)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(!text.contains(removed) && text.contains("\"outputLanguage\" : \"zh\""))
+        #expect(try Config.load(from: url) == c)
     }
 }

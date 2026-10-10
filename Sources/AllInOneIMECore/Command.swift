@@ -1,9 +1,9 @@
 import Foundation
 
 /// A command typed at the start of a draft, e.g. "@question 量子计算是什么". The action key then
-/// runs it on the rest of the draft. A draft without one is improved (translated or polished,
-/// with the rewrites), as `@improve` does. The built-in commands come first; the user's own
-/// (`Config.customCommands`) follow them (`catalog`).
+/// runs it on the rest of the draft. Without one, nothing is sent: the input method just types.
+/// The built-in commands come first; the user's own (`Config.customCommands`) follow them
+/// (`catalog`).
 public struct Command: Hashable, Sendable {
     public let name: String
     public let kind: Kind
