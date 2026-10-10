@@ -119,6 +119,29 @@ are picked; twice in English mode).
 Whatever the action key, @ commands also run on ⏎. If ⌥Space is already a shortcut for Alfred, Raycast or the like,
 they get it first.
 
+## Floating panel
+
+<img src="docs/en/dashboard.png" width="300" alt="The floating panel: notes, reminders, Claude tasks">
+
+A small window that stays on screen; click a row to open it:
+
+- Notes: the notes saved with `@note` while the panel is on, the newest 5; click one to open it in Notes.
+- Reminders: the reminders not done yet in the AllInOneIME list of Reminders (`@reminder` adds to that list), the soonest due first, 8 shown; click the circle to tick one off, or the title to open Reminders.
+- Claude Tasks: like `@tasks`, the background Claude tasks (what `@claude` hands off), the newest 6, with their progress and the first line of the last reply; click one to open it in Terminal and go on.
+
+It never takes the focus from the app you're typing in: ticking off a reminder, collapsing or refreshing leaves that app in front, so you can keep typing. It stays on every desktop (Space), over full-screen apps too.
+It starts at the top right of the screen; drag it by its background to move it, and it stays where you leave it. The header's buttons refresh it and collapse it (to just the header with the counts, like "2 reminders · 1 task running").
+
+It's off by default. Turn on "Floating panel: notes, reminders, Claude tasks" in the settings, or click the input method's icon in the menu bar and choose "Show Floating Panel".
+Closing it with ✕ turns that setting off too; to bring it back, use the input menu or the settings.
+
+What it reads, and when:
+
+- Notes: the list is the panel's own record, and no timer launches Notes: only when Notes is running already, and AllInOneIME was allowed to control it before, does the panel check it for edited titles and deleted notes.
+- Reminders: the AllInOneIME list is read when the panel opens, every 60 seconds and when reminders change. The panel never makes macOS ask for access by itself: if macOS hasn't asked you yet, it shows "Allow Access to Reminders", and only that button asks; if you said no, it shows "Open System Settings".
+- Claude tasks: the panel runs `claude agents` only while it's open: once when it opens, every 15 seconds while it's expanded, and right away on Refresh. The last replies are read from Claude Code's transcripts on this Mac (`~/.claude/projects`).
+- When it's off, none of this runs.
+
 ## Input and output
 
 Two choices in the settings:
@@ -264,6 +287,7 @@ All settings are stored in `~/.config/allinoneime/config.json`; after a change, 
 | `uiLanguage` | Interface language (settings window, candidate panel hints, menu): `"zh"`, `"en"` | `null` (follow the system) |
 | `rewriteStyles` | Rewrite styles, e.g. `["润色", "简洁", "黑话"]` (Polish, Concise, Jargon) | `["润色", "简洁", "正式"]` (Polish, Concise, Formal) |
 | `jargonFile` | Your own jargon list file | `null` (i.e. `~/.config/allinoneime/jargon.txt`) |
+| `floatingPanel` | The floating panel (switch it in the settings or the input menu) | `false` |
 
 ## Privacy
 

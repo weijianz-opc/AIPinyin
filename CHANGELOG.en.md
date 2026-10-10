@@ -6,6 +6,7 @@
 
 ### Added
 
+- The floating panel (off by default): a small window that stays on screen with the notes saved with `@note`, the reminders not done yet in the AllInOneIME list of Reminders (click the circle to tick one off) and the background Claude tasks; click a row to open it. It never takes the focus from the app you're typing in, stays on every desktop (Space), and can be moved and collapsed. Turn on "Floating panel: notes, reminders, Claude tasks" in the settings, or choose "Show Floating Panel" in the input menu; closing it with ✕ turns the setting off. No timer launches Notes; the panel asks for access to Reminders only from its "Allow Access to Reminders" button, and runs `claude agents` only while it's open.
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
 - A new plugin type, `link`: no code; the text after the command goes into a web address that opens in the default browser, and nothing is inserted. Commands inside the text (`@stock …`) run first and their output goes in; it doesn't run during secure input; 4000 characters at most.
 - Custom commands can open a web page too (`"type": "link"` with a `url` containing `{input}`), say `@google` to search.

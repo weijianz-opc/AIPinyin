@@ -5,5 +5,5 @@
 "NSMicrophoneUsageDescription" = "按住右 ⌥ 说话时录音。语音在这台 Mac 上识别成文字，不会上传。";
 "NSSpeechRecognitionUsageDescription" = "按住右 ⌥ 说话时把语音识别成文字（在这台 Mac 上完成）。";
 "NSAppleEventsUsageDescription" = "为 @claude 和你自己加的「在终端运行」命令打开终端窗口；用 @note 时把文字存进「备忘录」（AllInOneIME 文件夹）。";
-"NSRemindersUsageDescription" = "用 @reminder 时把提醒加进「提醒事项」（AllInOneIME 列表）。";
-"NSRemindersFullAccessUsageDescription" = "用 @reminder 时把提醒加进「提醒事项」（AllInOneIME 列表）。";
+"NSRemindersUsageDescription" = "用 @reminder 时把提醒加进「提醒事项」（AllInOneIME 列表）；悬浮面板列出这个列表里的提醒。";
+"NSRemindersFullAccessUsageDescription" = "用 @reminder 时把提醒加进「提醒事项」（AllInOneIME 列表）；悬浮面板列出这个列表里的提醒。";
