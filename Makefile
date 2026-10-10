@@ -77,8 +77,9 @@ app: build Resources/icon.tiff Resources/AppIcon.icns
 	cp -R $(RIME_DATA) "$(APP)/Contents/SharedSupport/rime"
 	# Hardened runtime: library validation then only loads code signed by the same team, and
 	# DYLD_* injection is ignored. Ad-hoc signing (no identity) can't use it. The entitlements
-	# allow, under the hardened runtime, microphone access (voice input), Apple events to Notes
-	# (@note) and Reminders (@reminder); the installer and `make dmg` ship this same build.
+	# allow, under the hardened runtime, microphone access (voice input), Apple events (Terminal for
+	# @claude, Notes for @note) and EventKit's Reminders (@reminder); the installer and `make dmg`
+	# ship this same build.
 	if security find-identity -v -p codesigning | grep -qF "$(SIGN_IDENTITY)"; then \
 		codesign --force --options runtime $(TIMESTAMP) --sign "$(SIGN_IDENTITY)" "$(APP)"/Contents/Frameworks/rime-plugins/*.dylib \
 			"$(APP)/Contents/Frameworks/librime.1.dylib" && \

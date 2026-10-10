@@ -32,34 +32,29 @@ enum RemindersBridge {
         case noAccount
         /// No such reminder (any more).
         case notFound
-        /// EventKit refused: its message.
-        case failed(String)
+        /// EventKit refused: its error code (its message is in the system's language: neither shown nor logged).
+        case failed(code: Int)
     }
 
-    /// Adds `draft` to the list, due then (a day without a time: all day), with an alarm at that time
-    /// when it has one. Returns the reminder's identifier.
+    /// Adds `draft` to the list, due then (a day without a time: all day), with an alarm at that moment
+    /// when it has a time (`ReminderDraft.schedule`). Returns the reminder's identifier; then
+    /// `.allInOneIMEReminderAdded` is posted on the main thread (for the floating panel).
     @discardableResult
     static func add(_ draft: ReminderDraft) async throws -> String {
-        try await withStore { store in
+        let id = try await withStore { store in
             let reminder = EKReminder(eventStore: store)
             reminder.title = draft.title
             reminder.calendar = try list(in: store, create: true)
-            if var due = draft.due {
-                // EventKit raises an exception for components without the Gregorian calendar. A day
-                // without a time is all day and floats (no time zone); a time keeps the zone it was
-                // written in, like its alarm.
-                due.calendar = Calendar(identifier: .gregorian)
-                if draft.hasTime {
-                    due.timeZone = .current
-                } else {
-                    (due.hour, due.minute, due.second, due.timeZone) = (nil, nil, nil, nil)
-                }
-                reminder.dueDateComponents = due
-                if draft.hasTime, let date = due.date { reminder.addAlarm(EKAlarm(absoluteDate: date)) }
-            }
+            let schedule = draft.schedule()
+            reminder.dueDateComponents = schedule.due
+            if let alarm = schedule.alarm { reminder.addAlarm(EKAlarm(absoluteDate: alarm)) }
             try refused { try store.save(reminder, commit: true) }
             return reminder.calendarItemIdentifier
         }
+        await MainActor.run {
+            NotificationCenter.default.post(name: .allInOneIMEReminderAdded, object: nil, userInfo: ["id": id])
+        }
+        return id
     }
 
     /// The `limit` reminders in the list that aren't done, the soonest due first and those without a
@@ -116,7 +111,7 @@ enum RemindersBridge {
     }
 
     /// Runs `work` with the store on its queue, once macOS allows it (asking the user the first time).
-    private static func withStore<T>(_ work: @escaping (EKEventStore) throws -> T) async throws -> T {
+    private static func withStore<T: Sendable>(_ work: @escaping @Sendable (EKEventStore) throws -> T) async throws -> T {
         try await requestAccess()
         return try await withCheckedThrowingContinuation { continuation in
             queue.async { continuation.resume(with: Result { try work(currentStore()) }) }
@@ -136,7 +131,7 @@ enum RemindersBridge {
                         queue.async {
                             if granted { store = nil }
                             if let error, !granted {
-                                continuation.resume(throwing: RemindersError.failed(error.localizedDescription))
+                                continuation.resume(throwing: RemindersError.failed(code: (error as NSError).code))
                             } else {
                                 continuation.resume(returning: granted)
                             }
@@ -168,31 +163,22 @@ enum RemindersBridge {
         return list
     }
 
-    /// What EventKit throws, as `failed` with its message.
+    /// What EventKit throws, as `failed` with its code.
     private static func refused(_ work: () throws -> Void) throws {
         do {
             try work()
         } catch let error as RemindersError {
             throw error
         } catch {
-            throw RemindersError.failed(error.localizedDescription)
+            throw RemindersError.failed(code: (error as NSError).code)
         }
     }
 
-    /// A fetched reminder, its due date in this Mac's time zone (one written elsewhere keeps its moment).
+    /// A fetched reminder, its due date in this Mac's time zone (one written elsewhere keeps its moment;
+    /// `ReminderDraft(stored:due:)`).
     private static func reminder(from item: EKReminder, now: Date) -> Reminder {
-        var due: DateComponents?
-        let hasTime = item.dueDateComponents?.hour != nil
-        if let components = item.dueDateComponents {
-            var calendar = components.calendar ?? Calendar(identifier: .gregorian)
-            calendar.timeZone = components.timeZone ?? .current
-            if let date = calendar.date(from: components) {
-                let fields: Set<Calendar.Component> = hasTime ? [.year, .month, .day, .hour, .minute] : [.year, .month, .day]
-                due = ReminderParser.localCalendar.dateComponents(fields, from: date)
-            }
-        }
-        let title = item.title ?? ""
-        let overdue = ReminderDraft(title: title, due: due, hasTime: hasTime).isPast(now: now)
-        return Reminder(id: item.calendarItemIdentifier, title: title, due: due, hasTime: hasTime, overdue: overdue)
+        let read = ReminderDraft(stored: item.title ?? "", due: item.dueDateComponents)
+        return Reminder(id: item.calendarItemIdentifier, title: read.title, due: read.due, hasTime: read.hasTime,
+                        overdue: read.isPast(now: now))
     }
 }

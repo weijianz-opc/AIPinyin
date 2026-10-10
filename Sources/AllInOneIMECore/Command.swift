@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A command typed at the start of a draft, e.g. "@question 量子计算是什么". The action key then
 /// runs it on the rest of the draft. Without one, nothing is sent: the input method just types.
@@ -83,11 +84,15 @@ public struct Command: Hashable, Sendable {
 
     /// The built-in commands, then the installed plugins, then the user's valid ones
     /// (`CustomCommand.isValid`) whose names are still free, in the order of the config. When names
-    /// clash, built-in > plugin > custom.
+    /// clash, built-in > plugin > custom; one hidden by a built-in is logged (`logHidden`).
     public static func catalog(_ custom: [CustomCommand], plugins: [InstalledPlugin] = []) -> [Command] {
-        var taken = Set(builtins.map(\.name))
+        let builtinNames = Set(builtins.map(\.name))
+        var taken = builtinNames
         let fromPlugins = plugins.compactMap { plugin -> Command? in
-            guard taken.insert(plugin.name).inserted else { return nil }
+            guard taken.insert(plugin.name).inserted else {
+                if builtinNames.contains(plugin.name) { logHidden("plugin", plugin.name) }
+                return nil
+            }
             switch plugin.manifest.type {
             case .script:
                 return Command(name: plugin.name, kind: .run, plugin: plugin)
@@ -100,7 +105,10 @@ public struct Command: Hashable, Sendable {
         }
         return builtins + fromPlugins + custom.compactMap { definition in
             let name = definition.name.lowercased()
-            guard definition.isValid, taken.insert(name).inserted else { return nil }
+            guard definition.isValid, taken.insert(name).inserted else {
+                if definition.isValid, builtinNames.contains(name) { logHidden("custom command", name) }
+                return nil
+            }
             let kind: Kind
             switch definition.type {
             case .prompt: kind = .generate
@@ -109,6 +117,17 @@ public struct Command: Hashable, Sendable {
             }
             return Command(name: name, kind: kind, custom: definition)
         }
+    }
+
+    private static let catalogLog = Logger(subsystem: "com.aipinyin.inputmethod.AIPinyin", category: "commands")
+    private static let loggedHidden = OSAllocatedUnfairLock(initialState: Set<String>())
+
+    /// A plugin or custom command a built-in one hides (say a custom "@note" from before @note was built in):
+    /// logged once per process, with no UI. The catalog is made on most keystrokes, hence once. The name is
+    /// the built-in's, so it may be logged.
+    private static func logHidden(_ kind: String, _ name: String) {
+        guard loggedHidden.withLock({ $0.insert(kind + " " + name).inserted }) else { return }
+        catalogLog.notice("\(kind, privacy: .public) @\(name, privacy: .public) is hidden: a built-in command has that name")
     }
 
     /// The draft's command and the text after it: "@question 量子计算" → (.question, "量子计算").
@@ -315,13 +334,18 @@ public struct SearchResult: Equatable, Sendable {
     public var detail: String?
     /// Found by what is in it, not by its name: its row says so (「内容」).
     public var matchedContent: Bool
+    /// The name a Chinese interface shows instead of `name`, when known (an app's 计算器). Picked when the
+    /// row is drawn: the interface language may change while the results are up.
+    public var chineseName: String?
 
-    public init(name: String, path: String, isFolder: Bool = false, detail: String? = nil, matchedContent: Bool = false) {
+    public init(name: String, path: String, isFolder: Bool = false, detail: String? = nil, matchedContent: Bool = false,
+                chineseName: String? = nil) {
         self.name = name
         self.path = path
         self.isFolder = isFolder
         self.detail = detail
         self.matchedContent = matchedContent
+        self.chineseName = chineseName
     }
 
     /// A background task in the list (`@tasks`): its "path" names the session to open.

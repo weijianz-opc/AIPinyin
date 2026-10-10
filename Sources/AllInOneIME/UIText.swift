@@ -139,8 +139,9 @@ enum UIText {
         }
     }
 
-    /// When a reminder is due, as its row and the notice say it: 「明天 15:00」, 「10月15日 周四」, 「没有时间」
-    /// ("tomorrow 15:00", "Thu, Oct 15", "no date"), with 「已过」 / "past" once that time is over.
+    /// When a reminder is due, as its row and the notice say it: 「明天 15:00」 (or 「明天 下午3:00」, following the
+    /// Mac's 12/24-hour setting), 「10月15日 周四」, 「未设时间」 ("tomorrow 3:00 PM", "Thu, Oct 15", "no date"),
+    /// with 「已过」 / "overdue" once that time is over.
     static func when(_ reminder: ReminderDraft, now: Date = Date()) -> String {
         reminder.when(now: now, chinese: chinese)
     }
@@ -171,8 +172,9 @@ enum UIText {
             case .notPermitted:
                 return tr("没有权限控制「备忘录」：在 系统设置 → 隐私与安全性 → 自动化 里允许 AllInOneIME",
                           "Not allowed to control Notes: allow AllInOneIME in System Settings → Privacy & Security → Automation")
-            case let .failed(number, message):
-                return tr("没有存到备忘录：", "Not saved to Notes: ") + (message.isEmpty ? tr("错误 \(number)", "error \(number)") : message)
+            case let .failed(number):
+                // Our words and AppleScript's number, never its message (in the system's language).
+                return tr("没有存到备忘录（错误 \(number)）", "Not saved to Notes (error \(number))")
             }
         }
         if let error = error as? RemindersBridge.RemindersError {
@@ -183,7 +185,8 @@ enum UIText {
             case .noAccount:
                 return tr("没有能放提醒事项的账户：先打开「提醒事项」App 看看", "No account for reminders: open the Reminders app to set one up")
             case .notFound: return tr("这条提醒事项已经不在了", "That reminder is gone")
-            case let .failed(message): return tr("提醒事项出错：", "Reminders: ") + message
+            // Our words and EventKit's code, never its message (in the system's language).
+            case let .failed(code): return tr("提醒事项出错（错误 \(code)）", "Reminders failed (error \(code))")
             }
         }
         if let error = error as? CommandRunner.RunError {

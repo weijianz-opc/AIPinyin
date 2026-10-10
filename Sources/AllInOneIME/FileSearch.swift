@@ -2,22 +2,24 @@ import AllInOneIMECore
 import Foundation
 
 /// `@open`: files, folders and apps. A path ("~/Doc", "/Applications/") lists what is in that
-/// folder; anything else is looked for with Spotlight: names first (`mdfind -name`, every keyword
-/// somewhere in the path), then, when those are few, what is in the files of the home folder.
+/// folder; anything else is looked for by name: in the app index (`AppIndex`: every name an app goes
+/// by, 计算器 too) and with Spotlight (`mdfind -name`, every keyword somewhere in the path); then, when
+/// that finds hardly anything and no app, in what the files of the home folder contain.
 /// Runs on this Mac only.
 enum FileSearch {
     /// All the Spotlight searches for one query end by then (seconds).
     static let timeLimit = 3.0
 
-    /// The best `limit` matches for `query`, off the main thread. Cancelling the task stops the
-    /// search and the mdfind processes it started.
-    static func run(_ query: String, limit: Int = 8) async -> [SearchResult] {
+    /// The best `limit` matches for `query`, off the main thread; what `@open` opened (`history`) first.
+    /// Cancelling the task stops the search and the mdfind processes it started; it then returns nothing.
+    static func run(_ query: String, history: OpenHistory, limit: Int = 8) async -> [SearchResult] {
         let spotlight = Spotlight(until: .now() + timeLimit)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     let isPath = query.hasPrefix("/") || query.hasPrefix("~")
-                    continuation.resume(returning: isPath ? complete(query, limit: limit) : search(query, limit: limit, with: spotlight))
+                    let results = isPath ? complete(query, limit: limit) : search(query, limit: limit, history: history, with: spotlight)
+                    continuation.resume(returning: spotlight.isCancelled ? [] : results)
                 }
             }
         } onCancel: {
@@ -38,131 +40,82 @@ enum FileSearch {
         return Array(results.prefix(limit))
     }
 
-    /// Spotlight by name (one search per keyword, all at once), then by content in the home folder,
-    /// each file with when it was last used; picked and ordered by `FileSearchRanking.search`.
-    static func search(_ query: String, limit: Int, with spotlight: Spotlight) -> [SearchResult] {
-        let lastUsed = ["-attr", "kMDItemLastUsedDate"]
+    /// The app index and Spotlight by name (one search per keyword, all at once), then Spotlight by
+    /// content in the home folder, each file with when it was last used and changed; picked and ordered by
+    /// `FileSearchRanking.search`. Nothing once cancelled: what was printed until then isn't even read.
+    static func search(_ query: String, limit: Int, history: OpenHistory, with spotlight: Spotlight) -> [SearchResult] {
+        let index = AppIndex.shared.apps()
+        let keywords = FileSearchRanking.keywords(in: query)
+        let apps = index.map { app in
+            let found = FileSearchRanking.Found(path: app.path, names: app.names)
+            return FileSearchRanking.matches(app.path, names: app.names, keywords: keywords) ? dated(found) : found
+        }
         let found = FileSearchRanking.search(
-            query, limit: limit, history: OpenHistoryStore.history, isCandidate: isCandidate,
+            query, limit: limit, history: history, apps: apps, isCandidate: isCandidate,
             byName: { keywords in
-                spotlight.mdfind(each: keywords.map { lastUsed + ["-name", $0] }).flatMap(FileSearchRanking.parseLastUsed)
+                let outputs = spotlight.mdfind(each: keywords.map { FileSearchRanking.attributes + ["-name", $0] }) ?? []
+                return outputs.flatMap(FileSearchRanking.parse)
             },
-            byContent: { text in
-                guard spotlight.hasTimeLeft else { return [] }
-                return FileSearchRanking.parseLastUsed(spotlight.mdfind(["-onlyin", home] + lastUsed + [text]))
+            byContent: { predicate in
+                guard spotlight.hasTimeLeft,
+                      let output = spotlight.mdfind(["-onlyin", home] + FileSearchRanking.attributes + [predicate]) else { return [] }
+                return FileSearchRanking.parse(output)
             })
-        return found.map { result(for: $0.path, matchedContent: $0.matchedContent) }
+        guard !spotlight.isCancelled else { return [] }
+        let byPath = Dictionary(index.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        return found.map { result(for: $0.path, matchedContent: $0.matchedContent, app: byPath[$0.path]) }
     }
 
-    static func result(for path: String, matchedContent: Bool = false) -> SearchResult {
+    /// `app` with when it was last used and changed, as Spotlight keeps them. Its name search knows an app
+    /// by its file name and its name in the system language only: an app matched by another of its names
+    /// (计算器 on an English system) gets no dates from there.
+    static func dated(_ app: FileSearchRanking.Found) -> FileSearchRanking.Found {
+        guard let item = NSMetadataItem(url: URL(fileURLWithPath: app.path)) else { return app }
+        var app = app
+        app.lastUsed = item.value(forAttribute: "kMDItemLastUsedDate") as? Date
+        app.modified = item.value(forAttribute: "kMDItemContentModificationDate") as? Date
+        return app
+    }
+
+    /// An app of the index is shown under its names from there (`SearchResult.chineseName` in a Chinese
+    /// interface), anything else as Finder names it.
+    static func result(for path: String, matchedContent: Bool = false, app: AppIndex.App? = nil) -> SearchResult {
         var isDirectory: ObjCBool = false
         FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-        return SearchResult(name: FileManager.default.displayName(atPath: path), path: path,
-                            isFolder: isDirectory.boolValue && !path.hasSuffix(".app"), matchedContent: matchedContent)
+        return SearchResult(name: app?.english ?? FileManager.default.displayName(atPath: path), path: path,
+                            isFolder: isDirectory.boolValue && !path.hasSuffix(".app"), matchedContent: matchedContent,
+                            chineseName: app?.chinese)
     }
 
     /// Where users keep things they open by name; everything else (system and library folders,
     /// hidden folders, the inside of bundles, build output) is skipped.
     static func isCandidate(_ path: String) -> Bool {
-        // Cheapest first: a one-letter name finds some 70,000 files.
-        guard path.hasPrefix(home + "/") || path.hasPrefix("/Applications/") || path.hasPrefix("/System/Applications/")
+        // Cheapest first: a one-letter name finds some 66,000 files.
+        guard path.hasPrefix(homePrefix) || path.hasPrefix("/Applications/") || path.hasPrefix("/System/Applications/")
             || path.hasPrefix("/Volumes/") else { return false }
-        let skipped = ["/.", ".app/", "/Library/", "/node_modules/", "/DerivedData/", "/.build/"]
         return !skipped.contains { path.range(of: $0, options: .literal) != nil }
     }
 
+    private static let skipped = ["/Library/", "/.", ".app/", "/node_modules/", "/DerivedData/", "/.build/"]
     private static let home = FileManager.default.homeDirectoryForCurrentUser.path
+    private static let homePrefix = home + "/"
 }
 
-/// The mdfind processes of one `@open` search: each is stopped at the search's time limit, and all
-/// of them as soon as the search is cancelled (none starts after that).
-final class Spotlight: @unchecked Sendable {
-    let deadline: DispatchTime
-    private let lock = NSLock()
-    private var running: [Process] = []
-    private var cancelled = false
-
-    init(until deadline: DispatchTime) {
-        self.deadline = deadline
-    }
-
-    /// Whether a search started now still has time, and is still wanted.
-    var hasTimeLeft: Bool { DispatchTime.now() < deadline && !lock.withLock { cancelled } }
-
-    /// What `mdfind arguments` printed by the time limit (its notes on stderr are dropped); nothing
-    /// once cancelled.
-    func mdfind(_ arguments: [String]) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-        process.arguments = arguments
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        // Started under the lock: `cancel` either finds it running or keeps it from starting.
-        let started = lock.withLock { () -> Bool in
-            guard !cancelled, (try? process.run()) != nil else { return false }
-            running.append(process)
-            return true
-        }
-        guard started else { return "" }
-        let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: deadline, execute: stop)
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        stop.cancel()
-        lock.withLock { running.removeAll { $0 === process } }
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    /// What each search printed, all of them run at once.
-    func mdfind(each searches: [[String]]) -> [String] {
-        var outputs = [String](repeating: "", count: searches.count)
-        outputs.withUnsafeMutableBufferPointer { outputs in
-            // Each index is written by one iteration only.
-            DispatchQueue.concurrentPerform(iterations: searches.count) { outputs[$0] = mdfind(searches[$0]) }
-        }
-        return outputs
-    }
-
-    /// Stops what is running, and keeps what would come next from starting.
-    func cancel() {
-        lock.withLock {
-            cancelled = true
-            for process in running where process.isRunning { process.terminate() }
-        }
-    }
-}
-
-/// What `@open` opened (`OpenHistory`), kept in the input method's defaults under "openHistory".
+/// What `@open` opened (`OpenHistory`), kept in the input method's defaults under "openHistory". Main
+/// thread only: the controller reads it for each search and records what is opened (the self-test
+/// supplies a history of its own instead, `loadOpenHistory` / `recordOpen`).
 enum OpenHistoryStore {
-    private static let key = "openHistory"
-    private static let lock = NSLock()
-    /// The self-test's own history, in memory: the user's is then neither read nor changed.
-    private static var scratch: OpenHistory?
+    static let key = "openHistory"
 
-    static var history: OpenHistory { lock.withLock { scratch ?? stored } }
-
-    /// `path` was opened through `@open` just now.
-    static func record(_ path: String) {
-        lock.withLock {
-            var history = scratch ?? stored
-            history.record(path)
-            if scratch != nil {
-                scratch = history
-            } else if let data = try? JSONEncoder().encode(history) {
-                UserDefaults.standard.set(data, forKey: key)
-            }
-        }
-    }
-
-    /// For the self-test: a history of its own from now on, empty at first.
-    static func useScratch() {
-        lock.withLock { scratch = OpenHistory() }
-    }
-
-    private static var stored: OpenHistory {
+    static var history: OpenHistory = {
         guard let data = UserDefaults.standard.data(forKey: key),
               let history = try? JSONDecoder().decode(OpenHistory.self, from: data) else { return OpenHistory() }
         return history
+    }()
+
+    /// `path` was opened through `@open` just now.
+    static func record(_ path: String) {
+        history.record(path)
+        if let data = try? JSONEncoder().encode(history) { UserDefaults.standard.set(data, forKey: key) }
     }
 }

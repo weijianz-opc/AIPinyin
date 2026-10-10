@@ -75,8 +75,9 @@ public final class Composer {
         case saveNote(text: String)
         /// Read the reminder in `input` (`@reminder`), by the real clock; it arrives via `receiveReminder`.
         case previewReminder(input: String, id: Int)
-        /// Add a confirmed reminder to Apple Reminders.
-        case addReminder(ReminderDraft)
+        /// Add a confirmed reminder to Apple Reminders; `input` is the text it was read from (back in the
+        /// draft if it can't be added).
+        case addReminder(ReminderDraft, input: String)
         /// Run a custom `run` command's program on `input`; what it prints arrives via `receive`.
         case startRun(Command, input: String, id: Int)
         /// A command was run (`commandUsage` has it): keep the usage for the order of the command list.
@@ -176,6 +177,8 @@ public final class Composer {
         public var nothingToPaste: String
         /// `@reminder` with only a time ("@reminder 明天下午3点"): nothing to be reminded of.
         public var reminderWithoutTitle: String
+        /// ⌘V in an `@note` draft with more on the clipboard than `Composer.maxNoteLength`.
+        public var noteTooLong: String
 
         public static let chinese = Messages(
             notReady: "词库准备中，稍候可用", holdToTalk: "按住右 ⌥ 说话", didNotHear: "没听清，再说一次",
@@ -188,7 +191,8 @@ public final class Composer {
             secureInputCommand: "系统安全输入已开启（密码框或锁屏），没有运行命令",
             pasteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxPasteLength) 字",
             nothingToPaste: "剪贴板里没有能用的文字",
-            reminderWithoutTitle: "写上要提醒的事，比如「明天下午3点给张三打电话」")
+            reminderWithoutTitle: "写上要提醒的事，比如「明天下午3点给张三打电话」",
+            noteTooLong: "剪贴板里的文字太长：最多 \(Composer.maxNoteLength) 字")
         public static let english = Messages(
             notReady: "Loading the dictionaries, one moment", holdToTalk: "Hold right ⌥ to talk",
             didNotHear: "Didn't catch that, try again", chineseMode: "Chinese", englishMode: "English",
@@ -201,7 +205,8 @@ public final class Composer {
             secureInputCommand: "Secure input is on (a password field or the lock screen): the command was not run",
             pasteTooLong: "The clipboard text is too long: \(Composer.maxPasteLength) characters at most",
             nothingToPaste: "No text on the clipboard to use",
-            reminderWithoutTitle: "Write what to be reminded of, e.g. “call Bob tomorrow at 3pm”")
+            reminderWithoutTitle: "Write what to be reminded of, e.g. “call Bob tomorrow at 3pm”",
+            noteTooLong: "The clipboard text is too long: \(Composer.maxNoteLength) characters at most")
     }
     /// The command of the request in level two (nil otherwise).
     public private(set) var activeCommand: Command?
@@ -338,7 +343,8 @@ public final class Composer {
         var i = 0
         while i < chars.count {
             guard chars[i] == "@" else {
-                out.append(chars[i])
+                // A note keeps its lines (`pasted`); the draft is shown on one line.
+                if chars[i].isNewline { out += Self.lineBreak } else { out.append(chars[i]) }
                 i += 1
                 continue
             }
@@ -735,7 +741,8 @@ public final class Composer {
     }
 
     /// The reminder read from the `@reminder` text (`.previewReminder`): one row to confirm (Space, ⏎ or 1
-    /// adds it, Esc goes back to fix the wording), or a hint when the text holds only a time.
+    /// adds it, Esc or another digit goes back to the wording), or a hint when the text holds only a time
+    /// (⏎, Space and Esc then go back to it).
     public func receiveReminder(_ reminder: ReminderDraft, id: Int) -> [Effect] {
         guard phase == .translating(id: id) else { return [] }
         if reminder.title.isEmpty {
@@ -745,6 +752,16 @@ public final class Composer {
             phase = .choosing
         }
         return [.showPanel]
+    }
+
+    /// A note or reminder that couldn't be saved (no permission, no account, a script error): its text comes
+    /// back as the draft it was ("@note …", "@reminder …"), to fix and send again, if nothing is being typed
+    /// here. Nil otherwise: the controller then puts the text on the clipboard instead.
+    public func restoreDraft(_ command: Command, text: String) -> [Effect]? {
+        guard phase == .idle, draft.isEmpty, voice == .off, !(engine?.snapshot().isComposing ?? false) else { return nil }
+        draft = "@\(command.name) " + text
+        setLevelOnePhase()
+        return [.updateMarkedText, .showPanel]
     }
 
     // MARK: - Voice feedback
@@ -930,14 +947,33 @@ public final class Composer {
         guard pendingPaste == id else { return [] }
         pendingPaste = nil
         guard !isLevelTwo, voice == .off, !draft.isEmpty else { return [] }
+        // A note keeps its lines and may be longer; every other command takes one line (its answer has one per row).
+        let note = draftCommand?.kind == .note
+        let limit = note ? Self.maxNoteLength : Self.maxPasteLength
+        let tooLong = note ? messages.noteTooLong : messages.pasteTooLong
         // Far too much is refused before it is looked at (this runs on the main thread).
-        if let clipboard, clipboard.utf16.count > Self.maxPasteLength * 8 { return [.notice(messages.pasteTooLong)] }
-        let text = clipboard.map(Self.oneLine) ?? ""
+        if let clipboard, clipboard.utf16.count > limit * 8 { return [.notice(tooLong)] }
+        let text = clipboard.map(note ? Self.noteText : Self.oneLine) ?? ""
         guard !text.isEmpty else { return [.notice(pasteForEmptyCommand ? messages.typeAfterCommand : messages.nothingToPaste)] }
-        guard text.count <= Self.maxPasteLength else { return [.notice(messages.pasteTooLong)] }
+        guard text.count <= limit else { return [.notice(tooLong)] }
         draft += text
         setLevelOnePhase()
         return [.updateMarkedText, .showPanel]
+    }
+
+    /// The most text a note takes from the clipboard, in Characters (it keeps its lines).
+    public static let maxNoteLength = 20_000
+
+    /// How a line break of a note shows in the one-line draft.
+    static let lineBreak = " ↵ "
+
+    /// Clipboard text for a note: as it is, its lines too, without the blank space at its ends and without
+    /// control characters other than tabs and line breaks (they would only garble the draft and the note).
+    static func noteText(_ text: String) -> String {
+        let kept = String(String.UnicodeScalarView(text.unicodeScalars.filter { scalar in
+            scalar.properties.generalCategory != .control || scalar == "\t" || scalar == "\n" || scalar == "\r" || scalar == "\u{85}"
+        }))
+        return kept.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Clipboard text as one line for the draft (the improve answer has one line per version): line
@@ -1225,8 +1261,11 @@ public final class Composer {
         case VirtualKey.returnKey, VirtualKey.keypadEnter:
             // Like Space: the highlighted row (row 0 is the sentence as typed). After a failure
             // nothing is highlighted, and Return keeps the sentence as typed (as the Return action
-            // key it retries instead, before reaching here).
-            if case .failed = phase { return .consumed(finish(committing: sentText)) }
+            // key it retries instead, before reaching here). A reminder with nothing to be reminded of
+            // goes back to its text instead: typed into the app, it would only be the time.
+            if case .failed = phase {
+                return .consumed(activeCommand?.kind == .reminder ? backToDraft() : finish(committing: sentText))
+            }
             return .consumed(commitChoice(at: highlighted))
         case VirtualKey.escape, VirtualKey.delete:
             return .consumed(backToDraft())
@@ -1243,8 +1282,9 @@ public final class Composer {
         }
         guard let text = event.printableText else { return .consumed() }
         if text.count == 1, let c = text.first, c.isASCII, c.isNumber {
-            guard let index = choices.firstIndex(where: { $0.label == text }) else { return .consumed() }
-            return .consumed(commitChoice(at: index))
+            if let index = choices.firstIndex(where: { $0.label == text }) { return .consumed(commitChoice(at: index)) }
+            // A reminder has one row: another digit belongs to its text ("…下午" + 3), typed below.
+            guard activeCommand?.kind == .reminder else { return .consumed() }
         }
         // Typing more: back to the draft and continue the sentence with this key.
         let back = backToDraft()
@@ -1414,9 +1454,10 @@ public final class Composer {
     }
 
     /// Space (or the action key) in level two: inserts the highlighted line once it is complete;
-    /// after a failure, asks again.
+    /// after a failure, asks again (a reminder with nothing to be reminded of would fail again: back to
+    /// its text, like Esc).
     private func acceptInLevelTwo() -> [Effect] {
-        if case .failed = phase { return startAction().effects }
+        if case .failed = phase { return activeCommand?.kind == .reminder ? backToDraft() : startAction().effects }
         return commitChoice(at: highlighted)
     }
 
@@ -1436,7 +1477,10 @@ public final class Composer {
         let all = choices
         guard all.indices.contains(index), all[index].isComplete, !all[index].text.isEmpty else { return [] }
         if case let .file(path) = all[index].kind { return finish(committing: "") + [.open(path: path)] }
-        if case let .reminder(reminder) = all[index].kind { return finish(committing: "") + [.addReminder(reminder)] }
+        if case let .reminder(reminder) = all[index].kind {
+            let input = sentText  // before the draft is cleared: it comes back if the reminder can't be added
+            return finish(committing: "") + [.addReminder(reminder, input: input)]
+        }
         return finish(committing: all[index].text)
     }
 

@@ -1,3 +1,4 @@
+import AllInOneIMECore
 import Carbon
 import Foundation
 
@@ -25,28 +26,28 @@ enum NotesBridge {
     enum NotesError: Error, Equatable {
         /// Not allowed to control Notes (System Settings → Privacy & Security → Automation).
         case notPermitted
-        /// The script failed: AppleScript's error number and message.
-        case failed(number: Int, message: String)
+        /// The script failed: AppleScript's error number (its message is in the system's language, and may
+        /// quote the note: it is neither shown nor logged).
+        case failed(number: Int)
     }
 
-    /// Saves `text` as a new note (its first line is the note's title); returns the note's identifier.
+    /// Saves `text` as a new note (its first line is the note's title, its lines stay lines); returns the
+    /// note's identifier. Then `.allInOneIMENoteSaved` is posted on the main thread (for the floating panel).
     @discardableResult
     static func save(_ text: String) async throws -> String {
-        try await run(saveScript, [folderName, html(text)]) { $0.stringValue ?? "" }
+        let id = try await run(saveScript, [folderName, html(text)]) { $0.stringValue ?? "" }
+        let title = NotesFormat.title(of: text)
+        await MainActor.run {
+            NotificationCenter.default.post(name: .allInOneIMENoteSaved, object: nil, userInfo: ["id": id, "title": title])
+        }
+        return id
     }
 
     /// The `limit` notes in the folder changed last, newest first (none while there is no folder).
     static func recent(limit: Int = 10) async throws -> [Note] {
-        let notes = try await run(recentScript, [folderName]) { result -> [Note] in
-            let columns = items(result)
-            guard columns.count == 3 else { return [] }
-            let (ids, names, dates) = (items(columns[0]), items(columns[1]), items(columns[2]))
-            return ids.indices.compactMap { i in
-                guard let id = ids[i].stringValue, i < names.count, i < dates.count else { return nil }
-                return Note(id: id, title: names[i].stringValue ?? "", modified: dates[i].dateValue ?? .distantPast)
-            }
+        try await run(recentScript, [folderName]) { result in
+            NotesFormat.entries(from: result, limit: limit).map { Note(id: $0.id, title: $0.title, modified: $0.modified) }
         }
-        return Array(notes.sorted { $0.modified > $1.modified }.prefix(max(limit, 0)))
     }
 
     /// Opens the note in Notes, in front.
@@ -54,14 +55,8 @@ enum NotesBridge {
         try await run(showScript, [id]) { _ in () }
     }
 
-    /// A note's body is HTML: the text escaped, a line per line (an empty one keeps its height).
-    static func html(_ text: String) -> String {
-        text.components(separatedBy: .newlines).map { line in
-            let escaped = line.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
-                .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
-            return "<div>" + (escaped.isEmpty ? "<br>" : escaped) + "</div>"
-        }.joined()
-    }
+    /// A note's body (`NotesFormat.html`): a line per line, the text escaped, runs of spaces kept.
+    static func html(_ text: String) -> String { NotesFormat.html(text) }
 
     // MARK: - Scripts
 
@@ -112,8 +107,8 @@ enum NotesBridge {
 
     /// Runs `source`'s run handler with `arguments` on the scripts' queue; `read` turns the result into
     /// what the caller gets, still on that queue (Apple event descriptors stay there).
-    static func run<T>(_ source: String, _ arguments: [String],
-                       read: @escaping (NSAppleEventDescriptor) throws -> T) async throws -> T {
+    static func run<T: Sendable>(_ source: String, _ arguments: [String],
+                                 read: @escaping @Sendable (NSAppleEventDescriptor) throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { continuation.resume(with: Result { try read(execute(source, arguments)) }) }
         }
@@ -122,7 +117,7 @@ enum NotesBridge {
     /// Runs the script's run handler the way osascript does: an "open application" event whose direct
     /// object is the list of arguments.
     private static func execute(_ source: String, _ arguments: [String]) throws -> NSAppleEventDescriptor {
-        guard let script = NSAppleScript(source: source) else { throw NotesError.failed(number: 0, message: "") }
+        guard let script = NSAppleScript(source: source) else { throw NotesError.failed(number: 0) }
         let argv = NSAppleEventDescriptor.list()
         for (index, argument) in arguments.enumerated() {
             argv.insert(NSAppleEventDescriptor(string: argument), at: index + 1)
@@ -139,14 +134,8 @@ enum NotesBridge {
             if number == Int(errAEEventNotPermitted) || number == Int(errAEEventWouldRequireUserConsent) {
                 throw NotesError.notPermitted
             }
-            throw NotesError.failed(number: number, message: error[NSAppleScript.errorMessage] as? String ?? "")
+            throw NotesError.failed(number: number)
         }
         return result
-    }
-
-    /// The items of an AppleScript list (none for anything else).
-    private static func items(_ list: NSAppleEventDescriptor) -> [NSAppleEventDescriptor] {
-        guard list.descriptorType == typeAEList else { return [] }
-        return (0..<list.numberOfItems).compactMap { list.atIndex($0 + 1) }
     }
 }

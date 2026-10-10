@@ -107,12 +107,17 @@ final class AllInOneIMEInputController: IMKInputController {
     var clientOverride: IMKTextInput?
     /// The settings the controller follows (the self-test supplies its own).
     var loadSettings: () -> Config = { LiveConfig.current }
-    /// `@open`: finds files and apps, and opens the one picked (the self-test opens nothing).
-    var searchFiles: (String) async -> [SearchResult] = { await FileSearch.run($0) }
+    /// `@open`: finds files and apps, what it opened before first (`loadOpenHistory`), and opens the one
+    /// picked, which `recordOpen` keeps. The self-test opens nothing and keeps its history in memory.
+    var searchFiles: @MainActor (_ query: String, _ history: OpenHistory) async -> [SearchResult] = {
+        await FileSearch.run($0, history: $1)
+    }
     /// Opens an `@open` result: a web address in the default browser, anything else as a file.
     var openItem: (String) -> Void = {
         NSWorkspace.shared.open(SearchResult(name: "", path: $0).webURL ?? URL(fileURLWithPath: $0))
     }
+    var loadOpenHistory: () -> OpenHistory = { OpenHistoryStore.history }
+    var recordOpen: (String) -> Void = { OpenHistoryStore.record($0) }
     /// `@claude`: starts Claude Code in Terminal (the self-test starts nothing).
     var runInTerminal: (String) throws -> Void = { try TerminalLauncher.claude($0) }
     /// A custom `terminal` command: runs its arguments in Terminal (the self-test starts nothing).
@@ -123,6 +128,13 @@ final class AllInOneIMEInputController: IMKInputController {
     /// adds a confirmed one to Apple Reminders (the self-test adds nothing).
     var parseReminder: (String) -> ReminderDraft = { ReminderParser().parse($0, now: Date()) }
     var addReminder: @MainActor (ReminderDraft) async throws -> Void = { _ = try await RemindersBridge.add($0) }
+    /// Counts this controller's activations and deactivations: a save to Notes or Reminders that comes back to
+    /// another count is no longer in the text field it came from (a failed one's text then goes to the
+    /// clipboard instead of back into the draft).
+    private(set) var fieldSession = 0
+    /// The controller of the text field being typed in, if any: where the outcome of a save is told once the
+    /// field it came from is gone.
+    private(set) static weak var activeController: AllInOneIMEInputController?
     /// Whether a command's program is on this Mac (the self-test supplies its own). Called off the main thread.
     var programInstalled: @Sendable (String) -> Bool = { program in
         if program == "claude", TerminalLauncher.claudePath != nil { return true }
@@ -202,6 +214,8 @@ final class AllInOneIMEInputController: IMKInputController {
         super.activateServer(sender)
         MainActor.assumeIsolated {
             markedWatch.reset()  // another text field, maybe another app
+            fieldSession += 1
+            Self.activeController = self
             ensureEngine()
             applySettings()
             // Terminals paste on ⌘V whatever the input method does: there ⌘V stays theirs.
@@ -215,7 +229,11 @@ final class AllInOneIMEInputController: IMKInputController {
     }
 
     override func deactivateServer(_ sender: Any!) {
-        MainActor.assumeIsolated { perform(composer.commitAll(), client: sender as? IMKTextInput) }
+        MainActor.assumeIsolated {
+            perform(composer.commitAll(), client: sender as? IMKTextInput)
+            fieldSession += 1
+            if Self.activeController === self { Self.activeController = nil }
+        }
         super.deactivateServer(sender)
     }
 
@@ -232,6 +250,8 @@ final class AllInOneIMEInputController: IMKInputController {
             hidePanelIfOwned()
             composer.engine = nil
             session = nil
+            fieldSession += 1  // a save still on its way tells its outcome elsewhere
+            if Self.activeController === self { Self.activeController = nil }
         }
         super.inputControllerWillClose()
     }
@@ -415,7 +435,7 @@ final class AllInOneIMEInputController: IMKInputController {
                 conversionTask?.cancel()
                 conversionTask = Task { @MainActor [weak self] in
                     guard let self else { return }
-                    let results = await self.searchFiles(query)
+                    let results = await self.searchFiles(query, self.loadOpenHistory())
                     guard !Task.isCancelled else { return }
                     log.notice("search \(id): \(results.count) results")
                     self.perform(self.composer.receiveSearch(results, id: id), client: nil)
@@ -427,7 +447,7 @@ final class AllInOneIMEInputController: IMKInputController {
                 }
                 log.notice("opening an @open result")
                 openItem(path)
-                OpenHistoryStore.record(path)  // listed first by the next searches
+                recordOpen(path)  // listed first by the next searches
             case let .startBackgroundAgent(prompt):
                 Task { @MainActor [weak self] in
                     do {
@@ -484,8 +504,8 @@ final class AllInOneIMEInputController: IMKInputController {
                 // Read here by the real clock (NSDataDetector and the parser's own rules), quick enough for
                 // a keystroke. Nothing leaves the Mac, so secure input doesn't hold it back either.
                 perform(composer.receiveReminder(parseReminder(input), id: id), client: target)
-            case let .addReminder(reminder):
-                addToReminders(reminder)
+            case let .addReminder(reminder, input):
+                addToReminders(reminder, input: input)
             case let .copy(text):
                 copyText(text)
             case let .readClipboard(id):
@@ -525,18 +545,19 @@ final class AllInOneIMEInputController: IMKInputController {
         scheduleLiveSearch()
     }
 
-    /// `@open` as you type: a short pause after the text changes, then a search for it.
+    /// `@open` as you type: a short pause after the text changes, then a search for it. Not for a single
+    /// letter (`FileSearchRanking.searchesAsYouType`): that takes seconds; ⏎ searches it.
     @MainActor
     private func scheduleLiveSearch() {
         let query = composer.liveQuery
         guard query != liveSearchQuery else { return }
         liveSearchQuery = query
         liveSearchTask?.cancel()
-        guard let query else { return }
+        guard let query, FileSearchRanking.searchesAsYouType(query) else { return }
         liveSearchTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000)
             guard let self, !Task.isCancelled else { return }
-            let results = await self.searchFiles(query)
+            let results = await self.searchFiles(query, self.loadOpenHistory())
             guard !Task.isCancelled else { return }
             self.perform(self.composer.receiveLive(results, for: query), client: nil)
         }
@@ -545,42 +566,122 @@ final class AllInOneIMEInputController: IMKInputController {
     // MARK: - Notes and Reminders
 
     /// `@note`: the text goes to Notes in the background (the first time, macOS asks whether this may
-    /// control Notes, and the save waits for the answer); a notice says when it is saved, or why not.
-    /// It is saved even if this text field goes away meanwhile. Only its length is logged.
+    /// control Notes, and the save waits for the answer). 「正在存到备忘录…」 at once, then a notice says it is
+    /// saved, or why not; a text that couldn't be saved is never lost (`SaveOutcome`). Only its length is logged.
     @MainActor
     private func saveToNotes(_ text: String) {
         log.notice("@note: saving \(text.count) chars")
-        let save = saveNote
-        Task { @MainActor [weak self] in
+        showNotice(tr("正在存到备忘录…", "Saving to Notes…"), client: nil)
+        let (save, outcome) = (saveNote, SaveOutcome(from: self))
+        Task { @MainActor in
             do {
                 try await save(text)
                 log.notice("@note: saved")
-                self?.showNotice(tr("已存到备忘录", "Saved to Notes"), client: nil)
+                outcome.saved(tr("已存到备忘录", "Saved to Notes"))
             } catch {
                 log.error("@note: not saved: \(Self.errorKind(error), privacy: .public)")
-                self?.showNotice(UIText.describe(error), client: nil)
+                outcome.failed(error, command: .note, text: text)
             }
         }
     }
 
     /// A confirmed `@reminder`: added to Reminders in the background (the first time, macOS asks for
-    /// access, and this waits for the answer); the notice says when it is due: 「已加到提醒事项：明天 15:00」.
+    /// access, and this waits for the answer). 「正在加到提醒事项…」 at once, then the notice says when it is
+    /// due (「已加到提醒事项：明天 15:00」), or why it wasn't added: then `input`, the text it was read from,
+    /// comes back (`SaveOutcome`).
     @MainActor
-    private func addToReminders(_ reminder: ReminderDraft) {
+    private func addToReminders(_ reminder: ReminderDraft, input: String) {
         let kind = reminder.due == nil ? "no date" : reminder.hasTime ? "a time" : "a day"
         log.notice("@reminder: adding one with \(kind, privacy: .public)")
-        let add = addReminder
-        Task { @MainActor [weak self] in
+        showNotice(tr("正在加到提醒事项…", "Adding to Reminders…"), client: nil)
+        let (add, outcome) = (addReminder, SaveOutcome(from: self))
+        Task { @MainActor in
             do {
                 try await add(reminder)
                 log.notice("@reminder: added")
                 let when = reminder.due == nil ? "" : tr("：", ": ") + UIText.when(reminder)
-                self?.showNotice(tr("已加到提醒事项", "Added to Reminders") + when, client: nil)
+                outcome.saved(tr("已加到提醒事项", "Added to Reminders") + when)
             } catch {
                 log.error("@reminder: not added: \(Self.errorKind(error), privacy: .public)")
-                self?.showNotice(UIText.describe(error), client: nil)
+                outcome.failed(error, command: .reminder, text: input)
             }
         }
+    }
+
+    /// How a save to Notes or Reminders went, told where the user is when it comes back, even if the text field
+    /// it came from (and its controller) is gone by then; made when the save starts, without keeping the
+    /// controller alive. A failed save loses nothing: its text is back in the draft when that field is still
+    /// there with nothing being typed, else on the clipboard.
+    @MainActor
+    struct SaveOutcome {
+        private weak var origin: AllInOneIMEInputController?
+        private let session: Int
+        private let copy: (String) -> Void
+
+        init(from controller: AllInOneIMEInputController) {
+            origin = controller
+            session = controller.fieldSession
+            copy = controller.copyText
+        }
+
+        /// The field the save came from, while it is still the same one.
+        private var field: AllInOneIMEInputController? { origin.flatMap { $0.fieldSession == session ? $0 : nil } }
+
+        func saved(_ notice: String) { tell(notice, long: false) }
+
+        func failed(_ error: Error, command: Command, text: String) {
+            let reason = UIText.describe(error)
+            let long = AllInOneIMEInputController.needsTheUser(error)
+            if let field, let effects = field.composer.restoreDraft(command, text: text) {
+                field.perform(effects, client: nil)
+                field.showNotice(reason, client: nil, long: long)
+                return
+            }
+            copy(text)
+            tell(tr("没有存上，原文已复制到剪贴板。", "Not saved; the text is on the clipboard. ") + reason, long: true)
+        }
+
+        /// In the field it came from, else the one being typed in now, else near the pointer.
+        private func tell(_ notice: String, long: Bool) {
+            if let target = field ?? AllInOneIMEInputController.activeController {
+                target.showNotice(notice, client: nil, long: long)
+            } else {
+                AllInOneIMEInputController.showLooseNotice(notice, long: long)
+            }
+        }
+    }
+
+    /// Errors only the user can fix (a permission, an account): their notice stays up longer.
+    static func needsTheUser(_ error: Error) -> Bool {
+        switch error {
+        case NotesBridge.NotesError.notPermitted, RemindersBridge.RemindersError.notPermitted,
+             RemindersBridge.RemindersError.noAccount:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Owns the candidate panel while it shows a notice no text field is there for.
+    private static let looseNoticeOwner = NSObject()
+
+    /// A notice with no text field to show it at: on its own, near the pointer.
+    @MainActor
+    static func showLooseNotice(_ text: String, long: Bool) {
+        let panel = CandidatePanel.shared
+        panel.owner = looseNoticeOwner
+        panel.onSelect = nil
+        var model = CandidateView.Model()
+        model.status = .hint(text)
+        panel.show(model, anchor: .zero)  // an empty anchor: at the mouse pointer
+        DispatchQueue.main.asyncAfter(deadline: .now() + noticeDuration(text, long: long)) {
+            if panel.owner === looseNoticeOwner { panel.hide() }
+        }
+    }
+
+    /// How long a notice stays up: by its length, and longer for what the user has to act on.
+    static func noticeDuration(_ text: String, long: Bool) -> TimeInterval {
+        long ? 12 : min(5, 1.2 + Double(text.count) * 0.06)
     }
 
     // MARK: - Voice
@@ -806,11 +907,11 @@ final class AllInOneIMEInputController: IMKInputController {
         case ProviderError.signedOut: return "hosted signed out"
         case ProviderError.quotaExhausted: return "hosted quota exhausted"
         case NotesBridge.NotesError.notPermitted: return "notes not permitted"
-        case let NotesBridge.NotesError.failed(number, _): return "notes error \(number)"
+        case let NotesBridge.NotesError.failed(number): return "notes error \(number)"
         case RemindersBridge.RemindersError.notPermitted: return "reminders not permitted"
         case RemindersBridge.RemindersError.noAccount: return "reminders no account"
         case RemindersBridge.RemindersError.notFound: return "reminder not found"
-        case RemindersBridge.RemindersError.failed: return "reminders refused"
+        case let RemindersBridge.RemindersError.failed(code): return "reminders error \(code)"
         case let urlError as URLError: return "url \(urlError.code.rawValue)"
         default: return String(describing: type(of: error))
         }
@@ -865,13 +966,14 @@ final class AllInOneIMEInputController: IMKInputController {
     }
 
     /// Short status message ("英" English mode, "已复制" copied, …): its own small
-    /// panel when nothing else is shown, otherwise the right side of the footer.
+    /// panel when nothing else is shown, otherwise the right side of the footer. `long`: something the
+    /// user has to act on (a permission), up longer.
     @MainActor
-    private func showNotice(_ text: String, client: IMKTextInput?) {
+    private func showNotice(_ text: String, client: IMKTextInput?, long: Bool = false) {
         let client = client ?? clientOverride ?? self.client()
         notice = text
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(noticeExpired), object: nil)
-        perform(#selector(noticeExpired), with: nil, afterDelay: min(5, 1.2 + Double(text.count) * 0.06))
+        perform(#selector(noticeExpired), with: nil, afterDelay: Self.noticeDuration(text, long: long))
         if composer.wantsPanel {
             showPanel(client)
         } else if let client {
@@ -922,6 +1024,17 @@ final class AllInOneIMEInputController: IMKInputController {
         text.count > limit ? String(text.prefix(limit)) + "…" : text
     }
 
+    /// An `@open` result's row, as you type and after ⏎: its name in the interface language (计算器 in a
+    /// Chinese one), and where it is: 「应用」, or its folder (a folder's ends in "/"), after 「内容 · 」 when it
+    /// was found by what is in it.
+    static func openRow(_ result: SearchResult) -> (text: String, comment: String) {
+        let folder = ((result.path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
+        let place = result.path.hasSuffix(".app") ? tr("应用", "app")
+            : result.isFolder && !folder.hasSuffix("/") ? folder + "/" : folder
+        return (UIText.chinese ? result.chineseName ?? result.name : result.name,
+                result.matchedContent ? tr("内容", "content") + " · " + place : place)
+    }
+
     @MainActor
     func panelModel() -> CandidateView.Model {
         var model = CandidateView.Model()
@@ -965,12 +1078,8 @@ final class AllInOneIMEInputController: IMKInputController {
                     return CandidateView.Row(label: choice.label, text: choice.text,
                                              comment: tr("在浏览器中打开", "open in the browser"), style: .candidate)
                 case let .file(path):
-                    let folder = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
-                    let place = path.hasSuffix(".app") ? tr("应用", "app") : folder
-                    // Found by what is in it, not by its name: 「内容 · ~/Documents」.
-                    let content = composer.searchResults.contains { $0.path == path && $0.matchedContent }
-                    return CandidateView.Row(label: choice.label, text: choice.text,
-                                             comment: content ? tr("内容", "content") + " · " + place : place, style: .candidate)
+                    let row = Self.openRow(composer.searchResults.first { $0.path == path } ?? SearchResult(name: choice.text, path: path))
+                    return CandidateView.Row(label: choice.label, text: row.text, comment: row.comment, style: .candidate)
                 case let .reminder(reminder):
                     // To confirm: what to be reminded of, and when as read from the text (「明天 15:00」).
                     return CandidateView.Row(label: choice.label, text: Self.preview(choice.text),
@@ -989,7 +1098,6 @@ final class AllInOneIMEInputController: IMKInputController {
                     : polishing ? tr("AI 润色中…", "Polishing…") : tr("AI 翻译中…", "Translating…")
                 model.status = choices.count <= 1 ? .loading(loading) : .none
                 model.footer = command == .open ? tr("搜索中… · Esc 返回", "Searching… · Esc back")
-                    : command == .reminder ? tr("Esc 返回修改", "Esc back to edit")
                     : tr("生成中… · 0 原文 · Esc 返回", "Generating… · 0 original · Esc back")
             case .choosing where command == .tasks:
                 model.footer = tr("⏎ 在终端打开 · 数字选择 · ⌘C 复制回复 · Esc 返回",
@@ -998,7 +1106,7 @@ final class AllInOneIMEInputController: IMKInputController {
                 model.footer = command == .open
                     ? tr("空格 / ⏎ 打开 · 数字选择 · ⌘C 复制路径 · Esc 返回", "Space / ⏎ open · digits pick · ⌘C copy path · Esc back")
                     : command == .reminder
-                    ? tr("⏎ 加到提醒事项 · Esc 返回修改 · ⌘C 复制", "⏎ add to Reminders · Esc back to edit · ⌘C copy")
+                    ? tr("⏎ / 空格 加到提醒事项 · Esc 返回修改 · ⌘C 复制", "⏎ / Space add to Reminders · Esc back to edit · ⌘C copy")
                     : tr("空格 / ⏎ 上屏 · 数字选择 · 0 原文 · ⌘C 复制 · Esc 返回",
                          "Space / ⏎ insert · digits pick · 0 original · ⌘C copy · Esc back")
                 if command != .open && command != .reminder {
@@ -1066,10 +1174,8 @@ final class AllInOneIMEInputController: IMKInputController {
         } else if !composer.currentLiveResults.isEmpty {
             // "@open …" as you type: what matches now.
             model.rows = composer.currentLiveResults.map { result in
-                let folder = ((result.path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
-                let place = result.path.hasSuffix(".app") ? tr("应用", "app") : result.isFolder ? folder + "/" : folder
-                let comment = result.matchedContent ? tr("内容", "content") + " · " + place : place  // found by what is in it
-                return CandidateView.Row(label: result.isFolder ? "›" : "", text: result.name, comment: comment, style: .candidate)
+                let row = Self.openRow(result)
+                return CandidateView.Row(label: result.isFolder ? "›" : "", text: row.text, comment: row.comment, style: .candidate)
             }
             model.highlighted = composer.liveHighlight
             model.footer = tr("⏎ 打开 · Tab 补全路径 · ↑↓ 选择 · ⌘C 复制路径 · Esc 取消",
