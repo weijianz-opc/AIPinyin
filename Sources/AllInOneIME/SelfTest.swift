@@ -747,7 +747,7 @@ enum SelfTest {
         check(controller.composer.phase == .drafting && client.marked == "imessage › 张三 › 你好", "Esc goes back to editing")
         _ = enter(controller, client)
         _ = enter(controller, client)
-        _ = pump(timeout: 3) { !sender.sent.isEmpty && controller.panelModel().detail != nil }
+        _ = pump(timeout: 3) { !sender.sent.isEmpty && !recent.isEmpty && controller.panelModel().detail != nil }
         check(sender.sent.map(\.text) == ["你好"] && sender.sent.first?.to.handle == "+1 555 0100", "⏎ again sends it (stand-in)")
         check(client.inserted == insertedBefore && client.marked.isEmpty && !controller.composer.isComposing,
               "nothing is inserted, the draft is gone")
@@ -1294,7 +1294,12 @@ enum SelfTest {
         let menuTitles = menu?.items.map(\.title) ?? []
         check(menuTitles.contains { $0.hasPrefix("模型：") } && menuTitles.contains { $0.hasPrefix("整句模式") },
               "menu shows the sentence-mode switch and the model")
-        let styleItems = menu?.items.filter { $0.action == #selector(AllInOneIMEInputController.toggleStyle(_:)) } ?? []
+        // The styles sit in a submenu, whose title names the ones that are on.
+        let stylesItem = menu?.items.first { $0.title.hasPrefix("改写风格：") }
+        let styleItems = stylesItem?.submenu?.items.filter { $0.action == #selector(AllInOneIMEInputController.toggleStyle(_:)) } ?? []
+        check(menu?.items.contains { $0.action == #selector(AllInOneIMEInputController.toggleStyle(_:)) } == false
+              && stylesItem.map { item in RewriteStyle.resolve((try? Config.load())?.rewriteStyles ?? []).allSatisfy { item.title.contains($0.name) } } == true,
+              "rewrite styles in a submenu titled with the ones on (\(stylesItem?.title ?? "none"))")
         let configured = Set(RewriteStyle.resolve((try? Config.load())?.rewriteStyles ?? []).map(\.name))
         check(styleItems.compactMap { $0.representedObject as? String } == RewriteStyle.catalog.map(\.name)
               && styleItems.allSatisfy { ($0.state == .on) == configured.contains($0.representedObject as? String ?? "") },

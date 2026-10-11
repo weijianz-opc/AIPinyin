@@ -1171,11 +1171,14 @@ final class AllInOneIMEInputController: IMKInputController {
             menu.addItem(item)
         }
 
-        menu.addItem(.separator())
-        let header = NSMenuItem(title: tr("改写风格", "Rewrite Styles"), action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        let enabled = Set(RewriteStyle.resolve(config?.rewriteStyles ?? Config.default.rewriteStyles).map(\.name))
+        // The styles in a submenu: six rows with summaries made the menu too long. Its title says which
+        // are on, so the menu still shows the state without opening it.
+        let enabledStyles = RewriteStyle.resolve(config?.rewriteStyles ?? Config.default.rewriteStyles)
+        let enabled = Set(enabledStyles.map(\.name))
+        let on = enabledStyles.map(UIText.name).joined(separator: tr("、", ", "))
+        let stylesItem = NSMenuItem(title: tr("改写风格", "Rewrite Styles") + tr("：", ": ") + (on.isEmpty ? tr("无", "none") : on),
+                                    action: nil, keyEquivalent: "")
+        let styles = NSMenu()
         for style in RewriteStyle.catalog {
             let item = NSMenuItem(title: UIText.name(style) + tr("　", "  ") + UIText.summary(style),
                                   action: #selector(toggleStyle(_:)), keyEquivalent: "")
@@ -1183,8 +1186,10 @@ final class AllInOneIMEInputController: IMKInputController {
             item.representedObject = style.name
             item.state = enabled.contains(style.name) ? .on : .off
             item.isEnabled = config != nil  // don't overwrite a config file that failed to parse
-            menu.addItem(item)
+            styles.addItem(item)
         }
+        stylesItem.submenu = styles
+        menu.addItem(stylesItem)
         menu.addItem(.separator())
         let rimeDir = NSMenuItem(title: tr("打开 Rime 用户目录", "Open Rime User Folder"), action: #selector(openRimeDirectory(_:)),
                                  keyEquivalent: "")
