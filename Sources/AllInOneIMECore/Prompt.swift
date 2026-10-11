@@ -12,7 +12,14 @@ public enum Prompt {
         let english: [String]
         let chinese: [String]
 
-        func versions(in language: Language) -> [String] { language == .english ? english : chinese }
+        /// Its versions in `language`; nil for the languages the examples weren't written in.
+        func versions(in language: OutputLanguage) -> [String]? {
+            switch language {
+            case .english: return english
+            case .chinese: return chinese
+            default: return nil
+            }
+        }
     }
 
     static let examples: [Example] = [
@@ -78,7 +85,7 @@ public enum Prompt {
             ]),
     ]
 
-    public static func system(styles: [RewriteStyle], output: Language = .english,
+    public static func system(styles: [RewriteStyle], output: OutputLanguage = .english,
                               jargon: [JargonEntry] = []) -> String {
         let tag = output.tag, name = output.promptName
         var format = [
@@ -130,8 +137,8 @@ public enum Prompt {
     }
 
     /// The model's answer for few-shot input `index`, with lines for `output` and `styles`.
-    static func exampleAnswer(_ index: Int, styles: [RewriteStyle], output: Language = .english) -> String {
-        let versions = examples[index].versions(in: output).map { "\(output.tag): \($0)" }
+    static func exampleAnswer(_ index: Int, styles: [RewriteStyle], output: OutputLanguage = .english) -> String {
+        let versions = (examples[index].versions(in: output) ?? []).map { "\(output.tag): \($0)" }
         let rewrites = styles.map { "\($0.tag): \($0.exampleRewrites[index])" }
         return (versions + rewrites).joined(separator: "\n")
     }
@@ -139,7 +146,9 @@ public enum Prompt {
     public static func request(for input: String, config: Config, jargon: [JargonEntry] = []) -> ConverseRequest {
         let styles = RewriteStyle.resolve(config.rewriteStyles)
         var messages: [ConverseRequest.Message] = []
-        for index in examples.indices {
+        // The examples are written in English and Chinese: other output languages go without them (the
+        // format and the rules are in the system prompt) rather than with answers in the wrong language.
+        for index in examples.indices where examples[index].versions(in: config.outputLanguage) != nil {
             messages.append(.init(role: "user", text: examples[index].input))
             messages.append(.init(role: "assistant",
                                   text: exampleAnswer(index, styles: styles, output: config.outputLanguage)))

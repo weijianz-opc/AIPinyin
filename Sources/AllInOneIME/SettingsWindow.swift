@@ -546,16 +546,52 @@ struct SettingsView: View {
             }
 
             Section(tr("输入和输出", "Input and Output")) {
-                Picker(tr("默认输入", "Default input"), selection: $model.config.defaultInput) {
-                    Text(tr("中文（拼音）", "Chinese (pinyin)")).tag(Language.chinese)
-                    Text(UIText.name(Language.english)).tag(Language.english)
+                // Input: the languages on (one at least); with both, Shift switches and one is the default.
+                LabeledContent(tr("输入语言", "Input languages")) {
+                    HStack(spacing: 16) {
+                        ForEach(Language.allCases, id: \.self) { language in
+                            Toggle(AllInOneIMEInputController.inputName(language), isOn: inputLanguageBinding(language))
+                                .disabled(model.config.inputLanguages == [language])
+                        }
+                    }
                 }
-                .pickerStyle(.segmented)
+                if model.config.inputLanguages.count > 1 {
+                    Picker(tr("默认输入", "Default input"), selection: $model.config.defaultInput) {
+                        ForEach(model.config.inputLanguages, id: \.self) { language in
+                            Text(AllInOneIMEInputController.inputName(language)).tag(language)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                // Output: the languages the user added; the chosen one is what lines 1–3 are written in.
                 Picker(tr("输出（1–3 行）", "Output (lines 1–3)"), selection: $model.config.outputLanguage) {
-                    Text(UIText.name(Language.english)).tag(Language.english)
-                    Text(UIText.name(Language.chinese)).tag(Language.chinese)
+                    ForEach(model.config.outputLanguages) { language in
+                        Text(UIText.name(language)).tag(language)
+                    }
                 }
-                .pickerStyle(.segmented)
+                LabeledContent(tr("已添加的输出语言", "Output languages added")) {
+                    HStack(spacing: 6) {
+                        ForEach(model.config.outputLanguages) { language in
+                            HStack(spacing: 2) {
+                                Text(UIText.name(language))
+                                if model.config.outputLanguages.count > 1 {
+                                    Button { removeOutputLanguage(language) } label: { Image(systemName: "xmark.circle.fill") }
+                                        .buttonStyle(.borderless)
+                                        .help(tr("移除\(UIText.name(language))", "Remove \(UIText.name(language))"))
+                                        .accessibilityLabel(tr("移除\(UIText.name(language))", "Remove \(UIText.name(language))"))
+                                }
+                            }
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12), in: Capsule())
+                        }
+                        Menu(tr("添加…", "Add…")) {
+                            ForEach(OutputLanguage.catalog.filter { !model.config.outputLanguages.contains($0) }) { language in
+                                Button(UIText.name(language)) { addOutputLanguage(language) }
+                            }
+                        }
+                        .fixedSize()
+                    }
+                }
                 Toggle(tr("整句模式下英文也进草稿（打完\(UIText.howToPress(model.config.actionKey, english: true))）",
                           "Sentence mode: English too (\(UIText.howToPress(model.config.actionKey, english: true)) when done)"),
                        isOn: $model.config.englishAI)
@@ -790,6 +826,8 @@ struct SettingsView: View {
         .onChange(of: model.config.timeoutSeconds) { model.save() }
         .onChange(of: model.config.defaultInput) { model.save() }
         .onChange(of: model.config.outputLanguage) { model.save() }
+        .onChange(of: model.config.outputLanguages) { model.save() }
+        .onChange(of: model.config.inputLanguages) { model.save() }
         .onChange(of: model.config.englishAI) { model.save() }
         .onChange(of: model.config.voiceInput) { model.save() }
         .onChange(of: model.config.actionKey) { model.save() }
@@ -834,8 +872,32 @@ struct SettingsView: View {
     private var inputSummary: String {
         let chinese = UIText.action(input: .chinese, config: model.config)
         let english = UIText.action(input: .english, config: model.config)
-        return tr("@improve：打中文 → \(chinese)；打英文 → \(english)。单按 Shift 切换中英文。",
-                  "@improve: Chinese → \(chinese); English → \(english). Tap Shift to switch between Chinese and English.")
+        let shift = model.config.inputLanguages.count > 1
+            ? tr("单按 Shift 切换中英文。", "Tap Shift to switch between Chinese and English.")
+            : tr("只开了一种输入语言，Shift 不切换。", "With one input language on, Shift doesn't switch.")
+        return tr("@improve：打中文 → \(chinese)；打英文 → \(english)。", "@improve: Chinese → \(chinese); English → \(english). ")
+            + shift
+    }
+
+    /// An input language on or off; the last one on stays on.
+    private func inputLanguageBinding(_ language: Language) -> Binding<Bool> {
+        Binding(
+            get: { model.config.inputLanguages.contains(language) },
+            set: { _ in
+                model.config.inputLanguages = AllInOneIMEInputController.toggled(language, in: model.config.inputLanguages)
+                model.config.normalizeLanguages()
+            })
+    }
+
+    private func addOutputLanguage(_ language: OutputLanguage) {
+        model.config.outputLanguages.append(language)
+    }
+
+    /// Removes an added output language (one always stays); the chosen one moves to the first left.
+    private func removeOutputLanguage(_ language: OutputLanguage) {
+        guard model.config.outputLanguages.count > 1 else { return }
+        model.config.outputLanguages.removeAll { $0 == language }
+        if model.config.outputLanguage == language { model.config.outputLanguage = model.config.outputLanguages[0] }
     }
 
     /// How the chosen action key works, and what Space does with it.

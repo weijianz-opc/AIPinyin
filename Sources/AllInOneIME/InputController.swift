@@ -294,7 +294,10 @@ final class AllInOneIMEInputController: IMKInputController {
         // The interface language (config `uiLanguage`, else the system's) for the panel, notices and menu.
         UIText.choice = config.uiLanguage
         composer.messages = UIText.chinese ? .chinese : .english
-        if appliedDefaultInput != config.defaultInput, composer.engine != nil, !composer.isComposing {
+        composer.inputLanguages = config.inputLanguages
+        // With one input language, a field is always in it (it may have been switched before it was the only one).
+        let onlyOne = config.inputLanguages.count == 1
+        if appliedDefaultInput != config.defaultInput || onlyOne, composer.engine != nil, !composer.isComposing {
             composer.setInputMode(config.defaultInput)
             appliedDefaultInput = config.defaultInput
         }
@@ -935,7 +938,8 @@ final class AllInOneIMEInputController: IMKInputController {
     /// when rewrite styles are on.
     static func actionText(input: Language, config: Config) -> String {
         let output = config.outputLanguage
-        let action = input == output ? "\(output.displayName)润色" : "翻译成\(output.displayName)"
+        let name = output.name(chinese: true)
+        let action = input.matches(output) ? "\(name)润色" : "翻译成\(name)"
         return action + (RewriteStyle.resolve(config.rewriteStyles).isEmpty ? "" : " / 改写")
     }
 
@@ -1018,7 +1022,7 @@ final class AllInOneIMEInputController: IMKInputController {
             let command = composer.activeCommand
             switch composer.phase {
             case .translating:
-                let polishing = Language.of(composer.sentText) == config.outputLanguage
+                let polishing = Language.of(composer.sentText).matches(config.outputLanguage)
                 let loading = command?.kind == .generate ? tr("AI 回答中…", "Answering…")
                     : command?.kind == .run ? tr("运行中…", "Running…")
                     : command?.kind == .link ? tr("运行句中的命令，然后在浏览器打开…", "Running the commands inside, then opening the browser…")
@@ -1158,18 +1162,46 @@ final class AllInOneIMEInputController: IMKInputController {
         menu.addItem(info)
 
         menu.addItem(.separator())
-        let outputHeader = NSMenuItem(title: tr("输出（1–3 行）", "Output (lines 1–3)"), action: nil, keyEquivalent: "")
-        outputHeader.isEnabled = false
-        menu.addItem(outputHeader)
-        for language in [Language.english, .chinese] {
-            let item = NSMenuItem(title: tr("翻译 / 润色成\(language.displayName)", "Translate / Polish into \(UIText.name(language))"),
+        // Output and input languages in submenus like the styles: each lists only the languages the user
+        // added (a new user has one), with "Add Languages…" opening the settings.
+        let current = config ?? .default
+        let outputItem = NSMenuItem(title: tr("输出：", "Output: ") + UIText.name(current.outputLanguage), action: nil, keyEquivalent: "")
+        let outputs = NSMenu()
+        for language in current.outputLanguages {
+            let item = NSMenuItem(title: tr("翻译 / 润色成\(UIText.name(language))", "Translate / Polish into \(UIText.name(language))"),
                                   action: #selector(setOutputLanguage(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = language.rawValue
-            item.state = (config?.outputLanguage ?? Config.default.outputLanguage) == language ? .on : .off
+            item.representedObject = language.code
+            item.state = current.outputLanguage == language ? .on : .off
             item.isEnabled = config != nil  // don't overwrite a config file that failed to parse
-            menu.addItem(item)
+            outputs.addItem(item)
         }
+        outputs.addItem(.separator())
+        let addOutput = NSMenuItem(title: tr("添加语言…", "Add Languages…"), action: #selector(showPreferences(_:)), keyEquivalent: "")
+        addOutput.target = self
+        outputs.addItem(addOutput)
+        outputItem.submenu = outputs
+        menu.addItem(outputItem)
+
+        let inputItem = NSMenuItem(title: tr("输入：", "Input: ") + current.inputLanguages.map(Self.inputName).joined(separator: " + "),
+                                   action: nil, keyEquivalent: "")
+        let inputs = NSMenu()
+        for language in Language.allCases {
+            let item = NSMenuItem(title: Self.inputName(language), action: #selector(toggleInputLanguage(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = language.rawValue
+            item.state = current.inputLanguages.contains(language) ? .on : .off
+            // The last one on can't be turned off.
+            item.isEnabled = config != nil && !(current.inputLanguages == [language])
+            inputs.addItem(item)
+        }
+        let shiftNote = NSMenuItem(title: current.inputLanguages.count > 1 ? tr("Shift 切换中英", "Shift switches between them")
+                                   : tr("只有一种时 Shift 不切换", "With one, Shift doesn't switch"), action: nil, keyEquivalent: "")
+        shiftNote.isEnabled = false
+        inputs.addItem(.separator())
+        inputs.addItem(shiftNote)
+        inputItem.submenu = inputs
+        menu.addItem(inputItem)
 
         // The styles in a submenu: six rows with summaries made the menu too long. Its title says which
         // are on, so the menu still shows the state without opening it.
@@ -1243,20 +1275,52 @@ final class AllInOneIMEInputController: IMKInputController {
 
     @objc func setOutputLanguage(_ sender: Any?) {
         MainActor.assumeIsolated {
-            guard let raw = Self.menuItem(from: sender)?.representedObject as? String,
-                  let language = Language(rawValue: raw) else {
+            guard let raw = Self.menuItem(from: sender)?.representedObject as? String else {
                 log.error("output menu action without a language")
                 return
             }
             do {
                 var config = try Config.load()
-                config.outputLanguage = language
+                config.outputLanguage = OutputLanguage(raw)
+                config.normalizeLanguages()
                 try config.write()
                 log.notice("output language now \(raw, privacy: .public)")
             } catch {
                 log.error("could not update the output language: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// An input language as the menu and the settings name it: "中文（拼音）", "英文".
+    static func inputName(_ language: Language) -> String {
+        language == .chinese ? tr("中文（拼音）", "Chinese (pinyin)") : UIText.name(language)
+    }
+
+    /// Turns an input language on or off (one always stays on); a new text field then starts in one
+    /// that is on, and Shift switches only between two.
+    @objc func toggleInputLanguage(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            guard let raw = Self.menuItem(from: sender)?.representedObject as? String, let language = Language(rawValue: raw) else {
+                log.error("input menu action without a language")
+                return
+            }
+            do {
+                var config = try Config.load()
+                config.inputLanguages = Self.toggled(language, in: config.inputLanguages)
+                config.normalizeLanguages()
+                try config.write()
+                log.notice("input languages now \(config.inputLanguages.map(\.rawValue).joined(separator: ","), privacy: .public)")
+                applySettings()
+            } catch {
+                log.error("could not update the input languages: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// `languages` with `language` turned on or off; the last one stays on.
+    static func toggled(_ language: Language, in languages: [Language]) -> [Language] {
+        if languages.contains(language) { return languages == [language] ? languages : languages.filter { $0 != language } }
+        return Language.allCases.filter { languages.contains($0) || $0 == language }
     }
 
     @objc func openConfig(_ sender: Any?) {

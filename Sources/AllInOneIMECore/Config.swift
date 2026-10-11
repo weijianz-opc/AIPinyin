@@ -26,9 +26,14 @@ public struct Config: Codable, Equatable, Sendable {
     /// Rewrites are in the language the sentence was typed in.
     public var rewriteStyles: [String]
     /// Language of the three main versions (1–3): a sentence in another language is translated,
-    /// one already in this language is polished.
-    public var outputLanguage: Language
-    /// Mode a new text field starts in: pinyin (Chinese) or English letters.
+    /// one already in this language is polished. Always one of `outputLanguages`.
+    public var outputLanguage: OutputLanguage
+    /// The output languages the user added (the menu and the settings offer these); a new user has one.
+    public var outputLanguages: [OutputLanguage]
+    /// The input languages on: pinyin (Chinese), English letters, or both (Shift switches). A new
+    /// user has one; with one, Shift doesn't switch.
+    public var inputLanguages: [Language]
+    /// Mode a new text field starts in: pinyin (Chinese) or English letters. Always one of `inputLanguages`.
     public var defaultInput: Language
     /// In sentence mode, English typed in English mode also collects into a draft that the action key
     /// sends to the model (false: English letters go straight to the application).
@@ -75,7 +80,8 @@ public struct Config: Codable, Equatable, Sendable {
         awsProfile: String, region: String?, modelId: String,
         maxTokens: Int, temperature: Double?, timeoutSeconds: Double,
         rewriteStyles: [String] = RewriteStyle.defaultNames,
-        outputLanguage: Language = .english, defaultInput: Language = .chinese,
+        outputLanguage: OutputLanguage = .english, outputLanguages: [OutputLanguage]? = nil,
+        inputLanguages: [Language] = [.chinese], defaultInput: Language = .chinese,
         englishAI: Bool = true, voiceInput: Bool = true, jargonFile: String? = nil,
         actionKey: ActionKey = .enter, uiLanguage: Language? = nil, customCommands: [CustomCommand] = [],
         provider: Provider = .bedrock, anthropic: ProviderSettings = ProviderSettings(),
@@ -93,6 +99,8 @@ public struct Config: Codable, Equatable, Sendable {
         self.timeoutSeconds = timeoutSeconds
         self.rewriteStyles = rewriteStyles
         self.outputLanguage = outputLanguage
+        self.outputLanguages = outputLanguages ?? [outputLanguage]
+        self.inputLanguages = inputLanguages
         self.defaultInput = defaultInput
         self.englishAI = englishAI
         self.voiceInput = voiceInput
@@ -101,6 +109,7 @@ public struct Config: Codable, Equatable, Sendable {
         self.uiLanguage = uiLanguage
         self.customCommands = customCommands
         self.claudeInBackground = true
+        normalizeLanguages()
     }
 
     public static let `default` = Config(
@@ -116,7 +125,7 @@ public struct Config: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case awsProfile, region, modelId, maxTokens, temperature, timeoutSeconds, rewriteStyles
-        case outputLanguage, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage, customCommands, claudeInBackground
+        case outputLanguage, outputLanguages, inputLanguages, defaultInput, englishAI, voiceInput, jargonFile, actionKey, uiLanguage, customCommands, claudeInBackground
         case provider, anthropic, gemini, openai
     }
 
@@ -133,7 +142,10 @@ public struct Config: Codable, Equatable, Sendable {
             : d.temperature
         timeoutSeconds = try c.decodeIfPresent(Double.self, forKey: .timeoutSeconds) ?? d.timeoutSeconds
         rewriteStyles = try c.decodeIfPresent([String].self, forKey: .rewriteStyles) ?? d.rewriteStyles
-        outputLanguage = try c.decodeIfPresent(Language.self, forKey: .outputLanguage) ?? d.outputLanguage
+        outputLanguage = try c.decodeIfPresent(OutputLanguage.self, forKey: .outputLanguage) ?? d.outputLanguage
+        // A file from before languages could be added had both, in the menu and on Shift: it keeps them.
+        outputLanguages = try c.decodeIfPresent([OutputLanguage].self, forKey: .outputLanguages) ?? [.english, .chinese]
+        inputLanguages = try c.decodeIfPresent([Language].self, forKey: .inputLanguages) ?? [.chinese, .english]
         defaultInput = try c.decodeIfPresent(Language.self, forKey: .defaultInput) ?? d.defaultInput
         englishAI = try c.decodeIfPresent(Bool.self, forKey: .englishAI) ?? d.englishAI
         voiceInput = try c.decodeIfPresent(Bool.self, forKey: .voiceInput) ?? d.voiceInput
@@ -146,6 +158,19 @@ public struct Config: Codable, Equatable, Sendable {
         anthropic = try c.decodeIfPresent(ProviderSettings.self, forKey: .anthropic) ?? d.anthropic
         gemini = try c.decodeIfPresent(ProviderSettings.self, forKey: .gemini) ?? d.gemini
         openai = try c.decodeIfPresent(ProviderSettings.self, forKey: .openai) ?? d.openai
+        normalizeLanguages()
+    }
+
+    /// The chosen output language is among the added ones, at least one input language is on, and a
+    /// new text field starts in one that is; no language twice.
+    public mutating func normalizeLanguages() {
+        var seenOutput = Set<OutputLanguage>()
+        outputLanguages = outputLanguages.filter { seenOutput.insert($0).inserted }
+        if !outputLanguages.contains(outputLanguage) { outputLanguages.insert(outputLanguage, at: 0) }
+        var seenInput = Set<Language>()
+        inputLanguages = Language.allCases.filter { inputLanguages.contains($0) && seenInput.insert($0).inserted }
+        if inputLanguages.isEmpty { inputLanguages = [.chinese] }
+        if !inputLanguages.contains(defaultInput) { defaultInput = inputLanguages[0] }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -158,6 +183,8 @@ public struct Config: Codable, Equatable, Sendable {
         try c.encode(timeoutSeconds, forKey: .timeoutSeconds)
         try c.encode(rewriteStyles, forKey: .rewriteStyles)
         try c.encode(outputLanguage, forKey: .outputLanguage)
+        try c.encode(outputLanguages, forKey: .outputLanguages)
+        try c.encode(inputLanguages, forKey: .inputLanguages)
         try c.encode(defaultInput, forKey: .defaultInput)
         try c.encode(englishAI, forKey: .englishAI)
         try c.encode(voiceInput, forKey: .voiceInput)

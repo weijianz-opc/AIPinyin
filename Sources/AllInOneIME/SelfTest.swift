@@ -1314,10 +1314,21 @@ enum SelfTest {
         }
         check(menu?.items.first?.action == #selector(AllInOneIMEInputController.showPreferences(_:)),
               "menu starts with 设置… (IMK showPreferences:)")
-        let outputItems = menu?.items.filter { $0.action == #selector(AllInOneIMEInputController.setOutputLanguage(_:)) } ?? []
-        let configuredOutput = ((try? Config.load()) ?? .default).outputLanguage
-        check(outputItems.count == 2 && outputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String }
-              == [configuredOutput.rawValue], "menu offers the output language, checked per config")
+        // Output and input languages in submenus, listing the languages added in the config.
+        let languages = (try? Config.load()) ?? .default
+        let outputItems = menu?.items.first { $0.title.hasPrefix("输出：") }?.submenu?.items
+            .filter { $0.action == #selector(AllInOneIMEInputController.setOutputLanguage(_:)) } ?? []
+        check(outputItems.compactMap { $0.representedObject as? String } == languages.outputLanguages.map(\.code)
+              && outputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String } == [languages.outputLanguage.code],
+              "menu offers the added output languages, checked per config (\(outputItems.map(\.title)))")
+        let inputItems = menu?.items.first { $0.title.hasPrefix("输入：") }?.submenu?.items
+            .filter { $0.action == #selector(AllInOneIMEInputController.toggleInputLanguage(_:)) } ?? []
+        check(inputItems.count == 2 && inputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String }
+              == languages.inputLanguages.map(\.rawValue), "menu shows the input languages on, per config")
+        check(AllInOneIMEInputController.toggled(Language.english, in: [.chinese]) == [.chinese, .english]
+              && AllInOneIMEInputController.toggled(Language.chinese, in: [.chinese]) == [.chinese]
+              && AllInOneIMEInputController.toggled(Language.chinese, in: [.chinese, .english]) == [.english],
+              "input languages toggle; the last one stays on")
         testSettingsWindow(snapshotDirectory: snapshotDirectory)
         controller.deactivateServer(client)
 

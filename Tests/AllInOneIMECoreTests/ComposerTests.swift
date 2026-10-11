@@ -482,6 +482,20 @@ struct ComposerTests {
         #expect(!e.ascii)
     }
 
+    @Test func withOneInputLanguageShiftDoesntSwitch() {
+        let (c, e) = composer(englishAI: false)
+        c.inputLanguages = [.chinese]
+        type("ni", c)
+        _ = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: .shift, timestamp: 10)
+        #expect(c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [], timestamp: 10.1).isEmpty)
+        #expect(!e.ascii && c.engineState.isComposing)  // still pinyin, the letters still being typed
+        // Both on again: Shift switches.
+        c.inputLanguages = [.chinese, .english]
+        _ = c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: .shift, timestamp: 11)
+        #expect(c.handleFlagsChanged(keyCode: VirtualKey.leftShift, modifiers: [], timestamp: 11.1).contains(.notice("英")))
+        #expect(e.ascii)
+    }
+
     @Test func latinLettersAfterChineseStayInTheDraft() {
         let (c, e) = composer()
         type("nihao", c)

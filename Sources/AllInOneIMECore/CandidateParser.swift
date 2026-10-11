@@ -52,7 +52,7 @@ public enum CandidateParser {
     enum Tag: Equatable { case version, rewrite(String), ignored }
 
     public static func parse(
-        _ raw: String, isFinal: Bool, output: Language = .english, maxVersions: Int = 3
+        _ raw: String, isFinal: Bool, output: OutputLanguage = .english, maxVersions: Int = 3
     ) -> ConversionResult {
         let lines = raw.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
@@ -99,8 +99,8 @@ public enum CandidateParser {
         return ConversionResult(versions: Array(versions.prefix(maxVersions)), rewrites: rewrites)
     }
 
-    /// Lines tagged with the output language are the main versions; the other language's tag is ignored.
-    static func splitTag(_ line: String, output: Language = .english) -> (Tag, String)? {
+    /// Lines tagged with the output language are the main versions; another language's tag is ignored.
+    static func splitTag(_ line: String, output: OutputLanguage = .english) -> (Tag, String)? {
         guard let colon = line.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return nil }
         let name = line[..<colon]
             .trimmingCharacters(in: CharacterSet(charactersIn: "*_` \t"))
@@ -108,13 +108,19 @@ public enum CandidateParser {
         var body = String(line[line.index(after: colon)...])
         // "**EN:** text" leaves the closing emphasis right after the colon.
         while let first = body.first, "*_".contains(first) { body.removeFirst() }
-        let language: Language
+        let language: OutputLanguage
         switch name {
         case "EN", "ENGLISH", "英文": language = .english
         case "ZH", "CN", "中文", "CHINESE": language = .chinese
         default:
-            guard let style = RewriteStyle.forTag(name) else { return nil }
-            return (.rewrite(style.name), body)
+            // "JA", "ZHHANT" (also written "ZH-HANT").
+            let letters = name.filter(\.isLetter)
+            if let known = OutputLanguage.catalog.first(where: { $0.tag == letters }) ?? (letters == output.tag ? output : nil) {
+                language = known
+            } else {
+                guard let style = RewriteStyle.forTag(name) else { return nil }
+                return (.rewrite(style.name), body)
+            }
         }
         return (language == output ? .version : .ignored, body)
     }

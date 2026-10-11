@@ -61,6 +61,9 @@ enum UIText {
         chinese ? language.displayName : language == .chinese ? "Chinese" : "English"
     }
 
+    /// An output language in the interface language: "日语" / "Japanese".
+    static func name(_ language: OutputLanguage) -> String { language.name(chinese: chinese) }
+
     /// A rewrite preset's name in the window ("简洁" / "Concise"); the config keeps the Chinese name.
     static func name(_ style: RewriteStyle) -> String { chinese ? style.name : english(style).name }
 
@@ -82,7 +85,7 @@ enum UIText {
     static func action(input: Language, config: Config) -> String {
         guard !chinese else { return AllInOneIMEInputController.actionText(input: input, config: config) }
         let output = config.outputLanguage
-        let action = input == output ? "polish the \(name(output))" : "translate to \(name(output))"
+        let action = input.matches(output) ? "polish the \(name(output))" : "translate to \(name(output))"
         return action + (RewriteStyle.resolve(config.rewriteStyles).isEmpty ? "" : " / rewrite")
     }
 

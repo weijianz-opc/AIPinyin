@@ -271,6 +271,8 @@ public final class Composer {
     public var sentenceMode: Bool
     /// In sentence mode, English-mode typing starts a draft (otherwise letters go to the application).
     public var englishAI: Bool
+    /// The input languages on (`Config.inputLanguages`): with one, a tap of Shift doesn't switch.
+    public var inputLanguages: [Language] = Language.allCases
     /// Holding the right Option key records speech.
     public var voiceEnabled: Bool
     /// The key that sends the sentence to the model.
@@ -709,7 +711,10 @@ public final class Composer {
         let toggle = isShift && !modifiers.contains(.shift)
             && shiftPressedAt.map { timestamp - $0 <= Self.shiftTapWindow } == true
         shiftPressedAt = nil
-        return toggle && voice == .off ? toggleLatin() : []
+        // With one input language Shift stays put, except to leave the letters a command switched to
+        // (Chinese inside `@python print("…")`).
+        let switches = inputLanguages.count > 1 || restoreChineseAfterOpen || nestedLatinFrom != nil
+        return toggle && voice == .off && switches ? toggleLatin() : []
     }
 
     static let shiftTapWindow: TimeInterval = 0.5

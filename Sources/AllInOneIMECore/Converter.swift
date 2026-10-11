@@ -68,7 +68,7 @@ public final class Converter: Sendable {
         let styles = presets.map(\.tag).joined(separator: ",")
         let jargon = presets.contains { $0.tag == RewriteStyle.jargonTag } ? loadJargon(config) : []
         let jargonKey = jargon.isEmpty ? "" : "j\(JargonLibrary.fingerprint(jargon))|"
-        let key = "\(config.activeModel)|\(Prompt.version)|\(output.rawValue)|\(styles)|\(jargonKey)\(input)"
+        let key = "\(config.activeModel)|\(Prompt.version)|\(output.code)|\(styles)|\(jargonKey)\(input)"
         if let hit = cache.withLock({ $0.get(key) }) {
             continuation.yield(ConversionUpdate(
                 result: hit, rawText: "", isFinal: true, elapsed: elapsed(),
@@ -178,7 +178,7 @@ public final class Converter: Sendable {
     /// than offer a truncated sentence as a finished candidate.
     static let maxOutputBytes = 32 * 1024
 
-    static func finalResult(_ text: String, stopReason: String?, output: Language = .english) -> ConversionResult {
+    static func finalResult(_ text: String, stopReason: String?, output: OutputLanguage = .english) -> ConversionResult {
         guard stopReason == "max_tokens" else { return CandidateParser.parse(text, isFinal: true, output: output) }
         var result = CandidateParser.parse(text, isFinal: false, output: output)
         result.versions = result.versions.filter { $0.isComplete }

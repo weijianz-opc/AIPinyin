@@ -14,7 +14,7 @@ let usage = """
       --profile NAME   AWS profile
       --region REGION  Bedrock region
       --model ID       model (for Bedrock: model / inference profile ID)
-      --output en|zh   language of the three main versions (other input is translated, same is polished)
+      --output CODE    language of the three main versions: en, zh, zh-Hant, ja, ko, fr, … (other input is translated, same is polished)
       --styles A,B     rewrite presets, e.g. 简洁,黑话 (presets: \(RewriteStyle.catalog.map(\.name).joined(separator: " ")))
       --jargon FILE    your own jargon list for 黑话 (one term per line, optional "：meaning")
       --raw            also print the raw model output
@@ -28,7 +28,7 @@ struct Options {
     var profile: String?
     var region: String?
     var model: String?
-    var output: Language?
+    var output: OutputLanguage?
     var styles: [String]?
     var jargon: String?
     var raw = false
@@ -57,7 +57,9 @@ func parseOptions() -> Options {
         case "--model": options.model = value(arg)
         case "--output":
             let raw = value(arg)
-            guard let language = Language(rawValue: raw) else { fail("--output must be en or zh, not \(raw)") }
+            guard let language = OutputLanguage.catalog.first(where: { $0.code.lowercased() == raw.lowercased() }) else {
+                fail("--output must be one of \(OutputLanguage.catalog.map(\.code).joined(separator: ", ")), not \(raw)")
+            }
             options.output = language
         case "--styles":
             options.styles = value(arg).split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
@@ -182,7 +184,7 @@ if let m = options.model {
     case .hosted: fail("the hosted service picks its own model")
     }
 }
-if let o = options.output { config.outputLanguage = o }
+if let o = options.output { config.outputLanguage = o; config.normalizeLanguages() }
 if let s = options.styles { config.rewriteStyles = s }
 if let j = options.jargon { config.jargonFile = j }
 let effectiveConfig = config
@@ -192,9 +194,9 @@ let jargon = JargonLibrary.load(from: config.jargonURL)
 if options.jargon != nil, jargon.isEmpty { fail("no entries in \(config.jargonURL.path)") }
 
 if config.provider == .bedrock {
-    print("model \(config.modelId) · profile \(config.awsProfile) · region \(config.region ?? "(from profile)") · output \(config.outputLanguage.rawValue)")
+    print("model \(config.modelId) · profile \(config.awsProfile) · region \(config.region ?? "(from profile)") · output \(config.outputLanguage.code)")
 } else {
-    print("\(config.provider.displayName) · model \(config.settings(for: config.provider).model ?? "-") · output \(config.outputLanguage.rawValue)")
+    print("\(config.provider.displayName) · model \(config.settings(for: config.provider).model ?? "-") · output \(config.outputLanguage.code)")
 }
 do {
     if let path = options.dumpPath {
