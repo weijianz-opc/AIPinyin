@@ -1186,20 +1186,24 @@ final class AllInOneIMEInputController: IMKInputController {
         let inputItem = NSMenuItem(title: tr("输入：", "Input: ") + current.inputLanguages.map(Self.inputName).joined(separator: " + "),
                                    action: nil, keyEquivalent: "")
         let inputs = NSMenu()
-        for language in Language.allCases {
-            let item = NSMenuItem(title: Self.inputName(language), action: #selector(toggleInputLanguage(_:)), keyEquivalent: "")
+        // The added input languages, the default one checked (a new text field starts in it).
+        for language in current.inputLanguages {
+            let item = NSMenuItem(title: Self.inputName(language), action: #selector(setDefaultInput(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = language.rawValue
-            item.state = current.inputLanguages.contains(language) ? .on : .off
-            // The last one on can't be turned off.
-            item.isEnabled = config != nil && !(current.inputLanguages == [language])
+            item.state = current.defaultInput == language ? .on : .off
+            item.isEnabled = config != nil
             inputs.addItem(item)
         }
-        let shiftNote = NSMenuItem(title: current.inputLanguages.count > 1 ? tr("Shift 切换中英", "Shift switches between them")
-                                   : tr("只有一种时 Shift 不切换", "With one, Shift doesn't switch"), action: nil, keyEquivalent: "")
-        shiftNote.isEnabled = false
         inputs.addItem(.separator())
-        inputs.addItem(shiftNote)
+        if current.inputLanguages.count > 1 {
+            let shiftNote = NSMenuItem(title: tr("✓ 是默认；Shift 切换", "✓ is the default; Shift switches"), action: nil, keyEquivalent: "")
+            shiftNote.isEnabled = false
+            inputs.addItem(shiftNote)
+        }
+        let addInput = NSMenuItem(title: tr("添加语言…", "Add Languages…"), action: #selector(showPreferences(_:)), keyEquivalent: "")
+        addInput.target = self
+        inputs.addItem(addInput)
         inputItem.submenu = inputs
         menu.addItem(inputItem)
 
@@ -1296,9 +1300,8 @@ final class AllInOneIMEInputController: IMKInputController {
         language == .chinese ? tr("中文（拼音）", "Chinese (pinyin)") : UIText.name(language)
     }
 
-    /// Turns an input language on or off (one always stays on); a new text field then starts in one
-    /// that is on, and Shift switches only between two.
-    @objc func toggleInputLanguage(_ sender: Any?) {
+    /// Makes an added input language the default: a new text field starts in it.
+    @objc func setDefaultInput(_ sender: Any?) {
         MainActor.assumeIsolated {
             guard let raw = Self.menuItem(from: sender)?.representedObject as? String, let language = Language(rawValue: raw) else {
                 log.error("input menu action without a language")
@@ -1306,21 +1309,21 @@ final class AllInOneIMEInputController: IMKInputController {
             }
             do {
                 var config = try Config.load()
-                config.inputLanguages = Self.toggled(language, in: config.inputLanguages)
+                config.defaultInput = language
                 config.normalizeLanguages()
                 try config.write()
-                log.notice("input languages now \(config.inputLanguages.map(\.rawValue).joined(separator: ","), privacy: .public)")
+                log.notice("default input now \(config.defaultInput.rawValue, privacy: .public)")
                 applySettings()
             } catch {
-                log.error("could not update the input languages: \(String(describing: error), privacy: .public)")
+                log.error("could not update the default input: \(String(describing: error), privacy: .public)")
             }
         }
     }
 
-    /// `languages` with `language` turned on or off; the last one stays on.
+    /// `languages` with `language` removed, or added at the end; the last one stays.
     static func toggled(_ language: Language, in languages: [Language]) -> [Language] {
         if languages.contains(language) { return languages == [language] ? languages : languages.filter { $0 != language } }
-        return Language.allCases.filter { languages.contains($0) || $0 == language }
+        return languages + [language]
     }
 
     @objc func openConfig(_ sender: Any?) {

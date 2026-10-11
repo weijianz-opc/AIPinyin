@@ -546,44 +546,29 @@ struct SettingsView: View {
             }
 
             Section(tr("输入和输出", "Input and Output")) {
-                // Input: the languages on (one at least); with both, Shift switches and one is the default.
+                // The languages added, in the user's order: drag to reorder; the first is the default input
+                // and the output in use. With two input languages, Shift switches between them.
                 LabeledContent(tr("输入语言", "Input languages")) {
-                    HStack(spacing: 16) {
-                        ForEach(Language.allCases, id: \.self) { language in
-                            Toggle(AllInOneIMEInputController.inputName(language), isOn: inputLanguageBinding(language))
-                                .disabled(model.config.inputLanguages == [language])
-                        }
-                    }
-                }
-                if model.config.inputLanguages.count > 1 {
-                    Picker(tr("默认输入", "Default input"), selection: $model.config.defaultInput) {
-                        ForEach(model.config.inputLanguages, id: \.self) { language in
-                            Text(AllInOneIMEInputController.inputName(language)).tag(language)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-                // Output: the languages the user added; the chosen one is what lines 1–3 are written in.
-                Picker(tr("输出（1–3 行）", "Output (lines 1–3)"), selection: $model.config.outputLanguage) {
-                    ForEach(model.config.outputLanguages) { language in
-                        Text(UIText.name(language)).tag(language)
-                    }
-                }
-                LabeledContent(tr("已添加的输出语言", "Output languages added")) {
                     HStack(spacing: 6) {
-                        ForEach(model.config.outputLanguages) { language in
-                            HStack(spacing: 2) {
-                                Text(UIText.name(language))
-                                if model.config.outputLanguages.count > 1 {
-                                    Button { removeOutputLanguage(language) } label: { Image(systemName: "xmark.circle.fill") }
-                                        .buttonStyle(.borderless)
-                                        .help(tr("移除\(UIText.name(language))", "Remove \(UIText.name(language))"))
-                                        .accessibilityLabel(tr("移除\(UIText.name(language))", "Remove \(UIText.name(language))"))
+                        LanguageChips(items: model.config.inputLanguages, name: AllInOneIMEInputController.inputName,
+                                      firstNote: tr("默认", "default"),
+                                      reorder: { model.config.setOrder($0) }, remove: removeInputLanguage)
+                        let missing = Language.allCases.filter { !model.config.inputLanguages.contains($0) }
+                        if !missing.isEmpty {
+                            Menu(tr("添加…", "Add…")) {
+                                ForEach(missing, id: \.self) { language in
+                                    Button(AllInOneIMEInputController.inputName(language)) { addInputLanguage(language) }
                                 }
                             }
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.12), in: Capsule())
+                            .fixedSize()
                         }
+                    }
+                }
+                LabeledContent(tr("输出语言（1–3 行）", "Output languages (lines 1–3)")) {
+                    HStack(spacing: 6) {
+                        LanguageChips(items: model.config.outputLanguages, name: UIText.name,
+                                      firstNote: tr("使用中", "in use"),
+                                      reorder: { model.config.setOrder($0) }, remove: removeOutputLanguage)
                         Menu(tr("添加…", "Add…")) {
                             ForEach(OutputLanguage.catalog.filter { !model.config.outputLanguages.contains($0) }) { language in
                                 Button(UIText.name(language)) { addOutputLanguage(language) }
@@ -592,6 +577,8 @@ struct SettingsView: View {
                         .fixedSize()
                     }
                 }
+                Text(tr("拖动排序，第一个是默认输入 / 正在用的输出。", "Drag to reorder: the first is the default input / the output in use."))
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle(tr("整句模式下英文也进草稿（打完\(UIText.howToPress(model.config.actionKey, english: true))）",
                           "Sentence mode: English too (\(UIText.howToPress(model.config.actionKey, english: true)) when done)"),
                        isOn: $model.config.englishAI)
@@ -879,25 +866,24 @@ struct SettingsView: View {
             + shift
     }
 
-    /// An input language on or off; the last one on stays on.
-    private func inputLanguageBinding(_ language: Language) -> Binding<Bool> {
-        Binding(
-            get: { model.config.inputLanguages.contains(language) },
-            set: { _ in
-                model.config.inputLanguages = AllInOneIMEInputController.toggled(language, in: model.config.inputLanguages)
-                model.config.normalizeLanguages()
-            })
+    private func addInputLanguage(_ language: Language) {
+        model.config.inputLanguages.append(language)
+        model.config.normalizeLanguages()
+    }
+
+    /// Removes an input language (one always stays); the next one becomes the default.
+    private func removeInputLanguage(_ language: Language) {
+        model.config.setOrder(AllInOneIMEInputController.toggled(language, in: model.config.inputLanguages))
     }
 
     private func addOutputLanguage(_ language: OutputLanguage) {
         model.config.outputLanguages.append(language)
     }
 
-    /// Removes an added output language (one always stays); the chosen one moves to the first left.
+    /// Removes an added output language (one always stays); the next one is then in use.
     private func removeOutputLanguage(_ language: OutputLanguage) {
         guard model.config.outputLanguages.count > 1 else { return }
-        model.config.outputLanguages.removeAll { $0 == language }
-        if model.config.outputLanguage == language { model.config.outputLanguage = model.config.outputLanguages[0] }
+        model.config.setOrder(model.config.outputLanguages.filter { $0 != language })
     }
 
     /// How the chosen action key works, and what Space does with it.
@@ -1308,5 +1294,69 @@ struct CompatibleService: Identifiable {
             CompatibleService(name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", model: nil),
             CompatibleService(name: tr("本机 Ollama", "Ollama on this Mac"), baseURL: "http://localhost:11434/v1", model: nil),
         ]
+    }
+}
+
+/// Added languages as chips in the user's order, dragged to reorder: the first is marked
+/// ("中文（拼音）· 默认"), ⓧ removes one (not the last).
+private struct LanguageChips<Item: Hashable>: View {
+    let items: [Item]
+    let name: (Item) -> String
+    let firstNote: String
+    let reorder: ([Item]) -> Void
+    let remove: (Item) -> Void
+    @State private var dragging: Item?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(items, id: \.self) { item in
+                chip(item)
+                    .onDrag {
+                        dragging = item
+                        return NSItemProvider(object: name(item) as NSString)
+                    }
+                    .onDrop(of: [.text], delegate: ChipDrop(item: item, items: items, dragging: $dragging, reorder: reorder))
+            }
+        }
+    }
+
+    private func chip(_ item: Item) -> some View {
+        let first = item == items.first
+        let label = first && items.count > 1 ? name(item) + " · " + firstNote : name(item)
+        return HStack(spacing: 2) {
+            Text(label).foregroundStyle(first ? .primary : .secondary)
+            if items.count > 1 {
+                Button { remove(item) } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .help(tr("移除\(name(item))", "Remove \(name(item))"))
+                    .accessibilityLabel(tr("移除\(name(item))", "Remove \(name(item))"))
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(Color.secondary.opacity(first ? 0.22 : 0.1), in: Capsule())
+        .help(tr("拖动排序，第一个是\(firstNote)", "Drag to reorder; the first is \(firstNote)"))
+    }
+}
+
+/// Moves the dragged chip to where it's dragged over; the order is saved as it changes.
+private struct ChipDrop<Item: Hashable>: DropDelegate {
+    let item: Item
+    let items: [Item]
+    @Binding var dragging: Item?
+    let reorder: ([Item]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let dragging, dragging != item, let from = items.firstIndex(of: dragging),
+              let to = items.firstIndex(of: item) else { return }
+        var moved = items
+        moved.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        reorder(moved)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        return true
     }
 }

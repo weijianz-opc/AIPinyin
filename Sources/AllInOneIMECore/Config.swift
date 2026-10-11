@@ -26,14 +26,15 @@ public struct Config: Codable, Equatable, Sendable {
     /// Rewrites are in the language the sentence was typed in.
     public var rewriteStyles: [String]
     /// Language of the three main versions (1–3): a sentence in another language is translated,
-    /// one already in this language is polished. Always one of `outputLanguages`.
+    /// one already in this language is polished. Always the first of `outputLanguages`.
     public var outputLanguage: OutputLanguage
-    /// The output languages the user added (the menu and the settings offer these); a new user has one.
+    /// The output languages the user added, in the user's order (dragged in the settings); the first
+    /// is the one in use. A new user has one.
     public var outputLanguages: [OutputLanguage]
-    /// The input languages on: pinyin (Chinese), English letters, or both (Shift switches). A new
-    /// user has one; with one, Shift doesn't switch.
+    /// The input languages added, in the user's order: pinyin (Chinese), English letters, or both
+    /// (Shift switches). The first is the default. A new user has one; with one, Shift doesn't switch.
     public var inputLanguages: [Language]
-    /// Mode a new text field starts in: pinyin (Chinese) or English letters. Always one of `inputLanguages`.
+    /// Mode a new text field starts in: pinyin (Chinese) or English letters. Always the first of `inputLanguages`.
     public var defaultInput: Language
     /// In sentence mode, English typed in English mode also collects into a draft that the action key
     /// sends to the model (false: English letters go straight to the application).
@@ -142,11 +143,14 @@ public struct Config: Codable, Equatable, Sendable {
             : d.temperature
         timeoutSeconds = try c.decodeIfPresent(Double.self, forKey: .timeoutSeconds) ?? d.timeoutSeconds
         rewriteStyles = try c.decodeIfPresent([String].self, forKey: .rewriteStyles) ?? d.rewriteStyles
-        outputLanguage = try c.decodeIfPresent(OutputLanguage.self, forKey: .outputLanguage) ?? d.outputLanguage
         // A file from before languages could be added had both, in the menu and on Shift: it keeps them.
         outputLanguages = try c.decodeIfPresent([OutputLanguage].self, forKey: .outputLanguages) ?? [.english, .chinese]
         inputLanguages = try c.decodeIfPresent([Language].self, forKey: .inputLanguages) ?? [.chinese, .english]
-        defaultInput = try c.decodeIfPresent(Language.self, forKey: .defaultInput) ?? d.defaultInput
+        // Without the chosen one named, it's the first of the list.
+        outputLanguage = try c.decodeIfPresent(OutputLanguage.self, forKey: .outputLanguage)
+            ?? (c.contains(.outputLanguages) ? outputLanguages.first : nil) ?? d.outputLanguage
+        defaultInput = try c.decodeIfPresent(Language.self, forKey: .defaultInput)
+            ?? (c.contains(.inputLanguages) ? inputLanguages.first : nil) ?? d.defaultInput
         englishAI = try c.decodeIfPresent(Bool.self, forKey: .englishAI) ?? d.englishAI
         voiceInput = try c.decodeIfPresent(Bool.self, forKey: .voiceInput) ?? d.voiceInput
         jargonFile = try c.decodeIfPresent(String.self, forKey: .jargonFile)
@@ -161,16 +165,37 @@ public struct Config: Codable, Equatable, Sendable {
         normalizeLanguages()
     }
 
-    /// The chosen output language is among the added ones, at least one input language is on, and a
-    /// new text field starts in one that is; no language twice.
+    /// The chosen output language and the default input lead their lists (whoever sets
+    /// `outputLanguage` or `defaultInput` moves it to the front); at least one input language; no
+    /// language twice. To reorder, set the list and then its first as the chosen one (`setOrder`).
     public mutating func normalizeLanguages() {
         var seenOutput = Set<OutputLanguage>()
+        outputLanguages = [outputLanguage] + outputLanguages.filter { $0 != outputLanguage }
         outputLanguages = outputLanguages.filter { seenOutput.insert($0).inserted }
-        if !outputLanguages.contains(outputLanguage) { outputLanguages.insert(outputLanguage, at: 0) }
         var seenInput = Set<Language>()
-        inputLanguages = Language.allCases.filter { inputLanguages.contains($0) && seenInput.insert($0).inserted }
+        inputLanguages = inputLanguages.filter { seenInput.insert($0).inserted }
         if inputLanguages.isEmpty { inputLanguages = [.chinese] }
-        if !inputLanguages.contains(defaultInput) { defaultInput = inputLanguages[0] }
+        if inputLanguages.contains(defaultInput) {
+            inputLanguages = [defaultInput] + inputLanguages.filter { $0 != defaultInput }
+        } else {
+            defaultInput = inputLanguages[0]
+        }
+    }
+
+    /// The output languages in this order: the first becomes the one in use.
+    public mutating func setOrder(_ languages: [OutputLanguage]) {
+        guard let first = languages.first else { return }
+        outputLanguages = languages
+        outputLanguage = first
+        normalizeLanguages()
+    }
+
+    /// The input languages in this order: the first becomes the default.
+    public mutating func setOrder(_ languages: [Language]) {
+        guard let first = languages.first else { return }
+        inputLanguages = languages
+        defaultInput = first
+        normalizeLanguages()
     }
 
     public func encode(to encoder: Encoder) throws {

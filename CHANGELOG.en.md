@@ -6,7 +6,7 @@
 
 ### Added
 
-- Languages are added, not fixed: the output (lines 1–3) can be Japanese, Korean, French, German, Spanish, Traditional Chinese and more, switched under "Input and Output" in the settings or in the menu's "Output"; input can be Chinese (pinyin) only or English only, and with one Shift doesn't switch. A new user starts with one of each: Chinese in, English out.
+- Languages are added, not fixed: the output (lines 1–3) can be Japanese, Korean, French, German, Spanish, Traditional Chinese and more; input languages are added the same way: Chinese (pinyin) only, English only, or both. Drag them into order under "Input and Output" in the settings: the first is the default input / the output in use (picking one in the menu moves it first); with two input languages Shift switches, with one it doesn't. A new user starts with one of each: Chinese in, English out.
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
 - `@imessage` sends an iMessage. Type a name, its pinyin (in full or the initials), a phone number or an email and pick the recipient in the candidate panel (the ones you messaged lately come first), write the message and press ⏎: the panel shows what will be sent, and ⏎ again sends it (Esc goes back to editing). Nothing is typed into the text field. Commands inside the message such as `@stock AAPL` run first. The first time, macOS asks for two permissions: access to Contacts (only names, phone numbers and emails are read) and control of Messages to send.
 - A new plugin type, `link`: no code; the text after the command goes into a web address that opens in the default browser, and nothing is inserted. Commands inside the text (`@stock …`) run first and their output goes in; it doesn't run during secure input; 4000 characters at most.
@@ -20,7 +20,7 @@
 
 ### Upgrading
 
-- Existing settings stay as they were: both input languages and both output languages remain; turn one off in the settings or the menu to keep just one.
+- Existing settings stay as they were: both input languages and both output languages remain; remove one under "Input and Output" in the settings to keep just one.
 
 ## 0.4.0 (2026-10-09)
 

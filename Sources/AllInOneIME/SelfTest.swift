@@ -1322,9 +1322,10 @@ enum SelfTest {
               && outputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String } == [languages.outputLanguage.code],
               "menu offers the added output languages, checked per config (\(outputItems.map(\.title)))")
         let inputItems = menu?.items.first { $0.title.hasPrefix("输入：") }?.submenu?.items
-            .filter { $0.action == #selector(AllInOneIMEInputController.toggleInputLanguage(_:)) } ?? []
-        check(inputItems.count == 2 && inputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String }
-              == languages.inputLanguages.map(\.rawValue), "menu shows the input languages on, per config")
+            .filter { $0.action == #selector(AllInOneIMEInputController.setDefaultInput(_:)) } ?? []
+        check(inputItems.compactMap { $0.representedObject as? String } == languages.inputLanguages.map(\.rawValue)
+              && inputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String } == [languages.defaultInput.rawValue],
+              "menu lists the added input languages, the default checked")
         check(AllInOneIMEInputController.toggled(Language.english, in: [.chinese]) == [.chinese, .english]
               && AllInOneIMEInputController.toggled(Language.chinese, in: [.chinese]) == [.chinese]
               && AllInOneIMEInputController.toggled(Language.chinese, in: [.chinese, .english]) == [.english],
