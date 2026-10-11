@@ -79,11 +79,13 @@ struct LinkTests {
             "weibo": "https://service.weibo.com/share/share.php?title={input}",
             "x": "https://x.com/intent/post?text={input}",
         ]
-        let (plugins, skipped) = PluginStore.load(from: root, appVersion: "0.5.0")
+        let (all, skipped) = PluginStore.load(from: root, appVersion: "0.5.0")
         #expect(skipped.isEmpty)
+        #expect(all.filter { $0.manifest.type == .script }.map(\.name) == ["xe"])  // XEPluginTests
+        let plugins = all.filter { $0.manifest.type == .link }
         #expect(Dictionary(uniqueKeysWithValues: plugins.map { ($0.name, $0.manifest.url ?? "") }) == expected)
-        for plugin in plugins {
-            #expect(plugin.manifest.type == .link && plugin.manifest.icon != nil && plugin.manifest.color != nil)
+        for plugin in all {
+            #expect(plugin.manifest.icon != nil && plugin.manifest.color != nil)
             #expect(plugin.manifest.summary?.zh != nil && plugin.manifest.author != nil)
         }
     }
