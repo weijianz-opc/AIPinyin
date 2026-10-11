@@ -462,11 +462,12 @@ final class SettingsModel: ObservableObject {
                     final = update.result
                     elapsed = update.elapsed
                 }
-                guard let first = final.versions.first?.text else {
+                // Three versions with one translation language, a line each with several.
+                guard let first = final.versions.first?.text ?? final.translations.first?.line.text else {
                     throw BedrockError.invalidResponse(tr("没有返回结果", "no result"))
                 }
                 // Like the candidate panel: a rewrite that only changes punctuation or repeats a row isn't shown.
-                let shown = Set(([sample] + final.versions.map(\.text)).map(\.wordingKey))
+                let shown = Set(([sample] + final.versions.map(\.text) + final.translations.map(\.line.text)).map(\.wordingKey))
                 let rewrite = final.rewrites.first { !shown.contains($0.line.text.wordingKey) }
                     .map { "\n" + (RewriteStyle.named($0.style).map(UIText.name) ?? $0.style) + tr("：", ": ") + $0.line.text } ?? ""
                 self?.testStatus = .passed(String(format: tr("%.1f 秒：%@%@", "%.1f s: %@%@"), elapsed, first, rewrite))

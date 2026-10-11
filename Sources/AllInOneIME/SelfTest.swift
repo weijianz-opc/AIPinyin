@@ -585,7 +585,7 @@ enum SelfTest {
             check(client.marked == draft.replacingOccurrences(of: "@improve ", with: "improve › "), "draft shown inline")
             act(controller, client)
             if finishConversion(controller, "voice → translation") {
-                check(controller.composer.choices.filter { $0.kind == .version }.count == 3, "3 English versions of the spoken sentence")
+                check(controller.composer.choices.filter { $0.kind == .version }.count >= 2, "polished versions of the spoken sentence")
             }
         }
         controller.commitComposition(client)
@@ -660,7 +660,7 @@ enum SelfTest {
         settle()
         at()
         let commands = controller.panelModel().rows.map(\.text)
-        check(client.marked == "@" && commands == ["@improve", "@question", "@claude", "@open", "@read"],
+        check(client.marked == "@" && commands == ["@improve", "@translate", "@question", "@claude", "@open"],
               "@ opens the command palette (\(commands))")
         readmeSnapshot("10-palette", controller, client, in: snapshotDirectory)
         type("q", controller, client)
@@ -949,6 +949,25 @@ enum SelfTest {
         controller.clientOverride = client
         controller.loadCommandUsage = { CommandUsage() }  // leave the user's command order alone
         controller.saveCommandUsage = { _ in }
+        // @translate: into the output languages but the sentence's own (English here); with @improve, one request.
+        press(controller, client, "@", code: 0x13, flags: .shift)
+        type("t", controller, client)
+        press(controller, client, "\t", code: VirtualKey.tab)
+        type("wojintianyoudianbushufu", controller, client)
+        _ = enter(controller, client)
+        if finishConversion(controller, "@translate") {
+            // The requests use the real config's languages: three versions with one, a line each with several.
+            let lines = controller.composer.choices.filter {
+                if case .translation = $0.kind { return true }
+                return $0.kind == .version
+            }
+            check(lines.count >= 2 && lines.allSatisfy { $0.text != "我今天有点不舒服" }
+                  && !controller.composer.choices.contains { if case .rewrite = $0.kind { return true } else { return false } },
+                  "@translate: translated lines, no rewrites (\(lines.map(\.text)))")
+            _ = escape(controller, client)
+            _ = escape(controller, client)
+        }
+        controller.commitComposition(client)
         controller.readClipboard = { nil }  // never the real clipboard; the ⌘V section supplies its text
         // Never the real Contacts or Messages, nor the user's recent recipients (the @imessage section has its own).
         controller.loadContacts = { [] }
@@ -1020,12 +1039,14 @@ enum SelfTest {
         _ = enter(controller, client)
         check(client.marked == "improve › ", "@i ⏎ picks @improve ('\(client.marked)')")
         type("wojintianyoudianbushufu", controller, client)
-        check(controller.panelModel().footer == "空格 选词 · ⏎ 翻译成英文 / 改写", "the footer names the command (\(controller.panelModel().footer))")
+        check(controller.panelModel().footer == "空格 选词 · ⏎ 润色 / 改写", "the footer names the command (\(controller.panelModel().footer))")
         readmeSnapshot("1b-sentence-pinyin", controller, client, in: snapshotDirectory)
         _ = enter(controller, client)  // converts the pinyin and runs @improve
         if finishConversion(controller, "@improve") {
-            check(controller.composer.choices.filter { $0.kind == .version }.count == 3 && controller.composer.choices.first?.text == "我今天有点不舒服",
-                  "3 English versions of 我今天有点不舒服")
+            // @improve polishes in the sentence's own language (a version only re-punctuating it is hidden).
+            let versions = controller.composer.choices.filter { $0.kind == .version }
+            check(versions.count >= 2 && versions.allSatisfy { $0.text.containsHan } && controller.composer.choices.first?.text == "我今天有点不舒服",
+                  "polished Chinese versions of 我今天有点不舒服, not translated")
             readmeSnapshot("4-final-light", controller, client, in: snapshotDirectory)
             readmeSnapshot("4-final-dark", controller, client, in: snapshotDirectory, appearance: .darkAqua)
             let first = controller.composer.choices[controller.composer.highlighted].text
@@ -1049,8 +1070,8 @@ enum SelfTest {
         _ = enter(controller, client)
         if finishConversion(controller, "@improve on pasted text") {
             check(controller.composer.choices.first?.text == "这个项目的进度太慢了我们需要尽快想办法"
-                  && controller.composer.choices.contains { $0.kind == .version && !$0.text.containsHan },
-                  "the pasted text is improved")
+                  && controller.composer.choices.contains { $0.kind == .version && $0.text.containsHan },
+                  "the pasted text is improved (polished, still Chinese)")
             _ = enter(controller, client)
         }
         controller.readClipboard = { nil }
@@ -1211,7 +1232,7 @@ enum SelfTest {
         }
         let choices = controller.composer.choices
         for choice in choices { print("  \(choice.label) \(choice.text)") }
-        check(choices.filter { $0.kind == .version && !$0.text.isEmpty }.count == 3, "3 English versions")
+        check(choices.filter { $0.kind == .version && !$0.text.isEmpty }.count >= 2, "polished versions")
         check(choices.first?.kind == .original && choices.first?.text == sentence, "row 0 is the sentence as typed")
         // Rewrite rows are only shown when their wording differs from the original (and from each other).
         let rewrites = choices.filter { $0.kind.isRewrite }
