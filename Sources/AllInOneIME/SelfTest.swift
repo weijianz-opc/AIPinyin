@@ -197,6 +197,49 @@ enum SelfTest {
     }
 
     /// Settings window, run against a temporary copy of the config (the real file is never written).
+    /// Dragging a language chip in the real settings form (offscreen; events posted to this app's own
+    /// queue, so the pointer doesn't move): the mouse reaches the chip's drag handle, not the form's
+    /// table view, and letting go left of the first chip makes it the default. Nothing is saved.
+    static func testLanguageDrag() {
+        var config = (try? Config.load()) ?? .default
+        config.setOrder([Language.chinese, .english])
+        let model = SettingsModel(configURL: Config.defaultURL, sentenceMode: false, saveSentenceMode: { _ in }, persists: false)
+        model.config = config
+        let host = NSHostingView(rootView: SettingsView(model: model))
+        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 560, height: 1700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.alphaValue = 0
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        _ = pump(timeout: 0.5) { false }
+        defer { window.close() }
+        func handles(in view: NSView) -> [NSView] {
+            (String(describing: Swift.type(of: view)).contains("HandleView") ? [view] : []) + view.subviews.flatMap(handles)
+        }
+        // The input languages' row is the top one: its two handles, left to right.
+        let all = handles(in: host).map { ($0, $0.convert($0.bounds, to: nil)) }
+        guard let top = all.map(\.1.midY).max() else { return check(false, "language chips have drag handles") }
+        let row = all.filter { abs($0.1.midY - top) < 4 }.sorted { $0.1.minX < $1.1.minX }
+        guard row.count == 2 else { return check(false, "two input language chips (\(row.count))") }
+        let (english, frame) = row[1]
+        let start = NSPoint(x: frame.midX, y: frame.midY)
+        let hit = host.superview.flatMap { window.contentView?.hitTest($0.convert(start, from: nil)) }
+        check(hit.map { $0 === english || $0.isDescendant(of: english) } == true,
+              "a click on a language chip reaches its drag handle (\(hit.map { String(describing: Swift.type(of: $0)) } ?? "nothing"))")
+        func mouse(_ type: NSEvent.EventType, x: CGFloat) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: start.y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        let target = row[0].1.minX - 10  // left of the first chip
+        for event in [mouse(.leftMouseDragged, x: start.x - 20), mouse(.leftMouseDragged, x: target), mouse(.leftMouseUp, x: target)] {
+            if let event { NSApp.postEvent(event, atStart: false) }
+        }
+        if let down = mouse(.leftMouseDown, x: start.x) { english.mouseDown(with: down) }
+        _ = pump(timeout: 1) { model.config.inputLanguages.first == .english }
+        check(model.config.inputLanguages == [.english, .chinese] && model.config.defaultInput == .english,
+              "dragging English before Chinese makes it the default input (\(model.config.inputLanguages.map(\.rawValue)))")
+    }
+
     static func testSettingsWindow(snapshotDirectory: URL) {
         print("— settings window")
         let dir = snapshotDirectory.appendingPathComponent("settings-config")
@@ -292,6 +335,7 @@ enum SelfTest {
         render("6-settings", chinese: true)  // README
         render("6-settings-en", chinese: false)  // README (docs/en)
         UIText.choice = pickedBefore
+        testLanguageDrag()
         check(SettingsView.version?.isEmpty == false, "the window ends with the version (AllInOneIME \(SettingsView.version ?? "?"))")
 
         // A config file that doesn't parse is shown as an error and never overwritten.

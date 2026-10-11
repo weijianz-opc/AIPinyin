@@ -1298,9 +1298,10 @@ struct CompatibleService: Identifiable {
 }
 
 /// Added languages as chips in the user's order, dragged to reorder: the first is marked
-/// ("中文（拼音）· 默认"), ⓧ removes one (not the last). A plain drag gesture (the chip follows the
-/// pointer, the order changes where it's let go): the system drag and drop meant for moving data
-/// between apps doesn't start inside the settings form.
+/// ("中文（拼音）· 默认"), ⓧ removes one (not the last). The chip follows the pointer and the order
+/// changes where it's let go. The drag is tracked in AppKit (`DragHandle`): a grouped Form sits on a
+/// table view that takes mouse drags for itself, so neither SwiftUI's drag gesture nor its drag and
+/// drop ever start there.
 private struct LanguageChips<Item: Hashable>: View {
     let items: [Item]
     let name: (Item) -> String
@@ -1310,39 +1311,24 @@ private struct LanguageChips<Item: Hashable>: View {
     @State private var frames: [Item: CGRect] = [:]
     @State private var dragging: Item?
     @State private var offset: CGFloat = 0
-    private let space = UUID()
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(items, id: \.self) { item in
                 chip(item)
                     .background(GeometryReader { geometry in
-                        Color.clear.preference(key: ChipFrames.self, value: [AnyHashable(item): geometry.frame(in: .named(space))])
+                        // Window coordinates: the pointer's x comes from AppKit in the window too.
+                        Color.clear.preference(key: ChipFrames.self, value: [AnyHashable(item): geometry.frame(in: .global)])
                     })
                     .offset(x: dragging == item ? offset : 0)
                     .zIndex(dragging == item ? 1 : 0)
                     .opacity(dragging == item ? 0.8 : 1)
-                    .gesture(items.count > 1 ? drag(item) : nil)
             }
         }
-        .coordinateSpace(name: space)
         .onPreferenceChange(ChipFrames.self) { all in
             frames = Dictionary(uniqueKeysWithValues: all.compactMap { key, frame in (key.base as? Item).map { ($0, frame) } })
         }
         .animation(.easeOut(duration: 0.15), value: items)
-    }
-
-    private func drag(_ item: Item) -> some Gesture {
-        DragGesture(minimumDistance: 3, coordinateSpace: .named(space))
-            .onChanged { value in
-                dragging = item
-                offset = value.translation.width
-            }
-            .onEnded { value in
-                defer { dragging = nil; offset = 0 }
-                let moved = ChipOrder.moved(item, in: items, to: value.location.x, midX: { frames[$0]?.midX })
-                if moved != items { reorder(moved) }
-            }
     }
 
     private func chip(_ item: Item) -> some View {
@@ -1350,6 +1336,19 @@ private struct LanguageChips<Item: Hashable>: View {
         let label = first && items.count > 1 ? name(item) + " · " + firstNote : name(item)
         return HStack(spacing: 2) {
             Text(label).foregroundStyle(first ? .primary : .secondary)
+                .overlay {
+                    if items.count > 1 {
+                        DragHandle(onChanged: { dx in
+                            dragging = item
+                            offset = dx
+                        }, onEnded: { x in
+                            let moved = ChipOrder.moved(item, in: items, to: x, midX: { frames[$0]?.midX })
+                            dragging = nil
+                            offset = 0
+                            if moved != items { reorder(moved) }
+                        })
+                    }
+                }
             if items.count > 1 {
                 Button { remove(item) } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
@@ -1359,8 +1358,49 @@ private struct LanguageChips<Item: Hashable>: View {
         }
         .padding(.horizontal, 6).padding(.vertical, 2)
         .background(Color.secondary.opacity(first ? 0.22 : 0.1), in: Capsule())
-        .contentShape(Capsule())
         .help(tr("拖动排序，第一个是\(firstNote)", "Drag to reorder; the first is \(firstNote)"))
+    }
+}
+
+/// Tracks a mouse drag itself (its own event loop from mouseDown to mouseUp), so the table view under
+/// the Form never sees it: reports the horizontal distance while dragging and the pointer's x in the
+/// window where it's let go. A click without moving does nothing.
+private struct DragHandle: NSViewRepresentable {
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> HandleView { HandleView() }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        view.onChanged = onChanged
+        view.onEnded = onEnded
+    }
+
+    final class HandleView: NSView {
+        var onChanged: ((CGFloat) -> Void)?
+        var onEnded: ((CGFloat) -> Void)?
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+
+        override func mouseDown(with event: NSEvent) {
+            let start = event.locationInWindow.x
+            var moved = false
+            while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+                let dx = next.locationInWindow.x - start
+                if next.type == .leftMouseUp {
+                    if moved { onEnded?(next.locationInWindow.x) }
+                    break
+                }
+                if abs(dx) > 3 { moved = true }
+                if moved {
+                    NSCursor.closedHand.set()
+                    onChanged?(dx)
+                }
+            }
+            window?.invalidateCursorRects(for: self)
+        }
     }
 }
 
