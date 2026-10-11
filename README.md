@@ -100,6 +100,7 @@ Claude Code（`claude` 命令）和它自己的账号，改文件、跑命令前
 自己写的插件放进 `~/.config/allinoneime/plugins/`（设置里「打开插件文件夹」），算本地插件，插件库不会覆盖它。
 也有不运行代码的「链接」插件：把内容填进网址，在浏览器里打开，比如 `@x 今天天气不错` 打开 X 的发帖框、文字已经填好，发不发由你在网页上决定。
 插件库里有 `@x`、`@threads`、`@bsky`、`@weibo` 四个。
+还有 `@xe` 换算汇率：`@xe 100 USD CNY`、`@xe 1000 日元 人民币`，一行结果带汇率日期（汇率来自 ExchangeRate-API）。
 写插件的说明见 [docs/plugins.md](docs/plugins.md)。
 
 查数据的命令（插件和「运行程序」）也可以写在句子中间：`@reply 告诉他 @stock AAPL 现在多少钱`。
