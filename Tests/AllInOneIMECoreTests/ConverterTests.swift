@@ -243,7 +243,7 @@ struct ConverterTests {
 
     @Test func chineseOutputPromptAndExamples() {
         var config = Config.default
-        config.outputLanguage = .chinese
+        config.setOrder([OutputLanguage.chinese])  // only Chinese: English is translated, Chinese polished
         config.rewriteStyles = ["黑话"]
         let request = Prompt.request(for: "this is a blocker bug", config: config)
         let system = request.system.first?.text ?? ""
@@ -262,8 +262,7 @@ struct ConverterTests {
 
     @Test func otherOutputLanguages() {
         var config = Config.default
-        config.outputLanguage = OutputLanguage("ja")
-        config.normalizeLanguages()
+        config.setOrder([OutputLanguage("ja")])
         let request = Prompt.request(for: "辛苦了", config: config)
         let system = request.system.first?.text ?? ""
         #expect(system.contains("\nJA: <how a native Japanese speaker") && system.contains("always in Japanese"))
@@ -295,7 +294,7 @@ struct ConverterTests {
         var config = Config.default
         config.region = region
         let english = config
-        config.outputLanguage = .chinese
+        config.setOrder([OutputLanguage.chinese])
         let chinese = config
         let output = OSAllocatedUnfairLock(initialState: english)
         let converter = Converter(

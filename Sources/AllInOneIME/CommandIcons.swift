@@ -22,6 +22,7 @@ enum CommandIcons {
         }
         switch command {
         case .improve: return CandidateView.Icon(symbol: "wand.and.stars", color: .systemPurple)
+        case .translate: return CandidateView.Icon(symbol: "translate", color: .systemBlue)
         case .question: return CandidateView.Icon(symbol: "questionmark.bubble.fill", color: .systemBlue)
         case .claude: return CandidateView.Icon(symbol: "sparkles", color: .systemOrange)
         case .open: return CandidateView.Icon(symbol: "magnifyingglass", color: .systemGray)

@@ -688,7 +688,7 @@ enum SelfTest {
         _ = enter(controller, client)
         check(terminal.count == 1 && terminal.first?.hasPrefix("帮我写") == true && client.inserted == insertedBefore
               && client.marked.isEmpty && !controller.composer.isComposing,
-              "@claude starts a Claude Code session with the text, inserts nothing (\(terminal))")
+              "@claude starts a Claude Code session with the text, inserts nothing (\(terminal) | \(controller.panelModel().detail ?? "-"))")
         // While secure input is on it doesn't start: the text stays in the draft until it is off.
         let secureInput = controller.secureInputActive
         controller.secureInputActive = { true }
@@ -958,8 +958,9 @@ enum SelfTest {
         // The real config (model, styles, credentials) with the new options pinned to known values;
         // sections below change `settings` and the controller follows (nothing is written to disk).
         settings = (try? Config.load()) ?? .default
-        settings.outputLanguage = .english
-        settings.defaultInput = .chinese
+        settings.setOrder([OutputLanguage.english, .chinese])
+        settings.setOrder([Language.chinese, .english])  // Shift switches
+        settings.claudeInBackground = false  // @claude records a Terminal launch; nothing starts in the background
         settings.voiceInput = true
         settings.actionKey = .enter  // the default; the action key section tries the others
         settings.uiLanguage = .chinese  // README images; the interface language section tries English
@@ -1387,10 +1388,10 @@ enum SelfTest {
               "menu starts with 设置… (IMK showPreferences:)")
         // Output and input languages in submenus, listing the languages added in the config.
         let languages = (try? Config.load()) ?? .default
-        let outputItems = menu?.items.first { $0.title.hasPrefix("输出：") }?.submenu?.items
+        let outputItems = menu?.items.first { $0.title.hasPrefix("翻译成：") }?.submenu?.items
             .filter { $0.action == #selector(AllInOneIMEInputController.setOutputLanguage(_:)) } ?? []
         check(outputItems.compactMap { $0.representedObject as? String } == languages.outputLanguages.map(\.code)
-              && outputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String } == [languages.outputLanguage.code],
+              && outputItems.allSatisfy { $0.state == .on },
               "menu offers the added output languages, checked per config (\(outputItems.map(\.title)))")
         let inputItems = menu?.items.first { $0.title.hasPrefix("输入：") }?.submenu?.items
             .filter { $0.action == #selector(AllInOneIMEInputController.setDefaultInput(_:)) } ?? []

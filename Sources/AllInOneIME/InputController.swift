@@ -411,7 +411,8 @@ final class AllInOneIMEInputController: IMKInputController {
                 target?.insertText(text, replacementRange: Self.notFound)
             case let .startConversion(input, id):
                 if refusedForSecureInput(id: id, client: target) { break }
-                startConversion(input, id: id)
+                // @improve / @translate: the mode (and a second one written inside) comes from the command.
+                startConversion(input, id: id, command: composer.activeCommand?.kind == .convert ? composer.activeCommand : nil)
             case let .startCommand(command, input, id):
                 if refusedForSecureInput(id: id, client: target) { break }
                 startConversion(input, id: id, command: command)
@@ -791,6 +792,11 @@ final class AllInOneIMEInputController: IMKInputController {
             if command?.kind == .message { return CommandPipeline.unchanged(input) }  // sent as written, after confirming
             if let command, command.kind == .run, let plugin = command.plugin { return runPlugin(plugin, input) }
             if let command, command.kind == .run, let custom = command.custom { return runProgram(custom, input) }
+            // @improve, @translate, or both written together: one request (`WritingMode`).
+            if command == nil || command?.kind == .convert {
+                let (mode, text) = WritingMode.parse(command, input)
+                return converter.convert(text, mode: mode)
+            }
             return command.map { converter.generate($0, input: input) } ?? converter.convert(input)
         }
         let stream: AsyncThrowingStream<ConversionUpdate, Error>
@@ -958,6 +964,10 @@ final class AllInOneIMEInputController: IMKInputController {
                                              style: .original)
                 case .version:
                     return CandidateView.Row(label: choice.label, text: Self.preview(choice.text), style: .translation,
+                                             isComplete: choice.isComplete)
+                case let .translation(code):
+                    return CandidateView.Row(label: choice.label, text: Self.preview(choice.text),
+                                             comment: UIText.name(OutputLanguage(code)), style: .translation,
                                              isComplete: choice.isComplete)
                 case let .rewrite(style):
                     // A jargon (黑话) line notes what the terms from the user's jargon list in it mean.
@@ -1135,19 +1145,20 @@ final class AllInOneIMEInputController: IMKInputController {
         // Output and input languages in submenus like the styles: each lists only the languages the user
         // added (a new user has one), with "Add Languages…" opening the settings.
         let current = config ?? .default
-        let outputItem = NSMenuItem(title: tr("输出：", "Output: ") + UIText.name(current.outputLanguage), action: nil, keyEquivalent: "")
+        // @translate writes in every language added, in this order (one picked here moves to the front).
+        let outputItem = NSMenuItem(title: tr("翻译成：", "Translate to: ") + current.outputLanguages.map(UIText.name).joined(separator: tr("、", ", ")),
+                                    action: nil, keyEquivalent: "")
         let outputs = NSMenu()
         for language in current.outputLanguages {
-            let item = NSMenuItem(title: tr("翻译 / 润色成\(UIText.name(language))", "Translate / Polish into \(UIText.name(language))"),
-                                  action: #selector(setOutputLanguage(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: UIText.name(language), action: #selector(setOutputLanguage(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = language.code
-            item.state = current.outputLanguage == language ? .on : .off
+            item.state = .on
             item.isEnabled = config != nil  // don't overwrite a config file that failed to parse
             outputs.addItem(item)
         }
         outputs.addItem(.separator())
-        let addOutput = NSMenuItem(title: tr("添加语言…", "Add Languages…"), action: #selector(showPreferences(_:)), keyEquivalent: "")
+        let addOutput = NSMenuItem(title: tr("添加 / 排序语言…", "Add or Reorder Languages…"), action: #selector(showPreferences(_:)), keyEquivalent: "")
         addOutput.target = self
         outputs.addItem(addOutput)
         outputItem.submenu = outputs

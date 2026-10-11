@@ -23,22 +23,36 @@ public struct Rewrite: Equatable, Sendable {
     }
 }
 
+/// The sentence in one of several translation languages.
+public struct Translation: Equatable, Sendable {
+    public var language: OutputLanguage
+    public var line: CandidateLine
+
+    public init(language: OutputLanguage, line: CandidateLine) {
+        self.language = language
+        self.line = line
+    }
+}
+
 /// Level-two output for one confirmed sentence.
 public struct ConversionResult: Equatable, Sendable {
     /// The three main versions in the output language (translations, or polished versions of a
     /// sentence already in that language).
     public var versions: [CandidateLine]
+    /// One line per language when translating into several (`@translate`), in the user's order.
+    public var translations: [Translation]
     /// Rewrites in the original language, in the order the model sent them (one per style).
     public var rewrites: [Rewrite]
 
-    public init(versions: [CandidateLine] = [], rewrites: [Rewrite] = []) {
+    public init(versions: [CandidateLine] = [], translations: [Translation] = [], rewrites: [Rewrite] = []) {
         self.versions = versions
+        self.translations = translations
         self.rewrites = rewrites
     }
 
     public static let empty = ConversionResult()
 
-    public var isEmpty: Bool { versions.isEmpty && rewrites.isEmpty }
+    public var isEmpty: Bool { versions.isEmpty && translations.isEmpty && rewrites.isEmpty }
 
     public func rewrite(_ style: String) -> CandidateLine? {
         rewrites.first { $0.style == style }?.line
@@ -49,16 +63,20 @@ public struct ConversionResult: Equatable, Sendable {
 /// per rewrite style (`POLISH: …`, `CONCISE: …`, …), tolerating partial streaming text, full-width
 /// colons, list markers, quotes and markdown emphasis.
 public enum CandidateParser {
-    enum Tag: Equatable { case version, rewrite(String), ignored }
+    enum Tag: Equatable { case version, translation(OutputLanguage), rewrite(String), ignored }
 
+    /// `output`: the language of the three versions (nil: none); `translations`: the languages with a
+    /// line each.
     public static func parse(
-        _ raw: String, isFinal: Bool, output: OutputLanguage = .english, maxVersions: Int = 3
+        _ raw: String, isFinal: Bool, output: OutputLanguage? = .english, translations languages: [OutputLanguage] = [],
+        maxVersions: Int = 3
     ) -> ConversionResult {
         let lines = raw.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .components(separatedBy: "\n")
         var versions: [CandidateLine] = []
         var rewrites: [Rewrite] = []
+        var translations: [Translation] = []
         var sawTag = false
         var untagged: [String] = []
 
@@ -66,7 +84,7 @@ public enum CandidateParser {
             let isComplete = isFinal || index < lines.count - 1
             let line = stripListMarker(rawLine.trimmingCharacters(in: .whitespaces))
             guard !line.isEmpty else { continue }
-            guard let (tag, body) = splitTag(line, output: output) else {
+            guard let (tag, body) = splitTag(line, output: output, translations: languages) else {
                 // While streaming, "E" or "CON" may be the start of a tag; only keep finished lines.
                 if isComplete { untagged.append(line) }
                 continue
@@ -77,6 +95,10 @@ public enum CandidateParser {
             switch tag {
             case .version:
                 versions.append(CandidateLine(text, isComplete: isComplete))
+            case let .translation(language):
+                if !translations.contains(where: { $0.language == language }) {
+                    translations.append(Translation(language: language, line: CandidateLine(text, isComplete: isComplete)))
+                }
             case let .rewrite(style):
                 if !rewrites.contains(where: { $0.style == style }) {
                     rewrites.append(Rewrite(style: style, line: CandidateLine(text, isComplete: isComplete)))
@@ -96,11 +118,13 @@ public enum CandidateParser {
             guard line.isComplete else { return true }
             return seen.insert(line.text.lowercased()).inserted
         }
-        return ConversionResult(versions: Array(versions.prefix(maxVersions)), rewrites: rewrites)
+        // In the user's order, whatever order the model answered in.
+        translations.sort { (languages.firstIndex(of: $0.language) ?? .max) < (languages.firstIndex(of: $1.language) ?? .max) }
+        return ConversionResult(versions: Array(versions.prefix(maxVersions)), translations: translations, rewrites: rewrites)
     }
 
     /// Lines tagged with the output language are the main versions; another language's tag is ignored.
-    static func splitTag(_ line: String, output: OutputLanguage = .english) -> (Tag, String)? {
+    static func splitTag(_ line: String, output: OutputLanguage? = .english, translations: [OutputLanguage] = []) -> (Tag, String)? {
         guard let colon = line.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return nil }
         let name = line[..<colon]
             .trimmingCharacters(in: CharacterSet(charactersIn: "*_` \t"))
@@ -115,14 +139,16 @@ public enum CandidateParser {
         default:
             // "JA", "ZHHANT" (also written "ZH-HANT").
             let letters = name.filter(\.isLetter)
-            if let known = OutputLanguage.catalog.first(where: { $0.tag == letters }) ?? (letters == output.tag ? output : nil) {
+            if let known = OutputLanguage.catalog.first(where: { $0.tag == letters })
+                ?? (letters == output?.tag ? output : nil) ?? translations.first(where: { $0.tag == letters }) {
                 language = known
             } else {
                 guard let style = RewriteStyle.forTag(name) else { return nil }
                 return (.rewrite(style.name), body)
             }
         }
-        return (language == output ? .version : .ignored, body)
+        if language == output { return (.version, body) }
+        return (translations.contains(language) ? .translation(language) : .ignored, body)
     }
 
     static func stripListMarker(_ line: String) -> String {

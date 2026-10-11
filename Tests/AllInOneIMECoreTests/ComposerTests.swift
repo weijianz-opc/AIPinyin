@@ -173,6 +173,16 @@ struct ComposerTests {
         return (c, e)
     }
 
+    @Test func translationsAreRowsWithTheirLanguage() {
+        let (c, _) = translating()
+        let result = ConversionResult(translations: [Translation(language: OutputLanguage("ja"), line: CandidateLine("すごいね")),
+                                                     Translation(language: .english, line: CandidateLine("Awesome"))],
+                                      rewrites: [Rewrite(style: "简洁", line: CandidateLine("好"))])
+        _ = c.receive(result, isFinal: true, id: 1)
+        #expect(c.choices.map(\.kind) == [.original, .translation("ja"), .translation("en"), .rewrite("简洁")])
+        #expect(c.choices.map(\.label) == ["0", "1", "2", "4"])
+    }
+
     @Test func idlePassesThroughNonLetters() {
         let (c, _) = composer()
         for key in [k("1"), spaceKey, enterKey, backspaceKey, escKey, upKey, k("c", mods: .command)] {
@@ -1270,7 +1280,7 @@ struct ComposerTests {
         let (c, _) = composer(key: .optionTap)
         #expect(c.handleKeyDown(at) == .consumed([.updateMarkedText, .showPanel]))
         #expect(c.draft == "@" && c.markedText == "@" && c.paletteQuery == "" && c.wantsPanel)
-        #expect(Array(c.paletteVisible) == [.improve, .question, .claude, .open, .read] && c.paletteMatches.count == 8)
+        #expect(Array(c.paletteVisible) == [.improve, .translate, .question, .claude, .open] && c.paletteMatches.count == 9)
         type("q", c)
         #expect(c.paletteMatches == [.question] && c.markedText == "q" && c.draft == "@q")
         #expect(c.handleKeyDown(tab).effects == [.updateMarkedText, .showPanel])
@@ -1280,7 +1290,7 @@ struct ComposerTests {
         _ = s.handleKeyDown(spaceKey)
         #expect(s.draft == "@claude ")
         let (d, _) = palette()
-        _ = d.handleKeyDown(k("4"))
+        _ = d.handleKeyDown(k("5"))
         #expect(d.draft == "@open ")
         let (t, _) = palette("o")
         _ = tapOption(t)
@@ -1290,7 +1300,7 @@ struct ComposerTests {
         #expect(a.paletteHighlighted == 1)
         _ = a.handleKeyDown(upKey)
         _ = a.handleKeyDown(upKey)
-        #expect(a.paletteHighlighted == 7 && a.paletteFirstVisible == 3)  // around to the last, scrolled to it
+        #expect(a.paletteHighlighted == 8 && a.paletteFirstVisible == 4)  // around to the last, scrolled to it
         _ = a.handleKeyDown(upKey)
         _ = a.handleKeyDown(upKey)
         _ = a.handleKeyDown(tab)
@@ -1378,8 +1388,8 @@ struct ComposerTests {
         let (p, _) = composer(key: .optionTap)
         p.commands = catalog
         _ = p.handleKeyDown(at)
-        // At most five: the built-in four and the first custom one (nothing used yet).
-        #expect(p.paletteVisible.map(\.name) == ["improve", "question", "claude", "open", "read"])
+        // At most five: the first built-in ones (nothing used yet).
+        #expect(p.paletteVisible.map(\.name) == ["improve", "translate", "question", "claude", "open"])
         // @python: code is typed as letters, the program runs, and Chinese comes back after.
         let py = start("py")
         #expect(py.draft == "@python " && py.engineState.isAsciiMode)
@@ -1408,7 +1418,7 @@ struct ComposerTests {
     @Test func commandsKnowTheirProgram() {
         let python = CustomCommand(name: "python", type: .run, argv: ["python3", "-c", "{input}"])
         let reply = CustomCommand(name: "reply", type: .prompt, prompt: "Write a reply.")
-        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, "claude", nil, nil, nil, nil, "/System/Applications/Messages.app", "python3", nil])
+        #expect(Command.catalog([python, reply]).map(\.program) == [nil, nil, nil, "claude", nil, nil, nil, nil, "/System/Applications/Messages.app", "python3", nil])
     }
 
     @Test func theListPutsWhatIsRunMostFirst() {
@@ -1427,7 +1437,7 @@ struct ComposerTests {
         d.commands = catalog
         d.commandUsage = c.commandUsage
         _ = d.handleKeyDown(at)
-        #expect(d.paletteVisible.map(\.name) == ["calc", "improve", "question", "claude", "open"])
+        #expect(d.paletteVisible.map(\.name) == ["calc", "improve", "translate", "question", "claude"])
         _ = d.handleKeyDown(k("1"))
         #expect(d.draft == "@calc ")
         // A command beyond the five is found by its letters.
@@ -1435,7 +1445,7 @@ struct ComposerTests {
         e.commands = catalog
         _ = e.handleKeyDown(at)
         type("s", e)
-        #expect(e.paletteMatches.map(\.name) == ["settings", "sh", "question", "tasks", "imessage"])  // names starting with s first
+        #expect(e.paletteMatches.map(\.name) == ["settings", "sh", "translate", "question", "tasks", "imessage"])  // names starting with s first
         // Picking from the list doesn't count: only running does.
         _ = e.handleKeyDown(tab)
         #expect(e.commandUsage.score("sh") == 0)
@@ -1543,20 +1553,20 @@ struct ComposerTests {
         let (c, _) = composer(key: .optionTap)
         c.commands = catalog
         _ = c.handleKeyDown(at)
-        #expect(c.paletteMatches.count == 11 && c.paletteVisible.count == 5 && c.paletteFirstVisible == 0)
+        #expect(c.paletteMatches.count == 12 && c.paletteVisible.count == 5 && c.paletteFirstVisible == 0)
         for _ in 0..<5 { _ = c.handleKeyDown(downKey) }  // past the fifth: scrolls by one
         #expect(c.paletteHighlighted == 5 && c.paletteFirstVisible == 1)
-        #expect(c.paletteVisible.map(\.name) == ["question", "claude", "open", "read", "tasks"])
+        #expect(c.paletteVisible.map(\.name) == ["translate", "question", "claude", "open", "read"])
         _ = c.handleKeyDown(k("2"))  // the second row shown, not the second command
-        #expect(c.draft == "@claude ")
+        #expect(c.draft == "@question ")
         // The wheel stops at the ends; a click picks among the rows shown.
         let (d, _) = composer(key: .optionTap)
         d.commands = catalog
         _ = d.handleKeyDown(at)
-        #expect(d.scrollPalette(by: 100) == [.showPanel] && d.paletteHighlighted == 10 && d.paletteFirstVisible == 6)
+        #expect(d.scrollPalette(by: 100) == [.showPanel] && d.paletteHighlighted == 11 && d.paletteFirstVisible == 7)
         #expect(d.paletteVisible.map(\.name) == ["settings", "imessage", "alpha", "bravo", "charlie"])
         _ = d.scrollPalette(by: -2)
-        #expect(d.paletteHighlighted == 8 && d.paletteFirstVisible == 6)  // still in view: no scrolling
+        #expect(d.paletteHighlighted == 9 && d.paletteFirstVisible == 7)  // still in view: no scrolling
         _ = d.choose(index: 2)
         #expect(d.draft == "@alpha ")
         // Typing letters starts again at the top.

@@ -6,6 +6,7 @@
 
 ### Added
 
+- `@translate`: translates into every language you added, in the order dragged in the settings, a line each (three versions when there is only one); the sentence's own language is skipped. `@translate @improve …` together (either order) translates and rewrites in one request.
 - Languages are added, not fixed: the output (lines 1–3) can be Japanese, Korean, French, German, Spanish, Traditional Chinese and more; input languages are added the same way: Chinese (pinyin) only, English only, or both. Drag them into order under "Input and Output" in the settings: the first is the default input / the output in use (picking one in the menu moves it first); with two input languages Shift switches, with one it doesn't. A new user starts with one of each: Chinese in, English out.
 - `@open` with a web address (`github.com`, `https://…`, `www.…`): the first result opens it in the default browser.
 - `@imessage` sends an iMessage. Type a name, its pinyin (in full or the initials), a phone number or an email and pick the recipient in the candidate panel (the ones you messaged lately come first), write the message and press ⏎: the panel shows what will be sent, and ⏎ again sends it (Esc goes back to editing). Nothing is typed into the text field. Commands inside the message such as `@stock AAPL` run first. The first time, macOS asks for two permissions: access to Contacts (only names, phone numbers and emails are read) and control of Messages to send.
@@ -24,6 +25,7 @@
 
 ### Upgrading
 
+- `@improve` now polishes and rewrites only, without translating: Chinese stays Chinese. Use `@translate` to translate, or `@translate @improve` for both as before.
 - Existing settings stay as they were: both input languages and both output languages remain; remove one under "Input and Output" in the settings to keep just one.
 
 ## 0.4.0 (2026-10-09)

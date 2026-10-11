@@ -126,6 +126,8 @@ public final class Composer {
             case version
             /// A rewrite in the sentence's own language; the value is the style's Chinese name ("简洁", …).
             case rewrite(String)
+            /// The sentence in one of several translation languages (`@translate`); the value is its code.
+            case translation(String)
             /// What a `.generate` command (`@question`) wrote, or a `.run` command's program printed.
             case answer
             /// A file or app found by `@open`; picking it opens it instead of inserting anything.
@@ -410,7 +412,12 @@ public final class Composer {
             out.append(Choice(label: String(label), kind: .version, text: line.text, isComplete: line.isComplete))
             label += 1
         }
-        var next = 4
+        for translation in result.translations where label <= 9 {
+            out.append(Choice(label: String(label), kind: .translation(translation.language.code), text: translation.line.text,
+                              isComplete: translation.line.isComplete))
+            label += 1
+        }
+        var next = max(4, label)
         for rewrite in result.rewrites where rewrite.line.isComplete && next <= 9 {
             let key = rewrite.line.text.wordingKey
             guard !key.isEmpty, shownWordings.insert(key).inserted else { continue }

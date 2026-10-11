@@ -14,7 +14,8 @@ let usage = """
       --profile NAME   AWS profile
       --region REGION  Bedrock region
       --model ID       model (for Bedrock: model / inference profile ID)
-      --output CODE    language of the three main versions: en, zh, zh-Hant, ja, ko, fr, … (other input is translated, same is polished)
+      --output CODES   translation languages in order, comma-separated: en, zh, zh-Hant, ja, ko, fr, …
+      --mode MODE      improve (polish + styles), translate, or both (default)
       --styles A,B     rewrite presets, e.g. 简洁,黑话 (presets: \(RewriteStyle.catalog.map(\.name).joined(separator: " ")))
       --jargon FILE    your own jargon list for 黑话 (one term per line, optional "：meaning")
       --raw            also print the raw model output
@@ -28,7 +29,8 @@ struct Options {
     var profile: String?
     var region: String?
     var model: String?
-    var output: OutputLanguage?
+    var output: [OutputLanguage]?
+    var mode: WritingMode = .both
     var styles: [String]?
     var jargon: String?
     var raw = false
@@ -56,11 +58,16 @@ func parseOptions() -> Options {
         case "--region": options.region = value(arg)
         case "--model": options.model = value(arg)
         case "--output":
-            let raw = value(arg)
-            guard let language = OutputLanguage.catalog.first(where: { $0.code.lowercased() == raw.lowercased() }) else {
-                fail("--output must be one of \(OutputLanguage.catalog.map(\.code).joined(separator: ", ")), not \(raw)")
+            options.output = value(arg).split(separator: ",").map { raw in
+                guard let language = OutputLanguage.catalog.first(where: { $0.code.lowercased() == raw.lowercased() }) else {
+                    fail("--output must be among \(OutputLanguage.catalog.map(\.code).joined(separator: ", ")), not \(raw)")
+                }
+                return language
             }
-            options.output = language
+        case "--mode":
+            let raw = value(arg)
+            guard let mode = WritingMode(rawValue: raw) else { fail("--mode must be improve, translate or both, not \(raw)") }
+            options.mode = mode
         case "--styles":
             options.styles = value(arg).split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
@@ -104,12 +111,13 @@ func convert(_ input: String, with converter: Converter, raw: Bool,
     var timings = Timings()
     var final = ConversionResult.empty
     var rawText = ""
-    for try await update in converter.convert(input) {
+    for try await update in converter.convert(input, mode: options.mode) {
         timings.firstToken = update.firstTokenLatency
         if timings.firstEnglish == nil, update.result.versions.first?.isComplete == true {
             timings.firstEnglish = update.elapsed
         }
         var rows = update.result.versions.enumerated().map { ("\($0.offset + 1)", $0.element) }
+        rows += update.result.translations.map { ($0.language.code, $0.line) }
         rows += update.result.rewrites.map { ($0.style, $0.line) }
         for (label, line) in rows where line.isComplete && !printed.contains(label) {
             printed.insert(label)
@@ -184,7 +192,7 @@ if let m = options.model {
     case .hosted: fail("the hosted service picks its own model")
     }
 }
-if let o = options.output { config.outputLanguage = o; config.normalizeLanguages() }
+if let o = options.output { config.setOrder(o) }
 if let s = options.styles { config.rewriteStyles = s }
 if let j = options.jargon { config.jargonFile = j }
 let effectiveConfig = config
@@ -194,9 +202,9 @@ let jargon = JargonLibrary.load(from: config.jargonURL)
 if options.jargon != nil, jargon.isEmpty { fail("no entries in \(config.jargonURL.path)") }
 
 if config.provider == .bedrock {
-    print("model \(config.modelId) · profile \(config.awsProfile) · region \(config.region ?? "(from profile)") · output \(config.outputLanguage.code)")
+    print("model \(config.modelId) · profile \(config.awsProfile) · region \(config.region ?? "(from profile)") · output \(config.outputLanguages.map(\.code).joined(separator: ",")) · \(options.mode.rawValue)")
 } else {
-    print("\(config.provider.displayName) · model \(config.settings(for: config.provider).model ?? "-") · output \(config.outputLanguage.code)")
+    print("\(config.provider.displayName) · model \(config.settings(for: config.provider).model ?? "-") · output \(config.outputLanguages.map(\.code).joined(separator: ",")) · \(options.mode.rawValue)")
 }
 do {
     if let path = options.dumpPath {

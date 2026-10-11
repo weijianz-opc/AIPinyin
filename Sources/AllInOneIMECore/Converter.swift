@@ -41,11 +41,12 @@ public final class Converter: Sendable {
         self.loadJargon = loadJargon
     }
 
-    public func convert(_ input: String) -> AsyncThrowingStream<ConversionUpdate, Error> {
+    /// `@improve`, `@translate` or both (`WritingMode`) on `input`; one request.
+    public func convert(_ input: String, mode: WritingMode = .both) -> AsyncThrowingStream<ConversionUpdate, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    try await self.run(input, continuation: continuation)
+                    try await self.run(input, mode: mode, continuation: continuation)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -55,7 +56,7 @@ public final class Converter: Sendable {
         }
     }
 
-    private func run(_ input: String, continuation: AsyncThrowingStream<ConversionUpdate, Error>.Continuation) async throws {
+    private func run(_ input: String, mode: WritingMode, continuation: AsyncThrowingStream<ConversionUpdate, Error>.Continuation) async throws {
         let started = ContinuousClock.now
         func elapsed() -> TimeInterval {
             let d = ContinuousClock.now - started
@@ -63,12 +64,11 @@ public final class Converter: Sendable {
         }
 
         let config = try loadConfig()
-        let output = config.outputLanguage
-        let presets = RewriteStyle.resolve(config.rewriteStyles)
-        let styles = presets.map(\.tag).joined(separator: ",")
-        let jargon = presets.contains { $0.tag == RewriteStyle.jargonTag } ? loadJargon(config) : []
+        let plan = WritingPlan.make(mode, text: input, config: config)
+        let output = plan.versions
+        let jargon = plan.styles.contains { $0.tag == RewriteStyle.jargonTag } ? loadJargon(config) : []
         let jargonKey = jargon.isEmpty ? "" : "j\(JargonLibrary.fingerprint(jargon))|"
-        let key = "\(config.activeModel)|\(Prompt.version)|\(output.code)|\(styles)|\(jargonKey)\(input)"
+        let key = "\(config.activeModel)|\(Prompt.version)|\(plan.key)|\(jargonKey)\(input)"
         if let hit = cache.withLock({ $0.get(key) }) {
             continuation.yield(ConversionUpdate(
                 result: hit, rawText: "", isFinal: true, elapsed: elapsed(),
@@ -76,7 +76,7 @@ public final class Converter: Sendable {
             return
         }
 
-        let stream = client.stream(Prompt.request(for: input, config: config, jargon: jargon), config: config,
+        let stream = client.stream(Prompt.request(for: input, mode: mode, config: config, jargon: jargon), config: config,
                                    loadCredentials: loadCredentials, loadKey: loadKey)
 
         var text = ""
@@ -93,7 +93,7 @@ public final class Converter: Sendable {
                 stopReason = "max_tokens"
                 break
             }
-            let result = CandidateParser.parse(text, isFinal: false, output: output)
+            let result = CandidateParser.parse(text, isFinal: false, output: output, translations: plan.translations)
             // Most deltas only extend a line; skip updates that don't change what is shown.
             guard result != lastResult else { continue }
             lastResult = result
@@ -103,7 +103,7 @@ public final class Converter: Sendable {
         }
         try Task.checkCancellation()
 
-        let final = Self.finalResult(text, stopReason: stopReason, output: output)
+        let final = Self.finalResult(text, stopReason: stopReason, output: output, translations: plan.translations)
         if !final.isEmpty, stopReason != "max_tokens" {
             cache.withLock { $0.set(key, final) }
         }
@@ -178,10 +178,14 @@ public final class Converter: Sendable {
     /// than offer a truncated sentence as a finished candidate.
     static let maxOutputBytes = 32 * 1024
 
-    static func finalResult(_ text: String, stopReason: String?, output: OutputLanguage = .english) -> ConversionResult {
-        guard stopReason == "max_tokens" else { return CandidateParser.parse(text, isFinal: true, output: output) }
-        var result = CandidateParser.parse(text, isFinal: false, output: output)
+    static func finalResult(_ text: String, stopReason: String?, output: OutputLanguage? = .english,
+                            translations: [OutputLanguage] = []) -> ConversionResult {
+        guard stopReason == "max_tokens" else {
+            return CandidateParser.parse(text, isFinal: true, output: output, translations: translations)
+        }
+        var result = CandidateParser.parse(text, isFinal: false, output: output, translations: translations)
         result.versions = result.versions.filter { $0.isComplete }
+        result.translations = result.translations.filter { $0.line.isComplete }
         result.rewrites = result.rewrites.filter { $0.line.isComplete }
         return result
     }
