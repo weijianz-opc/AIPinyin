@@ -1326,6 +1326,13 @@ enum SelfTest {
         check(inputItems.compactMap { $0.representedObject as? String } == languages.inputLanguages.map(\.rawValue)
               && inputItems.filter { $0.state == .on }.compactMap { $0.representedObject as? String } == [languages.defaultInput.rawValue],
               "menu lists the added input languages, the default checked")
+        // Dragging a chip: it lands before the chips whose middle is right of the pointer.
+        let mids: [String: CGFloat] = ["zh": 50, "en": 150, "ja": 250]
+        check(ChipOrder.moved("en", in: ["zh", "en", "ja"], to: 20, midX: { mids[$0] }) == ["en", "zh", "ja"]
+              && ChipOrder.moved("zh", in: ["zh", "en", "ja"], to: 200, midX: { mids[$0] }) == ["en", "zh", "ja"]
+              && ChipOrder.moved("zh", in: ["zh", "en", "ja"], to: 400, midX: { mids[$0] }) == ["en", "ja", "zh"]
+              && ChipOrder.moved("en", in: ["zh", "en", "ja"], to: 140, midX: { mids[$0] }) == ["zh", "en", "ja"],
+              "a dragged language chip lands where it's let go")
         check(AllInOneIMEInputController.toggled(Language.english, in: [.chinese]) == [.chinese, .english]
               && AllInOneIMEInputController.toggled(Language.chinese, in: [.chinese]) == [.chinese]
               && AllInOneIMEInputController.toggled(Language.chinese, in: [.chinese, .english]) == [.english],

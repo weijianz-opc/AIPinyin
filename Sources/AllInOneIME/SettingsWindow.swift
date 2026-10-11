@@ -1298,26 +1298,51 @@ struct CompatibleService: Identifiable {
 }
 
 /// Added languages as chips in the user's order, dragged to reorder: the first is marked
-/// ("中文（拼音）· 默认"), ⓧ removes one (not the last).
+/// ("中文（拼音）· 默认"), ⓧ removes one (not the last). A plain drag gesture (the chip follows the
+/// pointer, the order changes where it's let go): the system drag and drop meant for moving data
+/// between apps doesn't start inside the settings form.
 private struct LanguageChips<Item: Hashable>: View {
     let items: [Item]
     let name: (Item) -> String
     let firstNote: String
     let reorder: ([Item]) -> Void
     let remove: (Item) -> Void
+    @State private var frames: [Item: CGRect] = [:]
     @State private var dragging: Item?
+    @State private var offset: CGFloat = 0
+    private let space = UUID()
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(items, id: \.self) { item in
                 chip(item)
-                    .onDrag {
-                        dragging = item
-                        return NSItemProvider(object: name(item) as NSString)
-                    }
-                    .onDrop(of: [.text], delegate: ChipDrop(item: item, items: items, dragging: $dragging, reorder: reorder))
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: ChipFrames.self, value: [AnyHashable(item): geometry.frame(in: .named(space))])
+                    })
+                    .offset(x: dragging == item ? offset : 0)
+                    .zIndex(dragging == item ? 1 : 0)
+                    .opacity(dragging == item ? 0.8 : 1)
+                    .gesture(items.count > 1 ? drag(item) : nil)
             }
         }
+        .coordinateSpace(name: space)
+        .onPreferenceChange(ChipFrames.self) { all in
+            frames = Dictionary(uniqueKeysWithValues: all.compactMap { key, frame in (key.base as? Item).map { ($0, frame) } })
+        }
+        .animation(.easeOut(duration: 0.15), value: items)
+    }
+
+    private func drag(_ item: Item) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named(space))
+            .onChanged { value in
+                dragging = item
+                offset = value.translation.width
+            }
+            .onEnded { value in
+                defer { dragging = nil; offset = 0 }
+                let moved = ChipOrder.moved(item, in: items, to: value.location.x, midX: { frames[$0]?.midX })
+                if moved != items { reorder(moved) }
+            }
     }
 
     private func chip(_ item: Item) -> some View {
@@ -1334,29 +1359,25 @@ private struct LanguageChips<Item: Hashable>: View {
         }
         .padding(.horizontal, 6).padding(.vertical, 2)
         .background(Color.secondary.opacity(first ? 0.22 : 0.1), in: Capsule())
+        .contentShape(Capsule())
         .help(tr("拖动排序，第一个是\(firstNote)", "Drag to reorder; the first is \(firstNote)"))
     }
 }
 
-/// Moves the dragged chip to where it's dragged over; the order is saved as it changes.
-private struct ChipDrop<Item: Hashable>: DropDelegate {
-    let item: Item
-    let items: [Item]
-    @Binding var dragging: Item?
-    let reorder: ([Item]) -> Void
-
-    func dropEntered(info: DropInfo) {
-        guard let dragging, dragging != item, let from = items.firstIndex(of: dragging),
-              let to = items.firstIndex(of: item) else { return }
-        var moved = items
-        moved.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
-        reorder(moved)
+private struct ChipFrames: PreferenceKey {
+    static let defaultValue: [AnyHashable: CGRect] = [:]
+    static func reduce(value: inout [AnyHashable: CGRect], nextValue: () -> [AnyHashable: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
+}
 
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-
-    func performDrop(info: DropInfo) -> Bool {
-        dragging = nil
-        return true
+/// Where a dragged chip lands: before every other chip whose middle is right of where it was let go.
+enum ChipOrder {
+    static func moved<Item: Equatable>(_ item: Item, in items: [Item], to x: CGFloat, midX: (Item) -> CGFloat?) -> [Item] {
+        let others = items.filter { $0 != item }
+        let index = others.filter { (midX($0) ?? .infinity) < x }.count
+        var result = others
+        result.insert(item, at: index)
+        return result
     }
 }
