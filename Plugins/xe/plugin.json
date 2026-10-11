@@ -1,0 +1,15 @@
+{
+  "name": "xe",
+  "version": "1.0.0",
+  "api": 1,
+  "minAppVersion": "0.5.0",
+  "type": "script",
+  "summary": {"en": "Currency: @xe 100 USD CNY (rates by ExchangeRate-API)", "zh": "汇率换算：@xe 100 USD CNY（汇率来自 ExchangeRate-API）"},
+  "script": "main.js",
+  "hosts": ["open.er-api.com", "api.frankfurter.dev"],
+  "timeoutSeconds": 12,
+  "author": "weijianz-opc",
+  "homepage": "https://github.com/weijianz-opc/AllInOneIME-plugins",
+  "icon": "dollarsign.arrow.circlepath",
+  "color": "green"
+}
