@@ -51,7 +51,8 @@ browser. Nothing is inserted; the draft is cleared, as when `@open` opens someth
 - Custom commands have the same type (`{"name": "google", "type": "link", "url": "https://www.google.com/search?q={input}"}`,
   or "Open a web page" in Settings → Custom @ Commands).
 
-[Plugins/](../Plugins/) in the repository has `@x`, `@threads`, `@bsky` and `@weibo`; the library publishes them.
+[Plugins/](../Plugins/) in the repository has `@x`, `@threads`, `@bsky` and `@weibo`, and a script plugin, `@xe`
+(currency conversion, `@xe 100 USD CNY`); the library publishes them.
 
 ## How a script runs
 

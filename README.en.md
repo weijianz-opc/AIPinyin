@@ -107,7 +107,8 @@ contacts before installing; the library's index is signed and every file must ma
 Folder"): local plugins, never overwritten by the library.
 "Link" plugins run no code: they put the text into a web address and open it in the browser, like `@x nice weather
 today`, which opens X's composer with the text filled in; posting is up to you on the page. The library has four
-(`@x`, `@threads`, `@bsky`, `@weibo`). Writing one: [docs/plugins.md](docs/plugins.md).
+(`@x`, `@threads`, `@bsky`, `@weibo`). `@xe` converts currencies: `@xe 100 USD CNY`, `@xe 1000 日元 人民币`, one line
+with the date of the rate (rates by ExchangeRate-API). Writing one: [docs/plugins.md](docs/plugins.md).
 
 Commands that fetch something (plugins and programs) also work inside a sentence: `@reply 告诉他 @stock AAPL 现在多少钱`.
 The inner ones run first, their output takes their place, and the outer command works on the result. The argument is
